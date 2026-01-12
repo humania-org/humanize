@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.0.0**
+**Current Version: 1.0.1**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -90,8 +90,8 @@ cat .humanize-loop.local/*/round-*-review-result.md | tail -50
 First, source the Humanize shell utilities in your `.bashrc` or `.zshrc`:
 
 ```bash
-# Auto-discover Humanize plugin location (marketplace or cache)
-HUMANIZE_PLUGIN_ROOT=$(find ~/.claude/plugins/marketplaces ~/.claude/plugins/cache -type d -name "humanize*" 2>/dev/null | head -1)
+# Auto-discover Humanize plugin location from humania marketplace
+HUMANIZE_PLUGIN_ROOT=$(find ~/.claude/plugins/marketplaces -type d -name "humania" 2>/dev/null | head -1)
 if [[ -n "$HUMANIZE_PLUGIN_ROOT" && -f "$HUMANIZE_PLUGIN_ROOT/scripts/humanize.sh" ]]; then
     source "$HUMANIZE_PLUGIN_ROOT/scripts/humanize.sh"
 fi
