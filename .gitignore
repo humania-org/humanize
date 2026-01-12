@@ -1,0 +1,8 @@
+wip
+
+# Humanize loop state directory (used by start-rlcr-loop)
+.humanize-loop.local/
+
+# Python cache
+__pycache__/
+*.pyc

@@ -1,0 +1,19 @@
+{
+  "name": "humanize",
+  "description": "Humanize - An iterative development plugin that uses Codex to review Claude's work. Creates a feedback loop where Claude implements plans and Codex independently reviews progress, ensuring quality through continuous refinement.",
+  "version": "1.0.0",
+  "author": {
+    "name": "humania-org"
+  },
+  "repository": "https://github.com/humania-org/humanize",
+  "homepage": "https://github.com/humania-org/humanize#readme",
+  "license": "MIT",
+  "keywords": [
+    "iterative-development",
+    "codex-review",
+    "ai-native",
+    "feedback-loop",
+    "goal-tracking",
+    "quality-assurance"
+  ]
+}
