@@ -45,10 +45,6 @@ DESCRIPTION:
   blueprint - a minimal, self-contained architecture document collection that
   is sufficient to guide a complete reconstruction of the codebase.
 
-  This is the reverse of RLCR:
-  - RLCR: documentation -> implementation (Claude codes, Codex reviews code)
-  - DCCB: implementation -> documentation (Claude documents, Codex reviews docs)
-
   The documentation structure is DYNAMIC - it adapts to the codebase:
   - Small codebase (1K lines): might produce a single file
   - Large codebase (1M lines): produces hierarchical documentation with subdirectories

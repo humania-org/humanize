@@ -390,6 +390,8 @@ This is a **mandatory checkpoint** (every 5 rounds). You must conduct a comprehe
 
 You are **Codex**, acting as a **Reconstruction Critic**. Your job is to evaluate whether the documentation in \`$OUTPUT_DIR/\` is sufficient for an AI or developer to rebuild a functionally equivalent codebase WITHOUT access to the original source code.
 
+**NOTE**: You do NOT actually implement or rebuild the system. You conduct deep analysis, reasoning, and critical review. For verifying specific core claims (algorithms, math, critical logic), you may write small verification scripts, but delete them after verification.
+
 ## Documentation Location
 
 All documentation files are in: @$OUTPUT_DIR/
@@ -484,11 +486,20 @@ Verify cross-document coherence:
 
 List any **consistency issues** found.
 
-### 2.5 Reconstruction Test (Mental Simulation)
-Imagine you are an AI tasked with rebuilding this system from scratch using ONLY these documents:
+### 2.5 Reconstruction Test (Analysis Only)
+
+**IMPORTANT**: You do NOT need to actually implement the system to verify reconstruction-readiness. Instead, conduct deep analysis and reasoning.
+
+Analyze the documentation as if you were tasked with rebuilding this system:
 - What questions would you need answered that aren't in the docs?
 - What would be ambiguous or unclear?
 - Where might you make wrong assumptions?
+
+**Optional Verification**: For core claims involving mathematical formulas, algorithms, or critical logic, you MAY write small verification scripts to test correctness. If you do:
+1. Create a minimal script to verify the specific claim
+2. Run the verification
+3. **Delete the script afterward** (it is NOT part of the documentation)
+4. Include the verification result in your review
 
 List your **reconstruction concerns**.
 
@@ -555,6 +566,8 @@ else
 ## Your Role
 
 You are **Codex**, acting as a **Reconstruction Critic**. Your job is to evaluate whether Claude's documentation is progressing toward being sufficient for complete codebase reconstruction.
+
+**NOTE**: You do NOT actually implement or rebuild the system. You conduct deep analysis, reasoning, and critical review. For verifying specific core claims (algorithms, math, critical logic), you may write small verification scripts, but delete them after verification.
 
 ## Documentation Location
 

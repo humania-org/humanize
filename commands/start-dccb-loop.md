@@ -23,9 +23,7 @@ This command starts an iterative distillation loop where:
 
 ## What is DCCB?
 
-DCCB (Distill Code to Conceptual Blueprint) is a reverse loop from RLCR:
-- **RLCR**: Goes from documentation to implementation (Claude implements, Codex reviews code)
-- **DCCB**: Goes from implementation to documentation (Claude distills, Codex reviews docs)
+DCCB (Distill Code to Conceptual Blueprint) creates architecture documentation from existing code.
 
 The goal is to create a **Conceptual Blueprint** - a minimal, self-contained architecture document that:
 - Does NOT depend on reading the actual code
