@@ -9,7 +9,7 @@
 #
 
 # Find the most recent active loop directory
-# Only checks the newest directory - older directories are ignored even if they have state.md
+# Only checks the newest directory - older directories are ignored even if they have rlcr-state.md
 # This prevents "zombie" loops from being revived after abnormal exits
 # Outputs the directory path to stdout, or empty string if none found
 find_active_loop() {
@@ -24,7 +24,7 @@ find_active_loop() {
     local newest_dir
     newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
 
-    if [[ -n "$newest_dir" ]] && [[ -f "${newest_dir}state.md" ]]; then
+    if [[ -n "$newest_dir" ]] && [[ -f "${newest_dir}rlcr-state.md" ]]; then
         # Remove trailing slash to avoid double slashes in paths
         echo "${newest_dir%/}"
     else
@@ -32,7 +32,7 @@ find_active_loop() {
     fi
 }
 
-# Extract current round number from state.md
+# Extract current round number from rlcr-state.md
 # Outputs the round number to stdout, defaults to 0
 get_current_round() {
     local state_file="$1"
@@ -112,7 +112,7 @@ state_file_blocked_message() {
     cat << 'EOF'
 # State File Modification Blocked
 
-You cannot modify `state.md`. This file is managed by the loop system.
+You cannot modify `rlcr-state.md`. This file is managed by the loop system.
 
 The state file contains:
 - Current round number
@@ -148,7 +148,7 @@ goal_tracker_bash_blocked_message() {
     cat << EOF
 # Bash Write Blocked: Use Write or Edit Tool
 
-Do not use Bash commands to modify goal-tracker.md.
+Do not use Bash commands to modify rlcr-tracker.md.
 
 **Use the Write or Edit tool instead**: \`$correct_path\`
 
@@ -157,13 +157,13 @@ Please use the proper tools to modify the Goal Tracker.
 EOF
 }
 
-# Check if a path (lowercase) targets goal-tracker.md
+# Check if a path (lowercase) targets rlcr-tracker.md
 is_goal_tracker_path() {
     local path_lower="$1"
     echo "$path_lower" | grep -qE 'goal-tracker\.md$'
 }
 
-# Check if a path (lowercase) targets state.md
+# Check if a path (lowercase) targets rlcr-state.md
 is_state_file_path() {
     local path_lower="$1"
     echo "$path_lower" | grep -qE 'state\.md$'
@@ -211,7 +211,7 @@ goal_tracker_blocked_message() {
 
 After Round 0, **only Codex can modify the Goal Tracker**.
 
-You CANNOT directly modify \`goal-tracker.md\` via Write, Edit, or Bash commands.
+You CANNOT directly modify \`rlcr-tracker.md\` via Write, Edit, or Bash commands.
 
 ## How to Request Changes
 

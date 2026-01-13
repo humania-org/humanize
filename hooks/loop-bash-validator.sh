@@ -6,7 +6,7 @@
 # - cat/echo/printf > file.md (redirection)
 # - tee file.md
 # - sed -i file.md (in-place edit)
-# - goal-tracker.md modifications after Round 0
+# - rlcr-tracker.md modifications after Round 0
 #
 
 set -euo pipefail
@@ -42,8 +42,8 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
-STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
+CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/rlcr-state.md")
+STATE_FILE="$ACTIVE_LOOP_DIR/rlcr-state.md"
 
 # ========================================
 # Block Git Push When push_every_round is false
@@ -84,7 +84,7 @@ fi
 
 if command_modifies_file "$COMMAND_LOWER" "goal-tracker\.md"; then
     if [[ "$CURRENT_ROUND" -eq 0 ]]; then
-        GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
+        GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/rlcr-tracker.md"
         goal_tracker_bash_blocked_message "$GOAL_TRACKER_PATH" >&2
     else
         SUMMARY_FILE="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"

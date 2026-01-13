@@ -95,7 +95,7 @@ _humanize_monitor_codex() {
         echo "$latest"
     }
 
-    # Parse state.md and return values
+    # Parse rlcr-state.md and return values
     _parse_state_md() {
         local state_file="$1"
         if [[ ! -f "$state_file" ]]; then
@@ -113,7 +113,7 @@ _humanize_monitor_codex() {
         echo "${current_round:-N/A}|${max_iterations:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}"
     }
 
-    # Parse goal-tracker.md and return summary values
+    # Parse rlcr-tracker.md and return summary values
     # Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
     _parse_goal_tracker() {
         local tracker_file="$1"
@@ -266,11 +266,11 @@ _humanize_monitor_codex() {
 
         local session_dir="$1"
         local log_file="$2"
-        local state_file="$session_dir/state.md"
-        local goal_tracker_file="$session_dir/goal-tracker.md"
+        local state_file="$session_dir/rlcr-state.md"
+        local goal_tracker_file="$session_dir/rlcr-tracker.md"
         local term_width=$(tput cols)
 
-        # Parse state.md
+        # Parse rlcr-state.md
         local -a state_parts
         _split_to_array state_parts "$(_parse_state_md "$state_file")"
         local current_round="${state_parts[0]}"
@@ -280,7 +280,7 @@ _humanize_monitor_codex() {
         local started_at="${state_parts[4]}"
         local plan_file="${state_parts[5]}"
 
-        # Parse goal-tracker.md
+        # Parse rlcr-tracker.md
         local -a goal_parts
         _split_to_array goal_parts "$(_parse_goal_tracker "$goal_tracker_file")"
         local total_acs="${goal_parts[0]}"
@@ -517,6 +517,275 @@ _humanize_monitor_codex() {
     trap - INT TERM
 }
 
+# Monitor the latest Codex run log from .humanize-dccb.local
+# Similar to RLCR monitor but for DCCB loop
+_humanize_monitor_dccb() {
+    local loop_dir=".humanize-dccb.local"
+    local current_file=""
+    local current_session_dir=""
+    local check_interval=2
+    local status_bar_height=10
+
+    if [[ ! -d "$loop_dir" ]]; then
+        echo "Error: $loop_dir directory not found in current directory"
+        echo "Are you in a project with an active DCCB loop?"
+        return 1
+    fi
+
+    _find_latest_session() {
+        local latest_session=""
+        for session_dir in "$loop_dir"/*; do
+            [[ ! -e "$session_dir" ]] && continue
+            [[ ! -d "$session_dir" ]] && continue
+            local session_name=$(basename "$session_dir")
+            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
+                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
+                    latest_session="$session_dir"
+                fi
+            fi
+        done
+        echo "$latest_session"
+    }
+
+    _find_latest_codex_log() {
+        local latest=""
+        local latest_session=""
+        local latest_round=-1
+        local cache_base="$HOME/.cache/humanize-dccb"
+        local project_root="$(pwd)"
+        local sanitized_project=$(echo "$project_root" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+        local project_cache_dir="$cache_base/$sanitized_project"
+
+        for session_dir in "$loop_dir"/*; do
+            [[ ! -e "$session_dir" ]] && continue
+            [[ ! -d "$session_dir" ]] && continue
+            local session_name=$(basename "$session_dir")
+            if [[ ! "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
+                continue
+            fi
+            local cache_dir="$project_cache_dir/$session_name"
+            if [[ ! -d "$cache_dir" ]]; then
+                continue
+            fi
+            for log_file in "$cache_dir"/round-*-codex-run.log; do
+                [[ ! -e "$log_file" ]] && continue
+                if [[ -f "$log_file" ]]; then
+                    local log_basename=$(basename "$log_file")
+                    local round_num="${log_basename#round-}"
+                    round_num="${round_num%%-codex-run.log}"
+                    if [[ -z "$latest" ]] || \
+                       [[ "$session_name" > "$latest_session" ]] || \
+                       [[ "$session_name" == "$latest_session" && "$round_num" -gt "$latest_round" ]]; then
+                        latest="$log_file"
+                        latest_session="$session_name"
+                        latest_round="$round_num"
+                    fi
+                fi
+            done
+        done
+        echo "$latest"
+    }
+
+    _parse_dccb_state_md() {
+        local state_file="$1"
+        if [[ ! -f "$state_file" ]]; then
+            echo "N/A|N/A|N/A|N/A|N/A|N/A"
+            return
+        fi
+        local current_round=$(grep -E "^current_round:" "$state_file" 2>/dev/null | sed 's/current_round: *//')
+        local max_iterations=$(grep -E "^max_iterations:" "$state_file" 2>/dev/null | sed 's/max_iterations: *//')
+        local codex_model=$(grep -E "^codex_model:" "$state_file" 2>/dev/null | sed 's/codex_model: *//')
+        local codex_effort=$(grep -E "^codex_effort:" "$state_file" 2>/dev/null | sed 's/codex_effort: *//')
+        local started_at=$(grep -E "^started_at:" "$state_file" 2>/dev/null | sed 's/started_at: *//')
+        local output_dir=$(grep -E "^output_dir:" "$state_file" 2>/dev/null | sed 's/output_dir: *//')
+        echo "${current_round:-N/A}|${max_iterations:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${output_dir:-dccb-doc}"
+    }
+
+    _parse_dccb_tracker() {
+        local tracker_file="$1"
+        if [[ ! -f "$tracker_file" ]]; then
+            echo "N/A|N/A|N/A|Analyzing codebase..."
+            return
+        fi
+        local doc_count=$(grep -cE "^- \[" "$tracker_file" 2>/dev/null || echo "0")
+        local completed=$(grep -cE "^\- \[x\]" "$tracker_file" 2>/dev/null || echo "0")
+        local pending=$((doc_count - completed))
+        local status_line=$(grep -E "^## Status:" "$tracker_file" 2>/dev/null | head -1 | sed 's/## Status: *//')
+        status_line="${status_line:-In Progress}"
+        echo "${doc_count}|${completed}|${pending}|${status_line}"
+    }
+
+    _draw_dccb_status_bar() {
+        [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+        local session_dir="$1"
+        local log_file="$2"
+        local state_file="$session_dir/dccb-state.md"
+        local tracker_file="$session_dir/dccb-tracker.md"
+        local term_width=$(tput cols)
+
+        local -a state_parts
+        _split_to_array state_parts "$(_parse_dccb_state_md "$state_file")"
+        local current_round="${state_parts[0]}"
+        local max_iterations="${state_parts[1]}"
+        local codex_model="${state_parts[2]}"
+        local codex_effort="${state_parts[3]}"
+        local started_at="${state_parts[4]}"
+        local output_dir="${state_parts[5]}"
+
+        local -a tracker_parts
+        _split_to_array tracker_parts "$(_parse_dccb_tracker "$tracker_file")"
+        local doc_count="${tracker_parts[0]}"
+        local completed="${tracker_parts[1]}"
+        local pending="${tracker_parts[2]}"
+        local status="${tracker_parts[3]}"
+
+        local -a git_parts
+        _split_to_array git_parts "$(_parse_git_status)"
+        local git_modified="${git_parts[0]}"
+        local git_added="${git_parts[1]}"
+        local git_deleted="${git_parts[2]}"
+        local git_untracked="${git_parts[3]}"
+        local git_insertions="${git_parts[4]}"
+        local git_deletions="${git_parts[5]}"
+
+        local start_display="$started_at"
+        if [[ "$started_at" != "N/A" ]]; then
+            start_display=$(echo "$started_at" | sed 's/T/ /; s/Z/ UTC/')
+        fi
+
+        tput sc
+        tput cup 0 0
+
+        local green="\033[1;32m" yellow="\033[1;33m" cyan="\033[1;36m"
+        local magenta="\033[1;35m" red="\033[1;31m" reset="\033[0m"
+        local bg="\033[44m" bold="\033[1m" dim="\033[2m"
+
+        tput cup 0 0
+        for _ in {1..10}; do printf "%-${term_width}s\n" ""; done
+
+        tput cup 0 0
+        local session_basename=$(basename "$session_dir")
+        printf "${bg}${bold}%-${term_width}s${reset}\n" " Humanize DCCB Monitor"
+        printf "${cyan}Session:${reset}  ${session_basename}    ${cyan}Started:${reset} ${start_display}\n"
+        printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Model:${reset} ${codex_model} (${codex_effort})\n"
+
+        printf "${magenta}Docs:${reset}     ${doc_count} files  (${completed} complete, ${pending} pending)\n"
+
+        local git_total=$((git_modified + git_added + git_deleted))
+        printf "${magenta}Git:${reset}      "
+        if [[ "$git_total" -eq 0 && "$git_untracked" -eq 0 ]]; then
+            printf "${dim}clean${reset}"
+        else
+            [[ "$git_modified" -gt 0 ]] && printf "${yellow}~${git_modified}${reset} "
+            [[ "$git_added" -gt 0 ]] && printf "${green}+${git_added}${reset} "
+            [[ "$git_deleted" -gt 0 ]] && printf "${red}-${git_deleted}${reset} "
+            [[ "$git_untracked" -gt 0 ]] && printf "${dim}?${git_untracked}${reset} "
+            printf " ${green}+${git_insertions}${reset}/${red}-${git_deletions}${reset} lines"
+        fi
+        printf "\n"
+
+        printf "${cyan}Status:${reset}   ${status}\n"
+        printf "${cyan}Output:${reset}   ${output_dir}/\n"
+        printf "${cyan}Log:${reset}      ${log_file}\n"
+        printf "%.s─" $(seq 1 $term_width)
+        printf "\n"
+
+        tput rc
+    }
+
+    _setup_terminal() {
+        clear
+        printf "\033[${status_bar_height};%dr" $(tput lines)
+        tput cup $status_bar_height 0
+    }
+
+    _restore_terminal() {
+        printf "\033[r"
+        tput cup $(tput lines) 0
+    }
+
+    local tail_pid=""
+    local monitor_running=true
+    local cleanup_done=false
+
+    _cleanup() {
+        [[ "$cleanup_done" == "true" ]] && return
+        cleanup_done=true
+        monitor_running=false
+        trap - INT TERM
+        if [[ -n "$tail_pid" ]] && kill -0 $tail_pid 2>/dev/null; then
+            kill $tail_pid 2>/dev/null
+            wait $tail_pid 2>/dev/null
+        fi
+        _restore_terminal
+        echo ""
+        echo "Stopped monitoring."
+    }
+
+    trap '_cleanup' INT TERM
+
+    current_file=$(_find_latest_codex_log)
+    current_session_dir=$(_find_latest_session)
+
+    if [[ -z "$current_file" ]]; then
+        echo "No codex-run.log files found. Waiting for first log..."
+        while [[ -z "$current_file" ]] && [[ "$monitor_running" == "true" ]]; do
+            sleep "$check_interval"
+            current_file=$(_find_latest_codex_log)
+            current_session_dir=$(_find_latest_session)
+        done
+        [[ "$monitor_running" != "true" ]] && { trap - INT TERM; return 0; }
+    fi
+
+    _setup_terminal
+
+    _get_file_size() {
+        stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0
+    }
+
+    local last_size=0
+    local file_size=0
+
+    while [[ "$monitor_running" == "true" ]]; do
+        [[ "$monitor_running" != "true" ]] && break
+        _draw_dccb_status_bar "$current_session_dir" "$current_file"
+        [[ "$monitor_running" != "true" ]] && break
+        tput cup $status_bar_height 0
+        last_size=$(_get_file_size "$current_file")
+        [[ "$monitor_running" != "true" ]] && break
+        tail -n 50 "$current_file" 2>/dev/null
+
+        while [[ "$monitor_running" == "true" ]]; do
+            sleep 0.5
+            [[ "$monitor_running" != "true" ]] && break
+            _draw_dccb_status_bar "$current_session_dir" "$current_file"
+            [[ "$monitor_running" != "true" ]] && break
+            file_size=$(_get_file_size "$current_file")
+            if [[ "$file_size" -gt "$last_size" ]]; then
+                [[ "$monitor_running" != "true" ]] && break
+                tail -c +$((last_size + 1)) "$current_file" 2>/dev/null
+                last_size="$file_size"
+            fi
+            [[ "$monitor_running" != "true" ]] && break
+            local latest=$(_find_latest_codex_log)
+            [[ "$monitor_running" != "true" ]] && break
+            local latest_session=$(_find_latest_session)
+            [[ "$monitor_running" != "true" ]] && break
+            if [[ "$latest" != "$current_file" && -n "$latest" ]]; then
+                current_file="$latest"
+                current_session_dir="$latest_session"
+                tput cup $status_bar_height 0
+                tput ed
+                printf "\n==> Switching to newer log: %s\n\n" "$current_file"
+                last_size=0
+                break
+            fi
+        done
+    done
+
+    trap - INT TERM
+}
+
 # Main humanize function
 humanize() {
     local cmd="$1"
@@ -529,13 +798,22 @@ humanize() {
                 rlcr-loop)
                     _humanize_monitor_codex
                     ;;
+                dccb-loop)
+                    _humanize_monitor_dccb
+                    ;;
                 *)
-                    echo "Usage: humanize monitor rlcr-loop"
+                    echo "Usage: humanize monitor [rlcr-loop|dccb-loop]"
                     echo ""
-                    echo "Monitor the latest RLCR loop log from .humanize-rlcr.local"
+                    echo "Monitor the latest loop log with real-time dashboard"
+                    echo ""
+                    echo "Targets:"
+                    echo "  rlcr-loop    Monitor RLCR loop from .humanize-rlcr.local"
+                    echo "  dccb-loop    Monitor DCCB loop from .humanize-dccb.local"
+                    echo ""
                     echo "Features:"
                     echo "  - Fixed status bar showing session info, round progress, model config"
-                    echo "  - Goal tracker summary: Ultimate Goal, AC progress, task status"
+                    echo "  - Progress tracking (ACs for RLCR, docs for DCCB)"
+                    echo "  - Git status with file changes and line diffs"
                     echo "  - Real-time log output in scrollable area below"
                     echo "  - Automatically switches to newer logs when they appear"
                     return 1
@@ -546,7 +824,7 @@ humanize() {
             echo "Usage: humanize <command> [args]"
             echo ""
             echo "Commands:"
-            echo "  monitor rlcr-loop    Monitor the latest RLCR loop log"
+            echo "  monitor [rlcr-loop|dccb-loop]    Monitor the latest loop log"
             return 1
             ;;
     esac

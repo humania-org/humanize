@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 2.0.3**
+**Current Version: 2.0.4**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -111,7 +111,7 @@ All iteration artifacts are saved in `.humanize-rlcr.local/<timestamp>/`:
 
 ```bash
 # View current round
-cat .humanize-rlcr.local/*/state.md
+cat .humanize-rlcr.local/*/rlcr-state.md
 
 # View Claude's latest summary
 cat .humanize-rlcr.local/*/round-*-summary.md | tail -50
@@ -148,7 +148,7 @@ This provides a real-time dashboard showing:
 
 **The loop is fully interruptible** - you can exit Claude Code at any time and resume later:
 
-- **Loop state**: Controlled solely by the presence of `.humanize-rlcr.local/*/state.md`
+- **Loop state**: Controlled solely by the presence of `.humanize-rlcr.local/*/rlcr-state.md`
 - **Resume**: Simply restart Claude Code in the same directory - the loop continues automatically
 - **Cancel**: Remove the state file to stop the loop permanently
 
@@ -157,7 +157,7 @@ This provides a real-time dashboard showing:
 /humanize:cancel-rlcr-loop
 
 # Or manually remove state file
-rm .humanize-rlcr.local/*/state.md
+rm .humanize-rlcr.local/*/rlcr-state.md
 ```
 
 The loop directory with all summaries and review results is preserved for reference.
@@ -198,7 +198,7 @@ All iteration artifacts are saved in `.humanize-dccb.local/<timestamp>/`:
 
 ```bash
 # View current round
-cat .humanize-dccb.local/*/state.md
+cat .humanize-dccb.local/*/dccb-state.md
 
 # View Claude's latest summary
 cat .humanize-dccb.local/*/round-*-summary.md | tail -50
@@ -248,7 +248,7 @@ dccb-doc/
 /humanize:cancel-dccb-loop
 
 # Or manually remove state file
-rm .humanize-dccb.local/*/state.md
+rm .humanize-dccb.local/*/dccb-state.md
 ```
 
 The loop completes when Codex confirms the documentation is "reconstruction-ready" - meaning an AI or developer could rebuild a functionally equivalent system using only these documents.
@@ -413,8 +413,8 @@ humanize/
 When RLCR loop is active, creates: `.humanize-rlcr.local/<TIMESTAMP>/`
 
 **Files Created**:
-- `state.md` - Current round, config (YAML frontmatter)
-- `goal-tracker.md` - Immutable (goals/AC) + Mutable (active tasks, deferred, etc.)
+- `rlcr-state.md` - Current round, config (YAML frontmatter)
+- `rlcr-tracker.md` - Immutable (goals/AC) + Mutable (active tasks, deferred, etc.)
 - `round-N-prompt.md` - Instructions FROM Codex TO Claude
 - `round-N-summary.md` - Work summary written BY Claude
 - `round-N-review-prompt.md` - Prompt sent to Codex
@@ -431,8 +431,8 @@ When RLCR loop is active, creates: `.humanize-rlcr.local/<TIMESTAMP>/`
 When DCCB loop is active, creates: `.humanize-dccb.local/<TIMESTAMP>/`
 
 **Files Created**:
-- `state.md` - Current round, config (YAML frontmatter)
-- `blueprint-tracker.md` - Codebase analysis, proposed structure, progress tracking
+- `dccb-state.md` - Current round, config (YAML frontmatter)
+- `dccb-tracker.md` - Codebase analysis, proposed structure, progress tracking
 - `round-N-prompt.md` - Instructions FROM Codex TO Claude
 - `round-N-summary.md` - Work summary written BY Claude
 - `round-N-review-prompt.md` - Prompt sent to Codex

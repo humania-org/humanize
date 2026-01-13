@@ -38,12 +38,12 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 ### How to Use
 1. **Round 0**: Initialize the Goal Tracker with Ultimate Goal and Acceptance Criteria
 2. **Each Round**: Update task status, log plan changes, note discovered issues
-3. **Before Exit**: Ensure goal-tracker.md reflects current state accurately
+3. **Before Exit**: Ensure rlcr-tracker.md reflects current state accurately
 
 ## Important Rules
 
 1. **Write summaries**: Always write your work summary to the specified file before exiting
-2. **Maintain Goal Tracker**: Keep goal-tracker.md up-to-date with your progress
+2. **Maintain Goal Tracker**: Keep rlcr-tracker.md up-to-date with your progress
 3. **Be thorough**: Include details about what was implemented, files changed, and tests added
 4. **No cheating**: Do not try to exit the loop by editing state files or running cancel commands
 5. **Trust the process**: Codex's feedback helps improve the implementation

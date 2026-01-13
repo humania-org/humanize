@@ -6,7 +6,7 @@
 # If Codex doesn't confirm completion, blocks exit and feeds review back.
 #
 # State directory: .humanize-rlcr.local/<timestamp>/
-# State file: state.md (current_round, max_iterations, codex config)
+# State file: rlcr-state.md (current_round, max_iterations, codex config)
 # Summary file: round-N-summary.md (Claude's work summary)
 # Review prompt: round-N-review-prompt.md (prompt sent to Codex)
 # Review result: round-N-review-result.md (Codex's review)
@@ -32,7 +32,7 @@ HOOK_INPUT=$(cat)
 # For iterative loops, stop_hook_active will be true when Claude is continuing
 # from a previous blocked stop. We WANT to run Codex review each iteration.
 # Loop termination is controlled by:
-# - No active loop directory (no state.md) -> exit early below
+# - No active loop directory (no rlcr-state.md) -> exit early below
 # - Codex outputs "COMPLETE" -> allow exit
 # - current_round >= max_iterations -> allow exit
 
@@ -54,7 +54,7 @@ if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
 
-STATE_FILE="$LOOP_DIR/state.md"
+STATE_FILE="$LOOP_DIR/rlcr-state.md"
 
 # ========================================
 # Quick Check: Are All Todos Completed?
@@ -395,10 +395,10 @@ fi
 # Check Goal Tracker Initialization (Round 0 only)
 # ========================================
 
-GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+GOAL_TRACKER_FILE="$LOOP_DIR/rlcr-tracker.md"
 
 if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
-    # Check if goal-tracker.md still contains placeholder text
+    # Check if rlcr-tracker.md still contains placeholder text
     GOAL_TRACKER_CONTENT=$(cat "$GOAL_TRACKER_FILE")
 
     HAS_GOAL_PLACEHOLDER=false
@@ -446,7 +446,7 @@ $MISSING_ITEMS
    - Extract or define the **Ultimate Goal** from your understanding of the plan
    - Define 3-7 specific, testable **Acceptance Criteria**
    - Populate **Active Tasks** with tasks from the plan, mapping each to an AC
-3. Write the updated goal-tracker.md
+3. Write the updated rlcr-tracker.md
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be set in Round 0. After this round, it becomes read-only.
 
@@ -497,7 +497,7 @@ SUMMARY_CONTENT=$(cat "$SUMMARY_FILE")
 # Shared prompt section for Goal Tracker Update Requests (used in both Full Alignment and Regular reviews)
 GOAL_TRACKER_UPDATE_SECTION="## Goal Tracker Update Requests (YOUR RESPONSIBILITY)
 
-**Important**: Claude cannot directly modify \`goal-tracker.md\` after Round 0. If Claude's summary contains a \"Goal Tracker Update Request\" section, YOU must:
+**Important**: Claude cannot directly modify \`rlcr-tracker.md\` after Round 0. If Claude's summary contains a \"Goal Tracker Update Request\" section, YOU must:
 
 1. **Evaluate the request**: Is the change justified? Does it serve the Ultimate Goal?
 2. **If approved**: Update @$GOAL_TRACKER_FILE yourself with the requested changes:
@@ -903,7 +903,7 @@ Before starting work, **read** @$GOAL_TRACKER_FILE to understand:
 - Any Plan Evolution that has occurred
 - Open Issues that need attention
 
-**IMPORTANT**: You CANNOT directly modify goal-tracker.md after Round 0.
+**IMPORTANT**: You CANNOT directly modify rlcr-tracker.md after Round 0.
 If you need to update the Goal Tracker, include a "Goal Tracker Update Request" section in your summary (see below).
 EOF
 

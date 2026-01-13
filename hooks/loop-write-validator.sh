@@ -63,7 +63,7 @@ if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" 
     exit 0
 fi
 
-# For state.md and goal-tracker.md in .humanize-rlcr.local, we need further validation
+# For rlcr-state.md and rlcr-tracker.md in .humanize-rlcr.local, we need further validation
 # For other files in .humanize-rlcr.local that aren't summaries, allow them
 if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]]; then
     if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER"; then
@@ -83,7 +83,7 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
+CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/rlcr-state.md")
 
 # ========================================
 # Block State File Writes

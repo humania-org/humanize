@@ -7,7 +7,7 @@
 # and feeds review back.
 #
 # State directory: .humanize-dccb.local/<timestamp>/
-# State file: state.md (current_round, max_iterations, codex config)
+# State file: dccb-state.md (current_round, max_iterations, codex config)
 # Summary file: round-N-summary.md (Claude's work summary)
 # Review prompt: round-N-review-prompt.md (prompt sent to Codex)
 # Review result: round-N-review-result.md (Codex's review)
@@ -40,12 +40,12 @@ LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-dccb.local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
 
-# Find active loop (newest directory with state.md)
+# Find active loop (newest directory with dccb-state.md)
 LOOP_DIR=""
 if [[ -d "$LOOP_BASE_DIR" ]]; then
-    # Find newest directory containing state.md
+    # Find newest directory containing dccb-state.md
     for dir in $(ls -1dt "$LOOP_BASE_DIR"/*/ 2>/dev/null); do
-        if [[ -f "$dir/state.md" ]]; then
+        if [[ -f "$dir/dccb-state.md" ]]; then
             LOOP_DIR="$dir"
             break
         fi
@@ -57,7 +57,7 @@ if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
 
-STATE_FILE="$LOOP_DIR/state.md"
+STATE_FILE="$LOOP_DIR/dccb-state.md"
 
 # ========================================
 # Quick Check: Are All Todos Completed?
@@ -137,7 +137,7 @@ $LARGE_FILES
 1. Split large documents into logical parts
 2. Ensure smooth cross-references between split files
 3. Maintain coherence and consistency across files
-4. Update blueprint-tracker.md to reflect the new structure
+4. Update dccb-tracker.md to reflect the new structure
 
 After splitting the files, attempt to exit again."
 
@@ -289,7 +289,7 @@ fi
 # Check Blueprint Tracker Initialization (Round 0 only)
 # ========================================
 
-BLUEPRINT_TRACKER_FILE="$LOOP_DIR/blueprint-tracker.md"
+BLUEPRINT_TRACKER_FILE="$LOOP_DIR/dccb-tracker.md"
 
 if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$BLUEPRINT_TRACKER_FILE" ]]; then
     TRACKER_CONTENT=$(cat "$BLUEPRINT_TRACKER_FILE")
@@ -322,7 +322,7 @@ if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$BLUEPRINT_TRACKER_FILE" ]]; then
 
 You are in **Round 0** and the Blueprint Tracker has not been properly initialized.
 
-**Missing items in \`blueprint-tracker.md\`**:
+**Missing items in \`dccb-tracker.md\`**:
 $MISSING_ITEMS
 
 **Required Actions**:

@@ -63,7 +63,7 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
+CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/rlcr-state.md")
 
 # ========================================
 # Block State File Edits

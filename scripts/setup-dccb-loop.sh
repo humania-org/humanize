@@ -93,7 +93,7 @@ STOPPING:
 
 MONITORING:
   # View current state:
-  cat .humanize-dccb.local/*/state.md
+  cat .humanize-dccb.local/*/dccb-state.md
 
   # View latest summary:
   cat .humanize-dccb.local/*/round-*-summary.md | tail -50
@@ -202,7 +202,7 @@ mkdir -p "$FULL_OUTPUT_DIR"
 # Create State File
 # ========================================
 
-cat > "$LOOP_DIR/state.md" << EOF
+cat > "$LOOP_DIR/dccb-state.md" << EOF
 ---
 current_round: 0
 max_iterations: $MAX_ITERATIONS
@@ -218,7 +218,7 @@ EOF
 # Create Blueprint Tracker File
 # ========================================
 
-BLUEPRINT_TRACKER_FILE="$LOOP_DIR/blueprint-tracker.md"
+BLUEPRINT_TRACKER_FILE="$LOOP_DIR/dccb-tracker.md"
 
 cat > "$BLUEPRINT_TRACKER_FILE" << 'BLUEPRINT_TRACKER_EOF'
 # Blueprint Tracker
