@@ -44,7 +44,7 @@ if is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
 fi
 
 # ========================================
-# Check if File is in .humanize-loop.local
+# Check if File is in .humanize-rlcr.local
 # ========================================
 
 if ! is_in_humanize_loop_dir "$FILE_PATH"; then
@@ -56,14 +56,14 @@ fi
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
+CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/rlcr-state.md")
 
 # ========================================
 # Block State File Edits
@@ -90,9 +90,9 @@ fi
 
 if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
     # Extract filename from path (portable - works in bash and zsh)
-    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/[^/]*/\(.*\)$|\1|p')
+    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-rlcr\.local/[^/]*/\(.*\)$|\1|p')
     if [[ -z "$CLAUDE_FILENAME" ]]; then
-        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/\(.*\)$|\1|p')
+        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-rlcr\.local/\(.*\)$|\1|p')
     fi
 
     if [[ -n "$CLAUDE_FILENAME" ]]; then

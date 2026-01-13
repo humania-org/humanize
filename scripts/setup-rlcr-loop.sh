@@ -79,13 +79,13 @@ STOPPING:
 
 MONITORING:
   # View current state:
-  cat .humanize-loop.local/*/state.md
+  cat .humanize-rlcr.local/*/rlcr-state.md
 
   # View latest summary:
-  cat .humanize-loop.local/*/round-*-summary.md | tail -50
+  cat .humanize-rlcr.local/*/round-*-summary.md | tail -50
 
   # View Codex review:
-  cat .humanize-loop.local/*/round-*-review-result.md | tail -50
+  cat .humanize-rlcr.local/*/round-*-review-result.md | tail -50
 HELP_EOF
     exit 0
 }
@@ -205,7 +205,7 @@ fi
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 
 # Create timestamp for this loop session
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
@@ -220,7 +220,7 @@ DOCS_PATH="docs"
 # Create State File
 # ========================================
 
-cat > "$LOOP_DIR/state.md" << EOF
+cat > "$LOOP_DIR/rlcr-state.md" << EOF
 ---
 current_round: 0
 max_iterations: $MAX_ITERATIONS
@@ -237,7 +237,7 @@ EOF
 # Create Goal Tracker File
 # ========================================
 
-GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+GOAL_TRACKER_FILE="$LOOP_DIR/rlcr-tracker.md"
 PLAN_CONTENT=$(cat "$PLAN_FILE")
 
 cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
@@ -344,7 +344,7 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 2. If the "Ultimate Goal" section says "[To be extracted...]", extract a clear goal statement from the plan
 3. If the "Acceptance Criteria" section says "[To be defined...]", define 3-7 specific, testable criteria
 4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC
-5. Write the updated goal-tracker.md
+5. Write the updated rlcr-tracker.md
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be modified in Round 0. After this round, it becomes read-only.
 

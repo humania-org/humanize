@@ -5,8 +5,8 @@
 # Intercepts Claude's exit attempts and uses Codex to review work.
 # If Codex doesn't confirm completion, blocks exit and feeds review back.
 #
-# State directory: .humanize-loop.local/<timestamp>/
-# State file: state.md (current_round, max_iterations, codex config)
+# State directory: .humanize-rlcr.local/<timestamp>/
+# State file: rlcr-state.md (current_round, max_iterations, codex config)
 # Summary file: round-N-summary.md (Claude's work summary)
 # Review prompt: round-N-review-prompt.md (prompt sent to Codex)
 # Review result: round-N-review-result.md (Codex's review)
@@ -32,7 +32,7 @@ HOOK_INPUT=$(cat)
 # For iterative loops, stop_hook_active will be true when Claude is continuing
 # from a previous blocked stop. We WANT to run Codex review each iteration.
 # Loop termination is controlled by:
-# - No active loop directory (no state.md) -> exit early below
+# - No active loop directory (no rlcr-state.md) -> exit early below
 # - Codex outputs "COMPLETE" -> allow exit
 # - current_round >= max_iterations -> allow exit
 
@@ -41,7 +41,7 @@ HOOK_INPUT=$(cat)
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 
 # Source shared loop functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -54,7 +54,7 @@ if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
 
-STATE_FILE="$LOOP_DIR/state.md"
+STATE_FILE="$LOOP_DIR/rlcr-state.md"
 
 # ========================================
 # Quick Check: Are All Todos Completed?
@@ -215,11 +215,11 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         # Check for special cases in untracked files
         UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
 
-        # Check if .humanize-loop.local is untracked
-        if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
+        # Check if .humanize-rlcr.local is untracked
+        if echo "$UNTRACKED" | grep -q '\.humanize-rlcr\.local'; then
             SPECIAL_NOTES="$SPECIAL_NOTES
-**Special Case - .humanize-loop.local detected**:
-The \`.humanize-loop.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
+**Special Case - .humanize-rlcr.local detected**:
+The \`.humanize-rlcr.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
 Please add it to .gitignore:
 \`\`\`bash
 echo '.humanize*local*' >> .gitignore
@@ -229,7 +229,7 @@ git add .gitignore
         fi
 
         # Check for other untracked files (potential artifacts)
-        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-loop\.local' || true)
+        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-rlcr\.local' || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
             SPECIAL_NOTES="$SPECIAL_NOTES
 **Note on Untracked Files**:
@@ -395,10 +395,10 @@ fi
 # Check Goal Tracker Initialization (Round 0 only)
 # ========================================
 
-GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+GOAL_TRACKER_FILE="$LOOP_DIR/rlcr-tracker.md"
 
 if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
-    # Check if goal-tracker.md still contains placeholder text
+    # Check if rlcr-tracker.md still contains placeholder text
     GOAL_TRACKER_CONTENT=$(cat "$GOAL_TRACKER_FILE")
 
     HAS_GOAL_PLACEHOLDER=false
@@ -446,7 +446,7 @@ $MISSING_ITEMS
    - Extract or define the **Ultimate Goal** from your understanding of the plan
    - Define 3-7 specific, testable **Acceptance Criteria**
    - Populate **Active Tasks** with tasks from the plan, mapping each to an AC
-3. Write the updated goal-tracker.md
+3. Write the updated rlcr-tracker.md
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be set in Round 0. After this round, it becomes read-only.
 
@@ -497,7 +497,7 @@ SUMMARY_CONTENT=$(cat "$SUMMARY_FILE")
 # Shared prompt section for Goal Tracker Update Requests (used in both Full Alignment and Regular reviews)
 GOAL_TRACKER_UPDATE_SECTION="## Goal Tracker Update Requests (YOUR RESPONSIBILITY)
 
-**Important**: Claude cannot directly modify \`goal-tracker.md\` after Round 0. If Claude's summary contains a \"Goal Tracker Update Request\" section, YOU must:
+**Important**: Claude cannot directly modify \`rlcr-tracker.md\` after Round 0. If Claude's summary contains a \"Goal Tracker Update Request\" section, YOU must:
 
 1. **Evaluate the request**: Is the change justified? Does it serve the Ultimate Goal?
 2. **If approved**: Update @$GOAL_TRACKER_FILE yourself with the requested changes:
@@ -585,16 +585,16 @@ Critical blockers: [list if any]
 
 To implement the original plan at @$PLAN_FILE, we have completed **$((CURRENT_ROUND + 1)) iterations** (Round 0 to Round $CURRENT_ROUND).
 
-The project's \`.humanize-loop.local/$(basename "$LOOP_DIR")/\` directory contains the history of each round's iteration:
+The project's \`.humanize-rlcr.local/$(basename "$LOOP_DIR")/\` directory contains the history of each round's iteration:
 - Round input prompts: \`round-N-prompt.md\`
 - Round output summaries: \`round-N-summary.md\`
 - Round review prompts: \`round-N-review-prompt.md\`
 - Round review results: \`round-N-review-result.md\`
 
 **How to Access Historical Files**: Read the historical review results and summaries using file paths like:
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-review-result.md\` (previous round)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 2))-review-result.md\` (2 rounds ago)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-summary.md\` (previous summary)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-review-result.md\` (previous round)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 2))-review-result.md\` (2 rounds ago)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-summary.md\` (previous summary)
 
 **Your Task**: Review the historical review results, especially the **last 5 rounds** of development progress and review outcomes, to determine if the development has stalled.
 
@@ -837,7 +837,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "Codex detected development stagnation during Full Alignment Check (Round $CURRENT_ROUND)." >&2
         echo "The loop has been stopped to prevent further unproductive iterations." >&2
         echo "" >&2
-        echo "Review the historical round files in .humanize-loop.local/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
+        echo "Review the historical round files in .humanize-rlcr.local/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
         echo "Consider:" >&2
         echo "  - Revisiting the original plan for clarity" >&2
         echo "  - Breaking down the task into smaller pieces" >&2
@@ -903,7 +903,7 @@ Before starting work, **read** @$GOAL_TRACKER_FILE to understand:
 - Any Plan Evolution that has occurred
 - Open Issues that need attention
 
-**IMPORTANT**: You CANNOT directly modify goal-tracker.md after Round 0.
+**IMPORTANT**: You CANNOT directly modify rlcr-tracker.md after Round 0.
 If you need to update the Goal Tracker, include a "Goal Tracker Update Request" section in your summary (see below).
 EOF
 
