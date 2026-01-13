@@ -90,9 +90,9 @@ fi
 
 if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
     # Extract filename from path (portable - works in bash and zsh)
-    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/[^/]*/\(.*\)$|\1|p')
+    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-rlcr\.local/[^/]*/\(.*\)$|\1|p')
     if [[ -z "$CLAUDE_FILENAME" ]]; then
-        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/\(.*\)$|\1|p')
+        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-rlcr\.local/\(.*\)$|\1|p')
     fi
 
     if [[ -n "$CLAUDE_FILENAME" ]]; then

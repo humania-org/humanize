@@ -172,7 +172,7 @@ is_state_file_path() {
 # Check if a path is inside .humanize-rlcr.local directory
 is_in_humanize_loop_dir() {
     local path="$1"
-    echo "$path" | grep -q '\.humanize-loop\.local/'
+    echo "$path" | grep -q '\.humanize-rlcr\.local/'
 }
 
 # Check if a shell command attempts to modify a file matching the given pattern

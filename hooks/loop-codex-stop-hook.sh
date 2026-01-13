@@ -216,7 +216,7 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
 
         # Check if .humanize-rlcr.local is untracked
-        if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
+        if echo "$UNTRACKED" | grep -q '\.humanize-rlcr\.local'; then
             SPECIAL_NOTES="$SPECIAL_NOTES
 **Special Case - .humanize-rlcr.local detected**:
 The \`.humanize-rlcr.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
@@ -229,7 +229,7 @@ git add .gitignore
         fi
 
         # Check for other untracked files (potential artifacts)
-        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-loop\.local' || true)
+        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-rlcr\.local' || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
             SPECIAL_NOTES="$SPECIAL_NOTES
 **Note on Untracked Files**:
