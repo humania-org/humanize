@@ -1,7 +1,8 @@
 wip
 
-# Humanize loop state directory (used by start-rlcr-loop)
-.humanize-loop.local/
+# Humanize loop state directories
+.humanize-loop.local/   # RLCR loop state
+.humanize-dccb.local/   # DCCB loop state
 
 # Python cache
 __pycache__/

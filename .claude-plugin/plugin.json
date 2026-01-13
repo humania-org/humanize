@@ -1,7 +1,7 @@
 {
   "name": "humanize",
-  "description": "Humanize - An iterative development plugin that uses Codex to review Claude's work. Creates a feedback loop where Claude implements plans and Codex independently reviews progress, ensuring quality through continuous refinement.",
-  "version": "1.0.2",
+  "description": "Humanize - An iterative development plugin with two complementary loops: RLCR (documentation to implementation) and DCCB (implementation to documentation). Creates bidirectional feedback loops where Claude and Codex collaborate to ensure quality.",
+  "version": "2.0.0",
   "author": {
     "name": "humania-org"
   },
@@ -14,6 +14,9 @@
     "ai-native",
     "feedback-loop",
     "goal-tracking",
-    "quality-assurance"
+    "quality-assurance",
+    "code-distillation",
+    "architecture-documentation",
+    "reconstruction-guide"
   ]
 }

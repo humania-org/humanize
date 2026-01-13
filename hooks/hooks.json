@@ -1,5 +1,5 @@
 {
-  "description": "Humanize Plugin Hooks - Validation hooks and Stop hooks for /start-rlcr-loop",
+  "description": "Humanize Plugin Hooks - Validation hooks and Stop hooks for /start-rlcr-loop and /start-dccb-loop",
   "hooks": {
     "PreToolUse": [
       {
@@ -45,6 +45,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-codex-stop-hook.sh",
+            "timeout": 7200
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-dccb-stop-hook.sh",
             "timeout": 7200
           }
         ]
