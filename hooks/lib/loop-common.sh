@@ -169,7 +169,7 @@ is_state_file_path() {
     echo "$path_lower" | grep -qE 'state\.md$'
 }
 
-# Check if a path is inside .humanize-loop.local directory
+# Check if a path is inside .humanize-rlcr.local directory
 is_in_humanize_loop_dir() {
     local path="$1"
     echo "$path" | grep -q '\.humanize-loop\.local/'

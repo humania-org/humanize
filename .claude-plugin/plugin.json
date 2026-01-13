@@ -1,7 +1,7 @@
 {
   "name": "humanize",
   "description": "Humanize - An iterative development plugin with two complementary loops: RLCR (documentation to implementation) and DCCB (implementation to documentation). Creates bidirectional feedback loops where Claude and Codex collaborate to ensure quality.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": {
     "name": "humania-org"
   },

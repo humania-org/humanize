@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 2.0.0**
+**Current Version: 2.0.1**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -107,17 +107,17 @@ Your plan file should contain:
 
 ### Step 3: Monitor Progress
 
-All iteration artifacts are saved in `.humanize-loop.local/<timestamp>/`:
+All iteration artifacts are saved in `.humanize-rlcr.local/<timestamp>/`:
 
 ```bash
 # View current round
-cat .humanize-loop.local/*/state.md
+cat .humanize-rlcr.local/*/state.md
 
 # View Claude's latest summary
-cat .humanize-loop.local/*/round-*-summary.md | tail -50
+cat .humanize-rlcr.local/*/round-*-summary.md | tail -50
 
 # View Codex's review feedback
-cat .humanize-loop.local/*/round-*-review-result.md | tail -50
+cat .humanize-rlcr.local/*/round-*-review-result.md | tail -50
 ```
 
 **Real-time Monitoring Dashboard** (Recommended):
@@ -148,7 +148,7 @@ This provides a real-time dashboard showing:
 
 **The loop is fully interruptible** - you can exit Claude Code at any time and resume later:
 
-- **Loop state**: Controlled solely by the presence of `.humanize-loop.local/*/state.md`
+- **Loop state**: Controlled solely by the presence of `.humanize-rlcr.local/*/state.md`
 - **Resume**: Simply restart Claude Code in the same directory - the loop continues automatically
 - **Cancel**: Remove the state file to stop the loop permanently
 
@@ -157,7 +157,7 @@ This provides a real-time dashboard showing:
 /humanize:cancel-rlcr-loop
 
 # Or manually remove state file
-rm .humanize-loop.local/*/state.md
+rm .humanize-rlcr.local/*/state.md
 ```
 
 The loop directory with all summaries and review results is preserved for reference.
@@ -410,7 +410,7 @@ humanize/
 
 ### RLCR State
 
-When RLCR loop is active, creates: `.humanize-loop.local/<TIMESTAMP>/`
+When RLCR loop is active, creates: `.humanize-rlcr.local/<TIMESTAMP>/`
 
 **Files Created**:
 - `state.md` - Current round, config (YAML frontmatter)

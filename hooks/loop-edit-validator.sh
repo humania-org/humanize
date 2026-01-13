@@ -44,7 +44,7 @@ if is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
 fi
 
 # ========================================
-# Check if File is in .humanize-loop.local
+# Check if File is in .humanize-rlcr.local
 # ========================================
 
 if ! is_in_humanize_loop_dir "$FILE_PATH"; then
@@ -56,7 +56,7 @@ fi
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then

@@ -5,7 +5,7 @@
 # Intercepts Claude's exit attempts and uses Codex to review work.
 # If Codex doesn't confirm completion, blocks exit and feeds review back.
 #
-# State directory: .humanize-loop.local/<timestamp>/
+# State directory: .humanize-rlcr.local/<timestamp>/
 # State file: state.md (current_round, max_iterations, codex config)
 # Summary file: round-N-summary.md (Claude's work summary)
 # Review prompt: round-N-review-prompt.md (prompt sent to Codex)
@@ -41,7 +41,7 @@ HOOK_INPUT=$(cat)
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 
 # Source shared loop functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -215,11 +215,11 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         # Check for special cases in untracked files
         UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
 
-        # Check if .humanize-loop.local is untracked
+        # Check if .humanize-rlcr.local is untracked
         if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
             SPECIAL_NOTES="$SPECIAL_NOTES
-**Special Case - .humanize-loop.local detected**:
-The \`.humanize-loop.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
+**Special Case - .humanize-rlcr.local detected**:
+The \`.humanize-rlcr.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
 Please add it to .gitignore:
 \`\`\`bash
 echo '.humanize*local*' >> .gitignore
@@ -585,16 +585,16 @@ Critical blockers: [list if any]
 
 To implement the original plan at @$PLAN_FILE, we have completed **$((CURRENT_ROUND + 1)) iterations** (Round 0 to Round $CURRENT_ROUND).
 
-The project's \`.humanize-loop.local/$(basename "$LOOP_DIR")/\` directory contains the history of each round's iteration:
+The project's \`.humanize-rlcr.local/$(basename "$LOOP_DIR")/\` directory contains the history of each round's iteration:
 - Round input prompts: \`round-N-prompt.md\`
 - Round output summaries: \`round-N-summary.md\`
 - Round review prompts: \`round-N-review-prompt.md\`
 - Round review results: \`round-N-review-result.md\`
 
 **How to Access Historical Files**: Read the historical review results and summaries using file paths like:
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-review-result.md\` (previous round)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 2))-review-result.md\` (2 rounds ago)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-summary.md\` (previous summary)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-review-result.md\` (previous round)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 2))-review-result.md\` (2 rounds ago)
+- \`@.humanize-rlcr.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-summary.md\` (previous summary)
 
 **Your Task**: Review the historical review results, especially the **last 5 rounds** of development progress and review outcomes, to determine if the development has stalled.
 
@@ -837,7 +837,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "Codex detected development stagnation during Full Alignment Check (Round $CURRENT_ROUND)." >&2
         echo "The loop has been stopped to prevent further unproductive iterations." >&2
         echo "" >&2
-        echo "Review the historical round files in .humanize-loop.local/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
+        echo "Review the historical round files in .humanize-rlcr.local/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
         echo "Consider:" >&2
         echo "  - Revisiting the original plan for clarity" >&2
         echo "  - Breaking down the task into smaller pieces" >&2

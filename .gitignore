@@ -1,7 +1,7 @@
 wip
 
 # Humanize loop state directories
-.humanize-loop.local/   # RLCR loop state
+.humanize-rlcr.local/   # RLCR loop state
 .humanize-dccb.local/   # DCCB loop state
 
 # Python cache

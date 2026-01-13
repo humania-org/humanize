@@ -4,7 +4,7 @@
 #
 # Blocks Claude from reading:
 # - Wrong round's prompt/summary files (outdated information)
-# - Round files from wrong locations (not in .humanize-loop.local/)
+# - Round files from wrong locations (not in .humanize-rlcr.local/)
 # - Round files from old session directories
 # - Todos files (should use native TodoWrite instead)
 #
@@ -54,7 +54,7 @@ if [[ "$IS_ROUND_FILE" == "false" ]]; then
     exit 0
 fi
 
-# Check if path contains .humanize-loop.local
+# Check if path contains .humanize-rlcr.local
 IN_HUMANIZE_LOOP_DIR=false
 if is_in_humanize_loop_dir "$FILE_PATH"; then
     IN_HUMANIZE_LOOP_DIR=true
@@ -65,7 +65,7 @@ fi
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-rlcr.local"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
