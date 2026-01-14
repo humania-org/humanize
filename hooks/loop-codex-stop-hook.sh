@@ -182,6 +182,69 @@ fi
 # Before running expensive Codex review, check if all changes have been
 # committed and pushed. This ensures work is properly saved.
 
+# Read commit_plan_file and plan_file from state file early (needed for git clean check)
+# Note: These fields may not exist in older state files, so we provide defaults
+COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
+PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
+START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
+
+# ========================================
+# Check for Pre-1.1.2 State File (Backward Compatibility)
+# ========================================
+# If start_commit is missing, this is an old state file from before 1.1.2.
+# We cannot safely run the post-commit check without knowing the starting commit.
+# Gracefully terminate the loop and advise user to update.
+
+if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
+    # This is an old state file - rename to .bak to stop further loop iterations
+    mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
+
+    FALLBACK="# RLCR Loop Terminated - Upgrade Required
+
+This loop was started with an older version of Humanize (pre-1.1.2). Please update and start a new loop."
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/pre-112-state-file.md" "$FALLBACK")
+
+    jq -n \
+        --arg reason "$REASON" \
+        --arg msg "Loop: Terminated - state file from pre-1.1.2 version, please start a new loop" \
+        '{
+            "decision": "allow",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+fi
+
+# ========================================
+# Check for Plan File Modification
+# ========================================
+# If the plan file has been modified since the loop started (compared to backup),
+# the loop should be terminated as the work may no longer align with the new plan.
+
+PLAN_BACKUP_FILE="$LOOP_DIR/plan-backup.md"
+if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
+    if ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
+        # Plan file has changed - rename state.md to .bak to stop further loop iterations
+        mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
+
+        FALLBACK="# RLCR Loop Terminated - Plan File Modified
+
+The plan file has been modified since the loop started. Please restart the loop with the updated plan."
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified.md" "$FALLBACK" \
+            "PLAN_FILE=$PLAN_FILE_FROM_STATE")
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Terminated - plan file was modified, please restart the loop" \
+            '{
+                "decision": "allow",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
+fi
+
 # Check if git is available and we're in a git repo
 if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
     GIT_ISSUES=""
@@ -189,11 +252,25 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
 
     # Check for uncommitted changes (staged or unstaged)
     GIT_STATUS=$(git status --porcelain 2>/dev/null)
-    if [[ -n "$GIT_STATUS" ]]; then
+
+    # If commit_plan_file is false, filter out the plan file from git status
+    # This allows the plan file to remain uncommitted without blocking exit
+    FILTERED_GIT_STATUS="$GIT_STATUS"
+    if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
+        # Get the relative path of the plan file
+        PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+        # Filter out lines where the plan file is the exact path (anchored to end of line)
+        # Git status porcelain format: "XY path" or "XY old -> new" for renames
+        # Escape special regex chars and anchor to end of line to avoid substring matches
+        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        FILTERED_GIT_STATUS=$(echo "$GIT_STATUS" | grep -v " ${PLAN_FILE_ESCAPED}\$" || true)
+    fi
+
+    if [[ -n "$FILTERED_GIT_STATUS" ]]; then
         GIT_ISSUES="uncommitted changes"
 
         # Check for special cases in untracked files
-        UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
+        UNTRACKED=$(echo "$FILTERED_GIT_STATUS" | grep '^??' || true)
 
         # Check if .humanize-loop.local is untracked
         if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
@@ -215,7 +292,7 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         fi
     fi
 
-    # Block if there are uncommitted changes
+    # Block if there are uncommitted changes (excluding allowed plan file dirty state)
     if [[ -n "$GIT_ISSUES" ]]; then
         # Git has uncommitted changes - block and remind Claude to commit
         FALLBACK="# Git Not Clean
@@ -237,6 +314,64 @@ Please commit all changes before exiting.
                 "systemMessage": $msg
             }'
         exit 0
+    fi
+
+    # ========================================
+    # Post-Commit Check: Plan File Accidentally Committed?
+    # ========================================
+    # When commit_plan_file is false, verify the plan file hasn't been
+    # accidentally committed since the loop started
+
+    if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
+        # Get relative path of plan file for git log check
+        PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+
+        # Check if the plan file appears in any commits since START_COMMIT
+        # Handle three cases:
+        # 1. START_COMMIT exists: check commits in range START_COMMIT..HEAD
+        # 2. START_COMMIT empty but repo has history: check all commits (for old state files or fresh loops)
+        # 3. Repo has no commits: skip check (nothing to check)
+        if [[ -n "$START_COMMIT" ]]; then
+            PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL" 2>/dev/null || true)
+        elif git rev-parse HEAD &>/dev/null; then
+            # No START_COMMIT but repo has commits - check all commits
+            # This handles old state files without start_commit field
+            PLAN_FILE_COMMITS=$(git log --oneline --follow -- "$PLAN_FILE_REL" 2>/dev/null || true)
+        else
+            # Fresh repo with no commits - nothing to check
+            PLAN_FILE_COMMITS=""
+        fi
+
+        if [[ -n "$PLAN_FILE_COMMITS" ]]; then
+            # Plan file was accidentally committed - block and provide error
+            FALLBACK="# Plan File Accidentally Committed
+
+The plan file was committed but --commit-plan-file was not set.
+
+Plan file: {{PLAN_FILE}}
+
+Commits containing the plan file:
+{{PLAN_FILE_COMMITS}}
+
+**Required Actions**:
+1. Reset the commit(s) that include the plan file: \`git reset --soft HEAD~N\`
+2. Unstage the plan file: \`git reset HEAD {{PLAN_FILE}}\`
+3. Re-commit without the plan file
+4. Or restart the loop with --commit-plan-file if you want to track the plan file"
+            REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-committed.md" "$FALLBACK" \
+                "PLAN_FILE=$PLAN_FILE_REL" \
+                "PLAN_FILE_COMMITS=$PLAN_FILE_COMMITS")
+
+            jq -n \
+                --arg reason "$REASON" \
+                --arg msg "Loop: Blocked - plan file was accidentally committed" \
+                '{
+                    "decision": "block",
+                    "reason": $reason,
+                    "systemMessage": $msg
+                }'
+            exit 0
+        fi
     fi
 
     # ========================================

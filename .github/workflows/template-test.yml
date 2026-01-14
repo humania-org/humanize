@@ -6,6 +6,7 @@ on:
     paths:
       - 'prompt-template/**'
       - 'hooks/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/template-test.yml'
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'prompt-template/**'
       - 'hooks/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/template-test.yml'
 
@@ -46,6 +48,14 @@ jobs:
           echo "========================================"
           chmod +x tests/test-template-references.sh
           ./tests/test-template-references.sh
+
+      - name: Run plan file handling tests
+        run: |
+          echo "========================================"
+          echo "Running plan file handling tests"
+          echo "========================================"
+          chmod +x tests/test-plan-file-handling.sh
+          ./tests/test-plan-file-handling.sh
 
       - name: Verify all hook scripts still work
         run: |

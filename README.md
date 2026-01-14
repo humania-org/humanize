@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.1.1**
+**Current Version: 1.1.2**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -196,18 +196,41 @@ OPTIONS:
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 5400)
   --push-every-round     Require git push after each round (default: commits stay local)
+  --commit-plan-file     Include the plan file in commits (default: plan file stays uncommitted)
   -h, --help             Show help message
 ```
 
+### Plan File Handling
+
+By default, the plan file is treated as a working document and is **not committed** to version control:
+
+- **Default behavior** (`--commit-plan-file` not set):
+  - Plan file is allowed to remain dirty (uncommitted changes)
+  - The git clean check ignores changes to the plan file
+  - Accidental commits of the plan file are blocked with an error
+  - A backup of the original plan file is saved to `.humanize-loop.local/<timestamp>/plan-backup.md`
+
+- **With `--commit-plan-file`**:
+  - Plan file must not be git-ignored
+  - Plan file changes must be committed like any other file
+  - Standard git clean check applies (no exceptions for plan file)
+
 ## Prerequisites
 
-Required tools:
+**Required environment:**
+- Git repository with at least one commit
+- Plan file path must not contain spaces or special characters (`[ ] * ? { } | ( ) ^ $ \`)
+
+**Required tools:**
 - `codex` - OpenAI Codex CLI (for review)
 
 Check if Codex is available:
 ```bash
 codex --version
 ```
+
+**Note on upgrading from pre-1.1.2:**
+If you have an active RLCR loop started with a version before 1.1.2, the loop will be automatically terminated on the next stop attempt. Your work is preserved in `.humanize-loop.local/` - simply start a new loop with the updated plugin.
 
 ## Directory Structure
 
@@ -243,7 +266,8 @@ humanize/
 When loop is active, creates: `.humanize-loop.local/<TIMESTAMP>/`
 
 **Files Created**:
-- `state.md` - Current round, config (YAML frontmatter)
+- `state.md` - Current round, config (YAML frontmatter with `start_commit`, `commit_plan_file`, etc.)
+- `plan-backup.md` - Backup copy of the original plan file at loop start
 - `goal-tracker.md` - Immutable (goals/AC) + Mutable (active tasks, deferred, etc.)
 - `round-N-prompt.md` - Instructions FROM Codex TO Claude
 - `round-N-summary.md` - Work summary written BY Claude

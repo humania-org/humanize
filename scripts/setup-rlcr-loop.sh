@@ -30,6 +30,7 @@ CODEX_MODEL="$DEFAULT_CODEX_MODEL"
 CODEX_EFFORT="$DEFAULT_CODEX_EFFORT"
 CODEX_TIMEOUT="$DEFAULT_CODEX_TIMEOUT"
 PUSH_EVERY_ROUND="false"
+COMMIT_PLAN_FILE="false"
 
 show_help() {
     cat << 'HELP_EOF'
@@ -49,6 +50,10 @@ OPTIONS:
   --codex-timeout <SECONDS>
                        Timeout for each Codex review in seconds (default: 5400)
   --push-every-round   Require git push after each round (default: commits stay local)
+  --commit-plan-file   Include the plan file in commits (default: plan file stays uncommitted)
+                       When set, the plan file must not be git-ignored and will be committed.
+                       When not set, the plan file is allowed to remain dirty (uncommitted),
+                       and any accidental commits of the plan file will be blocked.
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -138,6 +143,10 @@ while [[ $# -gt 0 ]]; do
             PUSH_EVERY_ROUND="true"
             shift
             ;;
+        --commit-plan-file)
+            COMMIT_PLAN_FILE="true"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1" >&2
             echo "Use --help for usage information" >&2
@@ -182,6 +191,41 @@ if [[ ! -f "$PLAN_FILE" ]]; then
     exit 1
 fi
 
+# Check we're in a git repository (required for RLCR loop)
+if ! git rev-parse --git-dir &>/dev/null 2>&1; then
+    echo "Error: RLCR loop requires a git repository" >&2
+    echo "" >&2
+    echo "The current directory is not inside a git repository." >&2
+    echo "Please initialize a git repository first: git init" >&2
+    exit 1
+fi
+
+# Check the repository has at least one commit (required for start_commit tracking)
+if ! git rev-parse HEAD &>/dev/null 2>&1; then
+    echo "Error: RLCR loop requires at least one commit in the repository" >&2
+    echo "" >&2
+    echo "The repository has no commits yet." >&2
+    echo "Please create an initial commit first: git commit -m 'Initial commit'" >&2
+    exit 1
+fi
+
+# Get relative path for validation (P2 fix: only check relative path, not absolute)
+PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE" 2>/dev/null || basename "$PLAN_FILE")
+
+# Check plan file relative path is simple (no spaces or regex metacharacters)
+# This ensures reliable git status filtering in the stop hook
+if [[ "$PLAN_FILE_REL" =~ [[:space:]\[\]\*\?\{\}\|\(\)\^\$\\] ]]; then
+    echo "Error: Plan file path contains unsupported characters" >&2
+    echo "" >&2
+    echo "Plan file: $PLAN_FILE_REL" >&2
+    echo "" >&2
+    echo "Plan file paths must not contain spaces or special characters:" >&2
+    echo "  spaces, [ ] * ? { } | ( ) ^ \$ \\" >&2
+    echo "" >&2
+    echo "Please rename or move the plan file to a simpler path." >&2
+    exit 1
+fi
+
 # Check plan file has at least 5 lines
 LINE_COUNT=$(wc -l < "$PLAN_FILE" | tr -d ' ')
 if [[ "$LINE_COUNT" -lt 5 ]]; then
@@ -200,6 +244,22 @@ if ! command -v codex &>/dev/null; then
     exit 1
 fi
 
+# Check if --commit-plan-file requires the plan file to be trackable
+if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
+    # Check if plan file is git-ignored
+    if git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
+        echo "Error: --commit-plan-file is set but the plan file is git-ignored" >&2
+        echo "" >&2
+        echo "Plan file: $PLAN_FILE" >&2
+        echo "" >&2
+        echo "When using --commit-plan-file, the plan file must be trackable by git." >&2
+        echo "Either:" >&2
+        echo "  1. Remove the plan file from .gitignore" >&2
+        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        exit 1
+    fi
+fi
+
 # ========================================
 # Setup State Directory
 # ========================================
@@ -212,6 +272,12 @@ TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 LOOP_DIR="$LOOP_BASE_DIR/$TIMESTAMP"
 
 mkdir -p "$LOOP_DIR"
+
+# Backup the plan file (for historical reference, not committed)
+cp "$PLAN_FILE" "$LOOP_DIR/plan-backup.md"
+
+# Get the starting commit hash for post-commit validation
+START_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 # Docs path default
 DOCS_PATH="docs"
@@ -228,7 +294,9 @@ codex_model: $CODEX_MODEL
 codex_effort: $CODEX_EFFORT
 codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
+commit_plan_file: $COMMIT_PLAN_FILE
 plan_file: $PLAN_FILE
+start_commit: $START_COMMIT
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
@@ -402,6 +470,9 @@ cat << EOF
 === start-rlcr-loop activated ===
 
 Plan File: $PLAN_FILE ($LINE_COUNT lines)
+Plan File Backup: $LOOP_DIR/plan-backup.md
+Commit Plan File: $COMMIT_PLAN_FILE
+Start Commit: ${START_COMMIT:-"(not in git repo)"}
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
