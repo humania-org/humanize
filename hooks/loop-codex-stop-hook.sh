@@ -747,7 +747,7 @@ echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running codex exec with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_ARGS[@]}" "$CODEX_PROMPT_CONTENT" \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Codex exit code: $CODEX_EXIT_CODE" >&2
