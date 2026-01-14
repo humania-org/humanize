@@ -486,6 +486,63 @@ else
 fi
 
 # ========================================
+# Test 34-36: Placeholder Injection Prevention
+# ========================================
+# These tests ensure that {{VAR}} patterns in injected values
+# are NOT replaced, preventing prompt corruption.
+
+echo ""
+echo "========================================"
+echo "Placeholder Injection Prevention Tests"
+echo "========================================"
+
+# Test 34: Value containing placeholder for later variable
+echo ""
+echo "Test 34: Placeholder in value (later variable)"
+TEMPLATE="A: {{VAR_A}}, B: {{VAR_B}}"
+# VAR_A contains {{VAR_B}} but VAR_B should NOT replace it
+RESULT=$(render_template "$TEMPLATE" "VAR_A=contains {{VAR_B}} here" "VAR_B=replaced")
+EXPECTED="A: contains {{VAR_B}} here, B: replaced"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Placeholder in value not replaced (later variable)"
+else
+    fail "Placeholder injection prevention (later)" "$EXPECTED" "$RESULT"
+fi
+
+# Test 35: Value containing placeholder for earlier variable
+echo ""
+echo "Test 35: Placeholder in value (earlier variable)"
+TEMPLATE="A: {{VAR_A}}, B: {{VAR_B}}"
+# VAR_B contains {{VAR_A}} - should also NOT be replaced
+RESULT=$(render_template "$TEMPLATE" "VAR_A=first" "VAR_B=contains {{VAR_A}} here")
+EXPECTED="A: first, B: contains {{VAR_A}} here"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Placeholder in value not replaced (earlier variable)"
+else
+    fail "Placeholder injection prevention (earlier)" "$EXPECTED" "$RESULT"
+fi
+
+# Test 36: Realistic scenario - REVIEW_CONTENT with template syntax
+echo ""
+echo "Test 36: Realistic injection scenario"
+TEMPLATE="Plan: {{PLAN_FILE}}
+Review: {{REVIEW_CONTENT}}
+Goal: {{GOAL_TRACKER_FILE}}"
+REVIEW="Codex says: check {{GOAL_TRACKER_FILE}} and {{PLAN_FILE}} for context"
+RESULT=$(render_template "$TEMPLATE" \
+    "PLAN_FILE=/path/plan.md" \
+    "REVIEW_CONTENT=$REVIEW" \
+    "GOAL_TRACKER_FILE=/path/goals.md")
+EXPECTED="Plan: /path/plan.md
+Review: Codex says: check {{GOAL_TRACKER_FILE}} and {{PLAN_FILE}} for context
+Goal: /path/goals.md"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Realistic injection scenario handled correctly"
+else
+    fail "Realistic injection scenario" "$EXPECTED" "$RESULT"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""

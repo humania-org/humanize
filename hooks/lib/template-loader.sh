@@ -32,37 +32,86 @@ load_template() {
     fi
 }
 
-# Render a template with multiple variable substitutions
+# Render a template with multiple variable substitutions (single-pass)
 # Usage: render_template "$template_content" "VAR1=value1" "VAR2=value2" ...
 # Variables should be passed as VAR=value pairs
+#
+# IMPORTANT: This uses a single-pass approach to prevent placeholder injection.
+# If a variable value contains {{OTHER_VAR}}, it will NOT be replaced.
+# This prevents content like REVIEW_CONTENT from having its {{...}} patterns
+# accidentally substituted, which could corrupt prompts.
 render_template() {
     local content="$1"
     shift
 
-    # Process each variable assignment
+    # Build environment variables for all substitutions
+    # Using TMPL_VAR_ prefix to avoid conflicts
+    local -a env_vars=()
     for var_assignment in "$@"; do
         local var_name="${var_assignment%%=*}"
         local var_value="${var_assignment#*=}"
-
-        # Use awk for safe substitution (handles special chars and multilines)
-        # Use ENVIRON to avoid -v interpreting backslash escape sequences
-        # Use index/substr instead of gsub to avoid replacement string special chars (& and \)
-        content=$(TEMPLATE_VAR="{{$var_name}}" TEMPLATE_VAL="$var_value" \
-            awk 'BEGIN {
-                var = ENVIRON["TEMPLATE_VAR"]
-                val = ENVIRON["TEMPLATE_VAL"]
-                varlen = length(var)
-            }
-            {
-                line = $0
-                result = ""
-                while ((idx = index(line, var)) > 0) {
-                    result = result substr(line, 1, idx - 1) val
-                    line = substr(line, idx + varlen)
-                }
-                print result line
-            }' <<< "$content")
+        env_vars+=("TMPL_VAR_${var_name}=${var_value}")
     done
+
+    # Single-pass replacement using awk
+    # Scans for {{VAR}} patterns and replaces them with values from environment
+    # Replaced content goes directly to output without re-scanning
+    content=$(env "${env_vars[@]}" awk '
+    BEGIN {
+        # Build lookup table from environment variables with TMPL_VAR_ prefix
+        for (name in ENVIRON) {
+            if (substr(name, 1, 9) == "TMPL_VAR_") {
+                var_name = substr(name, 10)  # Remove prefix
+                vars[var_name] = ENVIRON[name]
+            }
+        }
+    }
+    {
+        line = $0
+        result = ""
+
+        # Process line character by character, looking for {{ patterns
+        while (length(line) > 0) {
+            # Find next {{
+            open_idx = index(line, "{{")
+            if (open_idx == 0) {
+                # No more placeholders, append rest of line
+                result = result line
+                break
+            }
+
+            # Append everything before {{
+            result = result substr(line, 1, open_idx - 1)
+            line = substr(line, open_idx)  # line now starts with {{
+
+            # Find closing }}
+            close_idx = index(substr(line, 3), "}}")
+            if (close_idx == 0) {
+                # No closing }}, treat {{ as literal
+                result = result substr(line, 1, 2)
+                line = substr(line, 3)
+                continue
+            }
+
+            # Extract variable name (between {{ and }})
+            var_name = substr(line, 3, close_idx - 1)
+            placeholder = "{{" var_name "}}"
+
+            # Look up in our variables table
+            if (var_name in vars) {
+                # Replace with value (value goes to output, not re-scanned)
+                result = result vars[var_name]
+            } else {
+                # Keep original placeholder if not found
+                result = result placeholder
+            }
+
+            # Move past the placeholder
+            line = substr(line, length(placeholder) + 1)
+        }
+
+        print result
+    }' <<< "$content")
 
     echo "$content"
 }
