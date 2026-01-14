@@ -13,7 +13,7 @@ You are trying to stop, but some files exceed the **{{MAX_LINES}}-line limit**:
 For **code files**:
 1. Split into smaller, modular files (each < {{MAX_LINES}} lines)
 2. Ensure functionality remains **strictly unchanged** after splitting
-3. Consider using the `code-simplifier` agent to review and optimize the refactored code
+3. If the `code-simplifier` plugin is installed, use it to review and optimize the refactored code. Invoke via: `/code-simplifier`, `@agent-code-simplifier`, or `@code-simplifier:code-simplifier (agent)`
 4. Maintain clear module boundaries and interfaces
 
 For **documentation files**:

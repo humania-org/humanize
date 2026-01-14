@@ -3,7 +3,7 @@
 You are trying to stop, but you have **{{GIT_ISSUES}}**.
 {{SPECIAL_NOTES}}
 **Required Actions**:
-0. If you have access to the `code-simplifier` agent, consider using it to review and simplify the code you just wrote before committing
+0. If the `code-simplifier` plugin is installed, use it to review and simplify your code before committing. Invoke via: `/code-simplifier`, `@agent-code-simplifier`, or `@code-simplifier:code-simplifier (agent)`
 1. Review untracked files - add build artifacts to `.gitignore`
 2. Stage real changes: `git add <files>` (or `git add -A` if all files should be tracked)
 3. Commit with a descriptive message following project conventions

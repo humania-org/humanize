@@ -32,21 +32,6 @@ load_template() {
     fi
 }
 
-# Replace a placeholder in text with a value
-# Usage: result=$(echo "$text" | replace_placeholder "VAR_NAME" "value")
-# Handles multiline values correctly
-replace_placeholder() {
-    local var_name="$1"
-    local value="$2"
-
-    # Escape special characters in the value for sed
-    # Use awk for safer multiline replacement
-    awk -v var="{{$var_name}}" -v val="$value" '{
-        gsub(var, val)
-        print
-    }'
-}
-
 # Render a template with multiple variable substitutions
 # Usage: render_template "$template_content" "VAR1=value1" "VAR2=value2" ...
 # Variables should be passed as VAR=value pairs
@@ -60,10 +45,23 @@ render_template() {
         local var_value="${var_assignment#*=}"
 
         # Use awk for safe substitution (handles special chars and multilines)
-        content=$(echo "$content" | awk -v var="{{$var_name}}" -v val="$var_value" '{
-            gsub(var, val)
-            print
-        }')
+        # Use ENVIRON to avoid -v interpreting backslash escape sequences
+        # Use index/substr instead of gsub to avoid replacement string special chars (& and \)
+        content=$(TEMPLATE_VAR="{{$var_name}}" TEMPLATE_VAL="$var_value" \
+            awk 'BEGIN {
+                var = ENVIRON["TEMPLATE_VAR"]
+                val = ENVIRON["TEMPLATE_VAL"]
+                varlen = length(var)
+            }
+            {
+                line = $0
+                result = ""
+                while ((idx = index(line, var)) > 0) {
+                    result = result substr(line, 1, idx - 1) val
+                    line = substr(line, idx + varlen)
+                }
+                print result line
+            }' <<< "$content")
     done
 
     echo "$content"
