@@ -43,9 +43,11 @@ HOOK_INPUT=$(cat)
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
 
-# Source shared loop functions
+# Source shared loop functions and template loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
+
+# Template directory is set by loop-common.sh via template-loader.sh
 
 LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
@@ -74,18 +76,12 @@ if [[ -f "$TODO_CHECKER" ]]; then
         # Extract the incomplete todo list from the result
         INCOMPLETE_LIST=$(echo "$TODO_RESULT" | tail -n +2)
 
-        REASON="# Incomplete Todos Detected
+        FALLBACK="# Incomplete Todos
 
-You are trying to stop, but you still have **incomplete todos**:
-
-$INCOMPLETE_LIST
-
-**Required Action**:
-1. Complete all remaining todos before attempting to stop
-2. Mark each todo as completed using the TodoWrite tool
-3. Only after ALL todos are completed, you may proceed to write your summary and stop
-
-Do NOT proceed to Codex review until all todos are finished. This saves time and ensures thorough work."
+Complete these tasks before exiting:
+{{INCOMPLETE_LIST}}"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/incomplete-todos.md" "$FALLBACK" \
+            "INCOMPLETE_LIST=$INCOMPLETE_LIST")
 
         jq -n \
             --arg reason "$REASON" \
@@ -158,31 +154,15 @@ $(git status --porcelain 2>/dev/null)
 EOF
 
     if [ -n "$LARGE_FILES" ]; then
-        REASON="# Large Files Detected
+        FALLBACK="# Large Files Detected
 
-You are trying to stop, but some files exceed the **${MAX_LINES}-line limit**:
-$LARGE_FILES
+Files exceeding {{MAX_LINES}} lines:
+{{LARGE_FILES}}
 
-**Why This Matters**:
-- Large files are harder to maintain, review, and understand
-- They hinder modular development and code reusability
-- They make future changes more error-prone
-
-**Required Actions**:
-
-For **code files**:
-1. Split into smaller, modular files (each < ${MAX_LINES} lines)
-2. Ensure functionality remains **strictly unchanged** after splitting
-3. Consider using the \`code-simplifier\` agent to review and optimize the refactored code
-4. Maintain clear module boundaries and interfaces
-
-For **documentation files**:
-1. Split into logical sections or chapters (each < ${MAX_LINES} lines)
-2. Ensure smooth **cross-references** between split files
-3. Maintain **narrative flow** and coherence across files
-4. Update any table of contents or navigation structures
-
-After splitting the files, commit the changes and attempt to exit again."
+Split these into smaller modules before continuing."
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/large-files.md" "$FALLBACK" \
+            "MAX_LINES=$MAX_LINES" \
+            "LARGE_FILES=$LARGE_FILES")
 
         jq -n \
             --arg reason "$REASON" \
@@ -217,53 +197,36 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
 
         # Check if .humanize-loop.local is untracked
         if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
-            SPECIAL_NOTES="$SPECIAL_NOTES
-**Special Case - .humanize-loop.local detected**:
-The \`.humanize-loop.local/\` directory is created by humanize:start-rlcr-loop and should NOT be committed.
-Please add it to .gitignore:
-\`\`\`bash
-echo '.humanize*local*' >> .gitignore
-git add .gitignore
-\`\`\`
-"
+            HUMANIZE_LOCAL_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-humanize-local.md" 2>/dev/null)
+            if [[ -z "$HUMANIZE_LOCAL_NOTE" ]]; then
+                HUMANIZE_LOCAL_NOTE="Note: .humanize-loop.local/ is intentionally untracked."
+            fi
+            SPECIAL_NOTES="$SPECIAL_NOTES$HUMANIZE_LOCAL_NOTE"
         fi
 
         # Check for other untracked files (potential artifacts)
         OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-loop\.local' || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
-            SPECIAL_NOTES="$SPECIAL_NOTES
-**Note on Untracked Files**:
-Some untracked files may be build artifacts, test outputs, or runtime-generated files.
-These should typically be added to \`.gitignore\` rather than committed:
-- Build outputs (e.g., \`target/\`, \`build/\`, \`dist/\`)
-- Dependencies (e.g., \`node_modules/\`, \`vendor/\`)
-- IDE/editor files (e.g., \`.idea/\`, \`.vscode/\`)
-- Log files, cache files, temporary files
-
-Review untracked files and add appropriate patterns to \`.gitignore\`.
-"
+            UNTRACKED_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-untracked.md" 2>/dev/null)
+            if [[ -z "$UNTRACKED_NOTE" ]]; then
+                UNTRACKED_NOTE="Review untracked files - add to .gitignore or commit them."
+            fi
+            SPECIAL_NOTES="$SPECIAL_NOTES$UNTRACKED_NOTE"
         fi
     fi
 
     # Block if there are uncommitted changes
     if [[ -n "$GIT_ISSUES" ]]; then
         # Git has uncommitted changes - block and remind Claude to commit
-        REASON="# Git Not Clean
+        FALLBACK="# Git Not Clean
 
-You are trying to stop, but you have **$GIT_ISSUES**.
-$SPECIAL_NOTES
-**Required Actions**:
-0. If you have access to the \`code-simplifier\` agent, consider using it to review and simplify the code you just wrote before committing
-1. Review untracked files - add build artifacts to \`.gitignore\`
-2. Stage real changes: \`git add <files>\` (or \`git add -A\` if all files should be tracked)
-3. Commit with a descriptive message following project conventions
+Detected: {{GIT_ISSUES}}
 
-**Important Rules**:
-- Commit message must follow project conventions
-- AI tools (Claude, Codex, etc.) must NOT have authorship in commits
-- Do NOT include \`Co-Authored-By: Claude\` or similar AI attribution
-
-After committing all changes, you may attempt to exit again."
+Please commit all changes before exiting.
+{{SPECIAL_NOTES}}"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/git-not-clean.md" "$FALLBACK" \
+            "GIT_ISSUES=$GIT_ISSUES" \
+            "SPECIAL_NOTES=$SPECIAL_NOTES")
 
         jq -n \
             --arg reason "$REASON" \
@@ -289,18 +252,14 @@ After committing all changes, you may attempt to exit again."
             AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
             CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
-            REASON="# Unpushed Commits Detected
+            FALLBACK="# Unpushed Commits
 
-You are trying to stop, but you have **$AHEAD_COUNT unpushed commit(s)** on branch \`$CURRENT_BRANCH\`.
+You have {{AHEAD_COUNT}} unpushed commit(s) on branch {{CURRENT_BRANCH}}.
 
-Since \`--push-every-round\` is enabled, you must push your commits before exiting.
-
-**Required Action**:
-\`\`\`bash
-git push origin $CURRENT_BRANCH
-\`\`\`
-
-After pushing all commits, you may attempt to exit again."
+Please push before exiting."
+            REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/unpushed-commits.md" "$FALLBACK" \
+                "AHEAD_COUNT=$AHEAD_COUNT" \
+                "CURRENT_BRANCH=$CURRENT_BRANCH")
 
             jq -n \
                 --arg reason "$REASON" \
@@ -363,22 +322,11 @@ if [[ ! -f "$SUMMARY_FILE" ]]; then
     # Summary file doesn't exist - Claude didn't write it
     # Block exit and remind Claude to write summary
 
-    REASON="# Work Summary Missing
+    FALLBACK="# Work Summary Missing
 
-You attempted to exit without writing your work summary.
-
-**Required Action**: Write your work summary to:
-\`\`\`
-$SUMMARY_FILE
-\`\`\`
-
-The summary should include:
-- What was implemented
-- Files created/modified
-- Tests added/passed
-- Any remaining items
-
-After writing the summary, you may attempt to exit again."
+Please write your work summary to: {{SUMMARY_FILE}}"
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/work-summary-missing.md" "$FALLBACK" \
+        "SUMMARY_FILE=$SUMMARY_FILE")
 
     jq -n \
         --arg reason "$REASON" \
@@ -433,24 +381,13 @@ if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     fi
 
     if [[ -n "$MISSING_ITEMS" ]]; then
-        REASON="# Goal Tracker Not Initialized
+        FALLBACK="# Goal Tracker Not Initialized
 
-You are in **Round 0** and the Goal Tracker has not been properly initialized.
-
-**Missing items in \`$GOAL_TRACKER_FILE\`**:
-$MISSING_ITEMS
-
-**Required Actions**:
-1. Read \`$GOAL_TRACKER_FILE\`
-2. Replace placeholder text with actual content:
-   - Extract or define the **Ultimate Goal** from your understanding of the plan
-   - Define 3-7 specific, testable **Acceptance Criteria**
-   - Populate **Active Tasks** with tasks from the plan, mapping each to an AC
-3. Write the updated goal-tracker.md
-
-**IMPORTANT**: The IMMUTABLE SECTION can only be set in Round 0. After this round, it becomes read-only.
-
-After updating the Goal Tracker, you may attempt to exit again."
+Please fill in the Goal Tracker ({{GOAL_TRACKER_FILE}}):
+{{MISSING_ITEMS}}"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-not-initialized.md" "$FALLBACK" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+            "MISSING_ITEMS=$MISSING_ITEMS")
 
         jq -n \
             --arg reason "$REASON" \
@@ -495,23 +432,10 @@ REVIEW_RESULT_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-review-result.md"
 SUMMARY_CONTENT=$(cat "$SUMMARY_FILE")
 
 # Shared prompt section for Goal Tracker Update Requests (used in both Full Alignment and Regular reviews)
-GOAL_TRACKER_UPDATE_SECTION="## Goal Tracker Update Requests (YOUR RESPONSIBILITY)
-
-**Important**: Claude cannot directly modify \`goal-tracker.md\` after Round 0. If Claude's summary contains a \"Goal Tracker Update Request\" section, YOU must:
-
-1. **Evaluate the request**: Is the change justified? Does it serve the Ultimate Goal?
-2. **If approved**: Update @$GOAL_TRACKER_FILE yourself with the requested changes:
-   - Move tasks between Active/Completed/Deferred sections as appropriate
-   - Add entries to \"Plan Evolution Log\" with round number and justification
-   - Add new issues to \"Open Issues\" if discovered
-   - **NEVER modify the IMMUTABLE SECTION** (Ultimate Goal and Acceptance Criteria)
-3. **If rejected**: Include in your review why the request was rejected
-
-Common update requests you should handle:
-- Task completion: Move from \"Active Tasks\" to \"Completed and Verified\"
-- New issues: Add to \"Open Issues\" table
-- Plan changes: Add to \"Plan Evolution Log\" with your assessment
-- Deferrals: Only allow with strong justification; add to \"Explicitly Deferred\""
+GOAL_TRACKER_SECTION_FALLBACK="## Goal Tracker Updates
+If Claude's summary includes a Goal Tracker Update Request section, apply the requested changes to {{GOAL_TRACKER_FILE}}."
+GOAL_TRACKER_UPDATE_SECTION=$(load_and_render_safe "$TEMPLATE_DIR" "codex/goal-tracker-update-section.md" "$GOAL_TRACKER_SECTION_FALLBACK" \
+    "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
 
 # Determine if this is a Full Alignment Check round (every 5 rounds)
 FULL_ALIGNMENT_CHECK=false
@@ -519,171 +443,88 @@ if [[ $((CURRENT_ROUND % 5)) -eq 4 ]]; then
     FULL_ALIGNMENT_CHECK=true
 fi
 
+# Calculate derived values for templates
+LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
+COMPLETED_ITERATIONS=$((CURRENT_ROUND + 1))
+PREV_ROUND=$((CURRENT_ROUND - 1))
+PREV_PREV_ROUND=$((CURRENT_ROUND - 2))
+
 # Build the review prompt
+FULL_ALIGNMENT_FALLBACK="# Full Alignment Review (Round {{CURRENT_ROUND}})
+
+Review Claude's work against the plan and goal tracker. Check all goals are being met.
+
+## Claude's Summary
+{{SUMMARY_CONTENT}}
+
+{{GOAL_TRACKER_UPDATE_SECTION}}
+
+Write your review to {{REVIEW_RESULT_FILE}}. End with COMPLETE if done, or list issues."
+
+REGULAR_REVIEW_FALLBACK="# Code Review (Round {{CURRENT_ROUND}})
+
+Review Claude's work for this round.
+
+## Claude's Summary
+{{SUMMARY_CONTENT}}
+
+{{GOAL_TRACKER_UPDATE_SECTION}}
+
+Write your review to {{REVIEW_RESULT_FILE}}. End with COMPLETE if done, or list issues."
+
 if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
     # Full Alignment Check prompt
-    cat > "$REVIEW_PROMPT_FILE" << EOF
-# FULL GOAL ALIGNMENT CHECK - Round $CURRENT_ROUND
-
-This is a **mandatory checkpoint** (every 5 rounds). You must conduct a comprehensive goal alignment audit.
-
-## Original Implementation Plan
-
-**IMPORTANT**: The original plan that Claude is implementing is located at:
-@$PLAN_FILE
-
-You MUST read this plan file first to understand the full scope of work before conducting your review.
-
----
-## Claude's Work Summary
-<!-- CLAUDE's WORK SUMMARY START -->
-$SUMMARY_CONTENT
-<!-- CLAUDE's WORK SUMMARY  END  -->
----
-
-## Part 1: Goal Tracker Audit (MANDATORY)
-
-Read @$GOAL_TRACKER_FILE and verify:
-
-### 1.1 Acceptance Criteria Status
-For EACH Acceptance Criterion in the IMMUTABLE SECTION:
-| AC | Status | Evidence (if MET) | Blocker (if NOT MET) | Justification (if DEFERRED) |
-|----|--------|-------------------|---------------------|----------------------------|
-| AC-1 | MET / PARTIAL / NOT MET / DEFERRED | ... | ... | ... |
-| ... | ... | ... | ... | ... |
-
-### 1.2 Forgotten Items Detection
-Compare the original plan (@$PLAN_FILE) with the current goal-tracker:
-- Are there tasks that are neither in "Active", "Completed", nor "Deferred"?
-- Are there tasks marked "complete" in summaries but not verified?
-- List any forgotten items found.
-
-### 1.3 Deferred Items Audit
-For each item in "Explicitly Deferred":
-- Is the deferral justification still valid?
-- Should it be un-deferred based on current progress?
-- Does it contradict the Ultimate Goal?
-
-### 1.4 Goal Completion Summary
-\`\`\`
-Acceptance Criteria: X/Y met (Z deferred)
-Active Tasks: N remaining
-Estimated remaining rounds: ?
-Critical blockers: [list if any]
-\`\`\`
-
-## Part 2: Implementation Review
-
-- Conduct a deep critical review of the implementation
-- Verify Claude's claims match reality
-- Identify any gaps, bugs, or incomplete work
-- Reference @$DOCS_PATH for design documents
-
-## Part 3: $GOAL_TRACKER_UPDATE_SECTION
-
-## Part 4: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
-
-To implement the original plan at @$PLAN_FILE, we have completed **$((CURRENT_ROUND + 1)) iterations** (Round 0 to Round $CURRENT_ROUND).
-
-The project's \`.humanize-loop.local/$(basename "$LOOP_DIR")/\` directory contains the history of each round's iteration:
-- Round input prompts: \`round-N-prompt.md\`
-- Round output summaries: \`round-N-summary.md\`
-- Round review prompts: \`round-N-review-prompt.md\`
-- Round review results: \`round-N-review-result.md\`
-
-**How to Access Historical Files**: Read the historical review results and summaries using file paths like:
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-review-result.md\` (previous round)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 2))-review-result.md\` (2 rounds ago)
-- \`@.humanize-loop.local/$(basename "$LOOP_DIR")/round-$((CURRENT_ROUND - 1))-summary.md\` (previous summary)
-
-**Your Task**: Review the historical review results, especially the **last 5 rounds** of development progress and review outcomes, to determine if the development has stalled.
-
-**Signs of Stagnation** (circuit breaker triggers):
-- Same issues appearing repeatedly across multiple rounds
-- No meaningful progress on Acceptance Criteria over several rounds
-- Claude making the same mistakes repeatedly
-- Circular discussions without resolution
-- No new code changes despite continued iterations
-- Codex giving similar feedback repeatedly without Claude addressing it
-
-**If development is stagnating**, write **STOP** (as a single word on its own line) as the last line of your review output @$REVIEW_RESULT_FILE instead of COMPLETE.
-
-## Part 5: Output Requirements
-
-- If issues found OR any AC is NOT MET (including deferred ACs), write your findings to @$REVIEW_RESULT_FILE
-- Include specific action items for Claude to address
-- **If development is stagnating** (see Part 4), write "STOP" as the last line
-- **CRITICAL**: Only write "COMPLETE" as the last line if ALL ACs from the original plan are FULLY MET with no deferrals
-  - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any AC is deferred
-  - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals allowed
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "codex/full-alignment-review.md" "$FULL_ALIGNMENT_FALLBACK" \
+        "CURRENT_ROUND=$CURRENT_ROUND" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "SUMMARY_CONTENT=$SUMMARY_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "DOCS_PATH=$DOCS_PATH" \
+        "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
+        "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
+        "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
+        "PREV_ROUND=$PREV_ROUND" \
+        "PREV_PREV_ROUND=$PREV_PREV_ROUND" \
+        "REVIEW_RESULT_FILE=$REVIEW_RESULT_FILE" > "$REVIEW_PROMPT_FILE"
 
 else
     # Regular review prompt with goal alignment section
-    cat > "$REVIEW_PROMPT_FILE" << EOF
-# Code Review - Round $CURRENT_ROUND
-
-## Original Implementation Plan
-
-**IMPORTANT**: The original plan that Claude is implementing is located at:
-@$PLAN_FILE
-
-You MUST read this plan file first to understand the full scope of work before conducting your review.
-This plan contains the complete requirements and implementation details that Claude should be following.
-
-Based on the original plan and @$PROMPT_FILE, Claude claims to have completed the work. Please conduct a thorough critical review to verify this.
-
----
-Below is Claude's summary of the work completed:
-<!-- CLAUDE's WORK SUMMARY START -->
-$SUMMARY_CONTENT
-<!-- CLAUDE's WORK SUMMARY  END  -->
----
-
-## Part 1: Implementation Review
-
-- Your task is to conduct a deep critical review, focusing on finding implementation issues and identifying gaps between "plan-design" and actual implementation.
-- Relevant top-level guidance documents, phased implementation plans, and other important documentation and implementation references are located under @$DOCS_PATH.
-- If Claude planned to defer any tasks to future phases in its summary, DO NOT follow its lead. Instead, you should force Claude to complete ALL tasks as planned.
-  - Such deferred tasks are considered incomplete work and should be flagged in your review comments, requiring Claude to address them.
-  - If Claude planned to defer any tasks, please explore the codebase in-depth and draft a detailed implementation plan. This plan should be included in your review comments for Claude to follow.
-  - Your review should be meticulous and skeptical. Look for any discrepancies, missing features, incomplete implementations.
-- If Claude does not plan to defer any tasks, but honestly admits that some tasks are still pending (not yet completed), you should also include those pending tasks in your review.
-  - Your review should elaborate on those unfinished tasks, explore the codebase, and draft an implementation plan.
-  - A good engineering implementation plan should be **singular, directive, and definitive**, rather than discussing multiple possible implementation options.
-  - The implementation plan should be **unambiguous**, internally consistent, and coherent from beginning to end, so that **Claude can execute the work accurately and without error**.
-
-## Part 2: Goal Alignment Check (MANDATORY)
-
-Read @$GOAL_TRACKER_FILE and verify:
-
-1. **Acceptance Criteria Progress**: For each AC, is progress being made? Are any ACs being ignored?
-2. **Forgotten Items**: Are there tasks from the original plan that are not tracked in Active/Completed/Deferred?
-3. **Deferred Items**: Are deferrals justified? Do they block any ACs?
-4. **Plan Evolution**: If Claude modified the plan, is the justification valid?
-
-Include a brief Goal Alignment Summary in your review:
-\`\`\`
-ACs: X/Y addressed | Forgotten items: N | Unjustified deferrals: N
-\`\`\`
-
-## Part 3: $GOAL_TRACKER_UPDATE_SECTION
-
-## Part 4: Output Requirements
-
-- In short, your review comments can include: problems/findings/blockers; claims that don't match reality; implementation plans for deferred work (to be implemented now); implementation plans for unfinished work; goal alignment issues.
-- If after your investigation the actual situation does not match what Claude claims to have completed, or there is pending work to be done, output your review comments to @$REVIEW_RESULT_FILE.
-- **CRITICAL**: Only output "COMPLETE" as the last line if ALL tasks from the original plan are FULLY completed with no deferrals
-  - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any task is deferred
-  - UNFINISHED items are considered INCOMPLETE - do NOT output COMPLETE if any task is pending
-  - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals or pending work allowed
-- The word COMPLETE on the last line will stop Claude.
-EOF
+    # Note: Pass all derived variables for consistency with full alignment template
+    load_and_render_safe "$TEMPLATE_DIR" "codex/regular-review.md" "$REGULAR_REVIEW_FALLBACK" \
+        "CURRENT_ROUND=$CURRENT_ROUND" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "PROMPT_FILE=$PROMPT_FILE" \
+        "SUMMARY_CONTENT=$SUMMARY_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "DOCS_PATH=$DOCS_PATH" \
+        "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
+        "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
+        "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
+        "PREV_ROUND=$PREV_ROUND" \
+        "PREV_PREV_ROUND=$PREV_PREV_ROUND" \
+        "REVIEW_RESULT_FILE=$REVIEW_RESULT_FILE" > "$REVIEW_PROMPT_FILE"
 fi
 
 # ========================================
 # Run Codex Review
 # ========================================
+
+# First, check if codex command exists
+if ! command -v codex &>/dev/null; then
+    echo "" >&2
+    echo "========================================" >&2
+    echo "RLCR LOOP ERROR: Codex Not Found" >&2
+    echo "========================================" >&2
+    echo "The 'codex' command is not installed or not in PATH." >&2
+    echo "RLCR loop requires Codex CLI to perform code reviews." >&2
+    echo "" >&2
+    echo "To install Codex CLI, visit: https://github.com/openai/codex" >&2
+    echo "" >&2
+    echo "Loop terminated. Claude Code exit allowed." >&2
+    echo "========================================" >&2
+    rm -f "$STATE_FILE"
+    exit 0
+fi
 
 echo "Running Codex review for round $CURRENT_ROUND..." >&2
 
@@ -754,57 +595,109 @@ echo "Codex exit code: $CODEX_EXIT_CODE" >&2
 echo "Codex stdout saved to: $CODEX_STDOUT_FILE" >&2
 echo "Codex stderr saved to: $CODEX_STDERR_FILE" >&2
 
+# ========================================
+# Check Codex Execution Result
+# ========================================
+
+# Helper function to print Codex failure and allow exit
+codex_failure_exit() {
+    local error_type="$1"
+    local details="$2"
+
+    echo "" >&2
+    echo "========================================" >&2
+    echo "RLCR LOOP ERROR: Codex Review Failed" >&2
+    echo "========================================" >&2
+    echo "Error Type: $error_type" >&2
+    echo "" >&2
+    echo "$details" >&2
+    echo "" >&2
+    echo "Debug files:" >&2
+    echo "  Command:  $CODEX_CMD_FILE" >&2
+    echo "  Stdout:   $CODEX_STDOUT_FILE" >&2
+    echo "  Stderr:   $CODEX_STDERR_FILE" >&2
+    echo "" >&2
+    echo "Loop terminated due to Codex failure." >&2
+    echo "Claude Code exit allowed." >&2
+    echo "========================================" >&2
+
+    # Clean up state file to end the loop
+    rm -f "$STATE_FILE"
+    exit 0
+}
+
+# Check 1: Codex exit code indicates failure
+if [[ "$CODEX_EXIT_CODE" -ne 0 ]]; then
+    STDERR_CONTENT=""
+    if [[ -f "$CODEX_STDERR_FILE" ]]; then
+        STDERR_CONTENT=$(tail -30 "$CODEX_STDERR_FILE" 2>/dev/null || echo "(unable to read stderr)")
+    fi
+
+    codex_failure_exit "Non-zero exit code ($CODEX_EXIT_CODE)" \
+"Codex exited with code $CODEX_EXIT_CODE.
+This may indicate:
+  - Invalid arguments or configuration
+  - Authentication failure
+  - Network issues
+  - Prompt format issues (e.g., multiline handling)
+
+Stderr output (last 30 lines):
+$STDERR_CONTENT"
+fi
+
 # Check if Codex created the review result file (it should write to workspace)
 # If not, check if it wrote to stdout
 if [[ ! -f "$REVIEW_RESULT_FILE" ]]; then
     # Codex might have written output to stdout instead
     if [[ -s "$CODEX_STDOUT_FILE" ]]; then
         echo "Codex output found in stdout, copying to review result file..." >&2
-        cp "$CODEX_STDOUT_FILE" "$REVIEW_RESULT_FILE"
+        if ! cp "$CODEX_STDOUT_FILE" "$REVIEW_RESULT_FILE" 2>/dev/null; then
+            codex_failure_exit "Failed to copy stdout to review result file" \
+"Codex wrote output to stdout but copying to review file failed.
+Source: $CODEX_STDOUT_FILE
+Target: $REVIEW_RESULT_FILE
+
+This may indicate permission issues or disk space problems.
+Check if the loop directory is writable."
+        fi
     fi
 fi
 
-# ========================================
-# Check Codex Output
-# ========================================
-
+# Check 2: Review result file still doesn't exist
 if [[ ! -f "$REVIEW_RESULT_FILE" ]]; then
-    echo "Error: Codex did not create review result file" >&2
-
-    # Read stderr for error details
     STDERR_CONTENT=""
     if [[ -f "$CODEX_STDERR_FILE" ]]; then
-        STDERR_CONTENT=$(tail -50 "$CODEX_STDERR_FILE" 2>/dev/null || echo "(unable to read stderr)")
+        STDERR_CONTENT=$(tail -30 "$CODEX_STDERR_FILE" 2>/dev/null || echo "(no stderr output)")
     fi
 
-    REASON="# Codex Review Failed
+    STDOUT_CONTENT=""
+    if [[ -f "$CODEX_STDOUT_FILE" ]]; then
+        STDOUT_CONTENT=$(tail -30 "$CODEX_STDOUT_FILE" 2>/dev/null || echo "(no stdout output)")
+    fi
 
-The Codex review process failed to produce output.
+    codex_failure_exit "Review result file not created" \
+"Expected file: $REVIEW_RESULT_FILE
+Codex completed (exit code 0) but did not create the review result file.
 
-**Exit Code**: $CODEX_EXIT_CODE
-**Review Result File**: $REVIEW_RESULT_FILE (not created)
+This may indicate:
+  - Codex did not understand the prompt
+  - Codex wrote to wrong path
+  - Workspace/permission issues
 
-**Debug Files**:
-- Command: $CODEX_CMD_FILE
-- Stdout: $CODEX_STDOUT_FILE
-- Stderr: $CODEX_STDERR_FILE
+Stdout (last 30 lines):
+$STDOUT_CONTENT
 
-**Stderr (last 50 lines)**:
-\`\`\`
-$STDERR_CONTENT
-\`\`\`
+Stderr (last 30 lines):
+$STDERR_CONTENT"
+fi
 
-Please check the debug files for more details. The system will attempt another review when you exit."
+# Check 3: Review result file is empty
+if [[ ! -s "$REVIEW_RESULT_FILE" ]]; then
+    codex_failure_exit "Review result file is empty" \
+"File exists but is empty: $REVIEW_RESULT_FILE
+Codex created the file but wrote no content.
 
-    jq -n \
-        --arg reason "$REASON" \
-        --arg msg "Loop: Codex review failed for round $CURRENT_ROUND (exit code: $CODEX_EXIT_CODE)" \
-        '{
-            "decision": "block",
-            "reason": $reason,
-            "systemMessage": $msg
-        }'
-    exit 0
+This may indicate Codex encountered an internal error."
 fi
 
 # Read the review result
@@ -870,94 +763,49 @@ mv "$TEMP_FILE" "$STATE_FILE"
 NEXT_PROMPT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-prompt.md"
 NEXT_SUMMARY_FILE="$LOOP_DIR/round-${NEXT_ROUND}-summary.md"
 
-# Check if this is a Full Alignment Check follow-up (round after every 5th)
-IS_POST_ALIGNMENT=$([[ $((CURRENT_ROUND % 5)) -eq 4 ]] && echo "true" || echo "false")
+# Build the next round prompt from templates
+NEXT_ROUND_FALLBACK="# Next Round Instructions
 
-cat > "$NEXT_PROMPT_FILE" << EOF
-Your work is not finished. Read and execute the below with ultrathink.
+Review the feedback below and address all issues.
 
-## Original Implementation Plan
+## Codex Review
+{{REVIEW_CONTENT}}
 
-**IMPORTANT**: Before proceeding, review the original plan you are implementing:
-@$PLAN_FILE
+Reference: {{PLAN_FILE}}, {{GOAL_TRACKER_FILE}}"
+load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_FALLBACK" \
+    "PLAN_FILE=$PLAN_FILE" \
+    "REVIEW_CONTENT=$REVIEW_CONTENT" \
+    "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" > "$NEXT_PROMPT_FILE"
 
-This plan contains the full scope of work and requirements. Ensure your work aligns with this plan.
-
----
-
-For all tasks that need to be completed, please create Todos to track each item in order of importance.
-You are strictly prohibited from only addressing the most important issues - you MUST create Todos for ALL discovered issues and attempt to resolve each one.
-
----
-Below is Codex's review result:
-<!-- CODEX's REVIEW RESULT START -->
-$REVIEW_CONTENT
-<!-- CODEX's REVIEW RESULT  END  -->
----
-
-## Goal Tracker Reference (READ-ONLY after Round 0)
-
-Before starting work, **read** @$GOAL_TRACKER_FILE to understand:
-- The Ultimate Goal and Acceptance Criteria you're working toward
-- Which tasks are Active, Completed, or Deferred
-- Any Plan Evolution that has occurred
-- Open Issues that need attention
-
-**IMPORTANT**: You CANNOT directly modify goal-tracker.md after Round 0.
-If you need to update the Goal Tracker, include a "Goal Tracker Update Request" section in your summary (see below).
-EOF
-
-# Add special instructions for post-Full Alignment Check rounds
-if [[ "$IS_POST_ALIGNMENT" == "true" ]]; then
-    cat >> "$NEXT_PROMPT_FILE" << EOF
-
-### Post-Alignment Check Action Items
-
-This round follows a Full Goal Alignment Check. Pay special attention to:
-- **Forgotten Items**: Codex may have identified tasks that were being ignored. Address them.
-- **AC Status**: If any Acceptance Criteria were marked NOT MET, prioritize work toward those.
-- **Deferred Items**: If any deferrals were flagged as unjustified, un-defer them now.
-EOF
+# Add special instructions for post-Full Alignment Check rounds (round after every 5th)
+if [[ $((CURRENT_ROUND % 5)) -eq 4 ]]; then
+    POST_ALIGNMENT=$(load_template "$TEMPLATE_DIR" "claude/post-alignment-action-items.md" 2>/dev/null)
+    if [[ -n "$POST_ALIGNMENT" ]]; then
+        echo "$POST_ALIGNMENT" >> "$NEXT_PROMPT_FILE"
+    fi
 fi
 
-cat >> "$NEXT_PROMPT_FILE" << EOF
-
----
-
-Note: You MUST NOT try to exit the RLCR loop by lying, editing the loop state file, or executing \`cancel-rlcr-loop\`.
-
-After completing the work, please:
-0. If you have access to the \`code-simplifier\` agent, use it to review and optimize the code you just wrote
-1. Commit your changes with a descriptive commit message
-2. Write your work summary into @$NEXT_SUMMARY_FILE
-EOF
+# Add footer with commit/summary instructions
+FOOTER_FALLBACK="## Before Exiting
+Commit your changes and write summary to {{NEXT_SUMMARY_FILE}}"
+load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-footer.md" "$FOOTER_FALLBACK" \
+    "NEXT_SUMMARY_FILE=$NEXT_SUMMARY_FILE" >> "$NEXT_PROMPT_FILE"
 
 # Add push instruction only if push_every_round is true
 if [[ "$PUSH_EVERY_ROUND" == "true" ]]; then
-    cat >> "$NEXT_PROMPT_FILE" << 'EOF'
-
-Note: Since `--push-every-round` is enabled, you must push your commits to remote after each round.
-EOF
+    PUSH_NOTE=$(load_template "$TEMPLATE_DIR" "claude/push-every-round-note.md" 2>/dev/null)
+    if [[ -z "$PUSH_NOTE" ]]; then
+        PUSH_NOTE="Also push your changes after committing."
+    fi
+    echo "$PUSH_NOTE" >> "$NEXT_PROMPT_FILE"
 fi
 
-cat >> "$NEXT_PROMPT_FILE" << 'EOF'
-
-**If Goal Tracker needs updates**, include this section in your summary:
-\`\`\`markdown
-## Goal Tracker Update Request
-
-### Requested Changes:
-- [E.g., "Mark Task X as completed with evidence: tests pass"]
-- [E.g., "Add to Open Issues: discovered Y needs addressing"]
-- [E.g., "Plan Evolution: changed approach from A to B because..."]
-- [E.g., "Defer Task Z because... (impact on AC: none/minimal)"]
-
-### Justification:
-[Explain why these changes are needed and how they serve the Ultimate Goal]
-\`\`\`
-
-Codex will review your request and update the Goal Tracker if justified.
-EOF
+# Add goal tracker update request template
+GOAL_UPDATE_REQUEST=$(load_template "$TEMPLATE_DIR" "claude/goal-tracker-update-request.md" 2>/dev/null)
+if [[ -z "$GOAL_UPDATE_REQUEST" ]]; then
+    GOAL_UPDATE_REQUEST="Include a Goal Tracker Update Request section in your summary if needed."
+fi
+echo "$GOAL_UPDATE_REQUEST" >> "$NEXT_PROMPT_FILE"
 
 # Build system message
 SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Codex found issues to address"

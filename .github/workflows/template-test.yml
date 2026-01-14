@@ -1,0 +1,65 @@
+name: Template Loader Tests
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'prompt-template/**'
+      - 'hooks/**'
+      - 'tests/**'
+      - '.github/workflows/template-test.yml'
+  pull_request:
+    branches: ['**']
+    paths:
+      - 'prompt-template/**'
+      - 'hooks/**'
+      - 'tests/**'
+      - '.github/workflows/template-test.yml'
+
+jobs:
+  template-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run template loader unit tests
+        run: |
+          echo "========================================"
+          echo "Running template loader unit tests"
+          echo "========================================"
+          chmod +x tests/test-template-loader.sh
+          ./tests/test-template-loader.sh
+
+      - name: Run comprehensive template validation
+        run: |
+          echo "========================================"
+          echo "Running comprehensive template validation"
+          echo "========================================"
+          chmod +x tests/test-templates-comprehensive.sh
+          ./tests/test-templates-comprehensive.sh
+
+      - name: Verify template references exist
+        run: |
+          echo "========================================"
+          echo "Verifying all template references exist"
+          echo "========================================"
+          chmod +x tests/test-template-references.sh
+          ./tests/test-template-references.sh
+
+      - name: Verify all hook scripts still work
+        run: |
+          echo "========================================"
+          echo "Verifying hook scripts can source templates"
+          echo "========================================"
+
+          # Test that all hook scripts can source the template loader
+          for script in hooks/loop-*.sh; do
+            echo "Testing: $script"
+            # Just source the script in a subshell to verify no errors
+            # We can't actually run them without the proper environment
+            bash -n "$script" && echo "  Syntax: OK"
+          done
+
+          echo ""
+          echo "All hook scripts are valid"

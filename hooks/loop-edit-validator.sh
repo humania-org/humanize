@@ -100,15 +100,17 @@ if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
 
         if [[ -n "$CLAUDE_ROUND" ]] && [[ "$CLAUDE_ROUND" != "$CURRENT_ROUND" ]]; then
             CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
-            cat >&2 << EOF
-# Wrong Round Number
+            FALLBACK="# Wrong Round Number
 
-You are trying to edit \`round-${CLAUDE_ROUND}-summary.md\`, but the current round is **${CURRENT_ROUND}**.
+You tried to {{ACTION}} round-{{CLAUDE_ROUND}}-{{FILE_TYPE}}.md but current round is **{{CURRENT_ROUND}}**.
 
-**Correct path**: \`$CORRECT_PATH\`
-
-Do NOT increment the round number yourself.
-EOF
+Edit: {{CORRECT_PATH}}"
+            load_and_render_safe "$TEMPLATE_DIR" "block/wrong-round-number.md" "$FALLBACK" \
+                "ACTION=edit" \
+                "CLAUDE_ROUND=$CLAUDE_ROUND" \
+                "FILE_TYPE=summary" \
+                "CURRENT_ROUND=$CURRENT_ROUND" \
+                "CORRECT_PATH=$CORRECT_PATH" >&2
             exit 2
         fi
     fi

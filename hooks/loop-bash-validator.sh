@@ -55,13 +55,11 @@ PUSH_EVERY_ROUND=$(grep -E "^push_every_round:" "$STATE_FILE" 2>/dev/null | sed 
 if [[ "$PUSH_EVERY_ROUND" != "true" ]]; then
     # Check if command is a git push command
     if [[ "$COMMAND_LOWER" =~ ^[[:space:]]*git[[:space:]]+push ]]; then
-        echo "BLOCKED: git push is not required during RLCR loop." >&2
-        echo "" >&2
-        echo "Current commits should stay local - no need to push to remote." >&2
-        echo "The loop will handle commits locally until completion." >&2
-        echo "" >&2
-        echo "If you need to push, use --push-every-round when starting the loop:" >&2
-        echo "  /humanize:start-rlcr-loop plan.md --push-every-round" >&2
+        FALLBACK="# Git Push Blocked
+
+Commits should stay local during the RLCR loop.
+Use --push-every-round flag when starting the loop if you need to push each round."
+        load_and_render_safe "$TEMPLATE_DIR" "block/git-push.md" "$FALLBACK" >&2
         exit 2
     fi
 fi
