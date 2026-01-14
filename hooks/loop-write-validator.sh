@@ -48,15 +48,8 @@ fi
 # Determine File Types
 # ========================================
 
-IS_SUMMARY_FILE=false
-if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
-    IS_SUMMARY_FILE=true
-fi
-
-IN_HUMANIZE_LOOP_DIR=false
-if is_in_humanize_loop_dir "$FILE_PATH"; then
-    IN_HUMANIZE_LOOP_DIR=true
-fi
+IS_SUMMARY_FILE=$(is_round_file_type "$FILE_PATH_LOWER" "summary" && echo "true" || echo "false")
+IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || echo "false")
 
 # If not a summary file and not in .humanize-loop.local, allow normally
 if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" ]]; then
@@ -110,13 +103,11 @@ fi
 
 if [[ "$IS_SUMMARY_FILE" == "true" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" ]]; then
     CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
-    cat >&2 << EOF
-# Wrong Summary Location
+    FALLBACK="# Wrong Summary Location
 
-Summary files MUST be in the loop directory.
-
-**Correct path**: \`$CORRECT_PATH\`
-EOF
+Write summary to the correct path: {{CORRECT_PATH}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/wrong-summary-location.md" "$FALLBACK" \
+        "CORRECT_PATH=$CORRECT_PATH" >&2
     exit 2
 fi
 
@@ -141,15 +132,17 @@ if [[ "$IS_SUMMARY_FILE" == "true" ]]; then
 
     if [[ -n "$CLAUDE_ROUND" ]] && [[ "$CLAUDE_ROUND" != "$CURRENT_ROUND" ]]; then
         CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
-        cat >&2 << EOF
-# Wrong Round Number
+        FALLBACK="# Wrong Round Number
 
-You are trying to write to \`round-${CLAUDE_ROUND}-summary.md\`, but the current round is **${CURRENT_ROUND}**.
+You tried to {{ACTION}} round-{{CLAUDE_ROUND}}-{{FILE_TYPE}}.md but current round is **{{CURRENT_ROUND}}**.
 
-**Correct path**: \`$CORRECT_PATH\`
-
-Do NOT increment the round number yourself.
-EOF
+Write to: {{CORRECT_PATH}}"
+        load_and_render_safe "$TEMPLATE_DIR" "block/wrong-round-number.md" "$FALLBACK" \
+            "ACTION=write to" \
+            "CLAUDE_ROUND=$CLAUDE_ROUND" \
+            "FILE_TYPE=summary" \
+            "CURRENT_ROUND=$CURRENT_ROUND" \
+            "CORRECT_PATH=$CORRECT_PATH" >&2
         exit 2
     fi
 fi
@@ -161,12 +154,13 @@ fi
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
 if [[ "$FILE_PATH" != "$CORRECT_PATH" ]]; then
-    cat >&2 << EOF
-# Wrong Directory Path
+    FALLBACK="# Wrong Directory Path
 
-You are trying to write to: \`$FILE_PATH\`
-Correct path: \`$CORRECT_PATH\`
-EOF
+You tried to {{ACTION}} {{FILE_PATH}} but the correct path is {{CORRECT_PATH}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/wrong-directory-path.md" "$FALLBACK" \
+        "ACTION=write to" \
+        "FILE_PATH=$FILE_PATH" \
+        "CORRECT_PATH=$CORRECT_PATH" >&2
     exit 2
 fi
 

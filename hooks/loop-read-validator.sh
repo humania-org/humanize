@@ -42,23 +42,12 @@ fi
 # Check for Round Files (summary/prompt)
 # ========================================
 
-IS_ROUND_FILE=false
-CLAUDE_FILENAME=""
-
-if is_round_file_type "$FILE_PATH_LOWER" "summary" || is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
-    IS_ROUND_FILE=true
-    CLAUDE_FILENAME=$(basename "$FILE_PATH")
-fi
-
-if [[ "$IS_ROUND_FILE" == "false" ]]; then
+if ! is_round_file_type "$FILE_PATH_LOWER" "summary" && ! is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
     exit 0
 fi
 
-# Check if path contains .humanize-loop.local
-IN_HUMANIZE_LOOP_DIR=false
-if is_in_humanize_loop_dir "$FILE_PATH"; then
-    IN_HUMANIZE_LOOP_DIR=true
-fi
+CLAUDE_FILENAME=$(basename "$FILE_PATH")
+IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || echo "false")
 
 # ========================================
 # Find Active Loop and Current Round
@@ -97,17 +86,13 @@ fi
 
 if [[ "$IN_HUMANIZE_LOOP_DIR" == "false" ]]; then
     CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-${FILE_TYPE}.md"
-    cat >&2 << EOF
-# Wrong File Location
+    FALLBACK="# Wrong File Location
 
-You are trying to read \`$FILE_PATH\`, but loop files are in \`$ACTIVE_LOOP_DIR/\`.
-
-**Current round files**:
-- Prompt: \`$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-prompt.md\`
-- Summary: \`$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md\`
-
-If you need this file, use: \`cat $FILE_PATH\`
-EOF
+Reading {{FILE_PATH}} is blocked. Read from the active loop: {{ACTIVE_LOOP_DIR}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/wrong-file-location.md" "$FALLBACK" \
+        "FILE_PATH=$FILE_PATH" \
+        "ACTIVE_LOOP_DIR=$ACTIVE_LOOP_DIR" \
+        "CURRENT_ROUND=$CURRENT_ROUND" >&2
     exit 2
 fi
 
@@ -116,17 +101,17 @@ fi
 # ========================================
 
 if [[ "$CLAUDE_ROUND" != "$CURRENT_ROUND" ]]; then
-    cat >&2 << EOF
-# Wrong Round File
+    FALLBACK="# Wrong Round File
 
-You are trying to read \`round-${CLAUDE_ROUND}-${FILE_TYPE}.md\`, but the current round is **${CURRENT_ROUND}**.
+You tried to read round-{{CLAUDE_ROUND}}-{{FILE_TYPE}}.md but current round is **{{CURRENT_ROUND}}**.
 
-**Current round files**:
-- Prompt: \`$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-prompt.md\`
-- Summary: \`$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md\`
-
-If you need this file, use: \`cat $FILE_PATH\`
-EOF
+Read from: {{ACTIVE_LOOP_DIR}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/wrong-round-file.md" "$FALLBACK" \
+        "CLAUDE_ROUND=$CLAUDE_ROUND" \
+        "FILE_TYPE=$FILE_TYPE" \
+        "CURRENT_ROUND=$CURRENT_ROUND" \
+        "ACTIVE_LOOP_DIR=$ACTIVE_LOOP_DIR" \
+        "FILE_PATH=$FILE_PATH" >&2
     exit 2
 fi
 
@@ -137,14 +122,13 @@ fi
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
 if [[ "$FILE_PATH" != "$CORRECT_PATH" ]]; then
-    cat >&2 << EOF
-# Wrong Directory Path
+    FALLBACK="# Wrong Directory Path
 
-You are trying to read: \`$FILE_PATH\`
-Correct path: \`$CORRECT_PATH\`
-
-If you need this file, use: \`cat $FILE_PATH\`
-EOF
+You tried to {{ACTION}} {{FILE_PATH}} but the correct path is {{CORRECT_PATH}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/wrong-directory-path.md" "$FALLBACK" \
+        "ACTION=read" \
+        "FILE_PATH=$FILE_PATH" \
+        "CORRECT_PATH=$CORRECT_PATH" >&2
     exit 2
 fi
 

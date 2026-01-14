@@ -8,6 +8,18 @@
 # - loop-bash-validator.sh
 #
 
+# Source template loader
+LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$LOOP_COMMON_DIR/template-loader.sh"
+
+# Initialize template directory (can be overridden by sourcing script)
+TEMPLATE_DIR="${TEMPLATE_DIR:-$(get_template_dir "$LOOP_COMMON_DIR")}"
+
+# Validate template directory exists (warn but don't fail - allows graceful degradation)
+if ! validate_template_dir "$TEMPLATE_DIR" 2>/dev/null; then
+    echo "Warning: Template directory validation failed. Using inline fallbacks." >&2
+fi
+
 # Find the most recent active loop directory
 # Only checks the newest directory - older directories are ignored even if they have state.md
 # This prevents "zombie" loops from being revived after abnormal exits
@@ -24,8 +36,7 @@ find_active_loop() {
     local newest_dir
     newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
 
-    if [[ -n "$newest_dir" ]] && [[ -f "${newest_dir}state.md" ]]; then
-        # Remove trailing slash to avoid double slashes in paths
+    if [[ -n "$newest_dir" && -f "${newest_dir}state.md" ]]; then
         echo "${newest_dir%/}"
     else
         echo ""
@@ -76,85 +87,51 @@ extract_round_number() {
 # Usage: todos_blocked_message "Read|Write|Bash"
 todos_blocked_message() {
     local action="$1"
+    local fallback="# Todos File Access Blocked
 
-    cat << 'EOF'
-# Todos File Access Blocked
+Do NOT create or access round-*-todos.md files. Use the native TodoWrite tool instead."
 
-Do NOT create or access `round-*-todos.md` files.
-
-**Use the native TodoWrite tool instead.**
-
-The native todo tools provide proper state tracking visible in the UI and
-integration with Claude Code's task management system.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/todos-file-access.md" "$fallback"
 }
 
 # Standard message for blocking prompt file writes
 prompt_write_blocked_message() {
-    cat << 'EOF'
-# Prompt File Write Blocked
+    local fallback="# Prompt File Write Blocked
 
-You cannot write to `round-*-prompt.md` files.
+You cannot write to round-*-prompt.md files. These contain instructions FROM Codex TO you."
 
-**Prompt files contain instructions FROM Codex TO you (Claude).**
-
-You cannot modify your own instructions. Your job is to:
-1. Read the current round's prompt file for instructions
-2. Execute the tasks described in the prompt
-3. Write your results to the summary file
-
-If the prompt contains errors, document this in your summary file.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/prompt-file-write.md" "$fallback"
 }
 
 # Standard message for blocking state file modifications
 state_file_blocked_message() {
-    cat << 'EOF'
-# State File Modification Blocked
+    local fallback="# State File Modification Blocked
 
-You cannot modify `state.md`. This file is managed by the loop system.
+You cannot modify state.md. This file is managed by the loop system."
 
-The state file contains:
-- Current round number
-- Max iterations
-- Codex configuration
-
-Modifying it would corrupt the loop state.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/state-file-modification.md" "$fallback"
 }
 
 # Standard message for blocking summary file modifications via Bash
 # Usage: summary_bash_blocked_message "$correct_summary_path"
 summary_bash_blocked_message() {
     local correct_path="$1"
+    local fallback="# Bash Write Blocked
 
-    cat << EOF
-# Bash Write Blocked: Use Write or Edit Tool
+Do not use Bash commands to modify summary files. Use the Write or Edit tool instead: {{CORRECT_PATH}}"
 
-Do not use Bash commands to modify summary files.
-
-**Use the Write or Edit tool instead**: \`$correct_path\`
-
-Bash commands like cat, echo, sed, awk, etc. bypass the validation hooks.
-Please use the proper tools to ensure correct round number validation.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/summary-bash-write.md" "$fallback" "CORRECT_PATH=$correct_path"
 }
 
 # Standard message for blocking goal-tracker modifications via Bash in Round 0
 # Usage: goal_tracker_bash_blocked_message "$correct_goal_tracker_path"
 goal_tracker_bash_blocked_message() {
     local correct_path="$1"
+    local fallback="# Bash Write Blocked
 
-    cat << EOF
-# Bash Write Blocked: Use Write or Edit Tool
+Do not use Bash commands to modify goal-tracker.md. Use the Write or Edit tool instead: {{CORRECT_PATH}}"
 
-Do not use Bash commands to modify goal-tracker.md.
-
-**Use the Write or Edit tool instead**: \`$correct_path\`
-
-Bash commands like cat, echo, sed, awk, etc. bypass the validation hooks.
-Please use the proper tools to modify the Goal Tracker.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-bash-write.md" "$fallback" "CORRECT_PATH=$correct_path"
 }
 
 # Check if a path (lowercase) targets goal-tracker.md
@@ -205,32 +182,11 @@ command_modifies_file() {
 goal_tracker_blocked_message() {
     local current_round="$1"
     local summary_file="$2"
+    local fallback="# Goal Tracker Modification Blocked (Round {{CURRENT_ROUND}})
 
-    cat << EOF
-# Goal Tracker Modification Blocked (Round ${current_round})
+After Round 0, only Codex can modify the Goal Tracker. Include a Goal Tracker Update Request in your summary: {{SUMMARY_FILE}}"
 
-After Round 0, **only Codex can modify the Goal Tracker**.
-
-You CANNOT directly modify \`goal-tracker.md\` via Write, Edit, or Bash commands.
-
-## How to Request Changes
-
-Include a **"Goal Tracker Update Request"** section in your summary file:
-\`$summary_file\`
-
-Use this format:
-\`\`\`markdown
-## Goal Tracker Update Request
-
-### Requested Changes:
-- [E.g., "Mark Task X as completed with evidence: tests pass"]
-- [E.g., "Add to Open Issues: discovered Y needs addressing"]
-- [E.g., "Plan Evolution: changed approach from A to B because..."]
-
-### Justification:
-[Explain why these changes are needed and how they serve the Ultimate Goal]
-\`\`\`
-
-Codex will review your request and update the Goal Tracker if the changes are justified.
-EOF
+    load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \
+        "CURRENT_ROUND=$current_round" \
+        "SUMMARY_FILE=$summary_file"
 }
