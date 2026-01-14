@@ -246,6 +246,20 @@ fi
 
 # Check if --commit-plan-file requires the plan file to be trackable
 if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
+    # Check if plan file is outside the project (relative path starts with ../)
+    if [[ "$PLAN_FILE_REL" == ../* ]]; then
+        echo "Error: --commit-plan-file is set but the plan file is outside the project" >&2
+        echo "" >&2
+        echo "Plan file: $PLAN_FILE" >&2
+        echo "Relative path: $PLAN_FILE_REL" >&2
+        echo "" >&2
+        echo "When using --commit-plan-file, the plan file must be inside the git repository." >&2
+        echo "Either:" >&2
+        echo "  1. Move the plan file inside the project" >&2
+        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        exit 1
+    fi
+
     # Check if plan file is git-ignored
     if git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
         echo "Error: --commit-plan-file is set but the plan file is git-ignored" >&2

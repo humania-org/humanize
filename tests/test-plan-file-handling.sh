@@ -167,6 +167,21 @@ else
     fail "Setup script doesn't require at least one commit"
 fi
 
+# Test 3.6: Check setup script validates plan file inside project when --commit-plan-file
+echo "Testing plan file location validation..."
+
+if grep -q "plan file is outside the project" "$SETUP_SCRIPT"; then
+    pass "Setup script validates plan file must be inside project for --commit-plan-file"
+else
+    fail "Setup script missing outside project validation for --commit-plan-file"
+fi
+
+if grep -q 'PLAN_FILE_REL.* == \.\./\*' "$SETUP_SCRIPT"; then
+    pass "Setup script checks for ../ prefix in relative path"
+else
+    fail "Setup script doesn't check for ../ prefix"
+fi
+
 section "Section 4: Stop Hook Git Status Filtering"
 
 STOP_HOOK="$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"
