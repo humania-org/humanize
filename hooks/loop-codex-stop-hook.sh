@@ -511,20 +511,24 @@ fi
 
 # First, check if codex command exists
 if ! command -v codex &>/dev/null; then
-    echo "" >&2
-    echo "========================================" >&2
-    echo "RLCR LOOP ERROR: Codex Not Found" >&2
-    echo "========================================" >&2
-    echo "The 'codex' command is not installed or not in PATH." >&2
-    echo "RLCR loop requires Codex CLI to perform code reviews." >&2
-    echo "" >&2
-    echo "To install Codex CLI, visit: https://github.com/openai/codex" >&2
-    echo "" >&2
-    echo "Exit blocked - install codex and retry, or use /cancel-rlcr-loop to end the loop." >&2
-    echo "========================================" >&2
-    # Keep state file so loop can be retried after installing codex
-    # Block exit (exit 2) to enforce review requirement
-    exit 2
+    REASON="# Codex Not Found
+
+The 'codex' command is not installed or not in PATH.
+RLCR loop requires Codex CLI to perform code reviews.
+
+**To fix:**
+1. Install Codex CLI: https://github.com/openai/codex
+2. Retry the exit
+
+Or use \`/cancel-rlcr-loop\` to end the loop."
+
+    cat <<EOF
+{
+    "decision": "block",
+    "reason": $(echo "$REASON" | jq -Rs .)
+}
+EOF
+    exit 0
 fi
 
 echo "Running Codex review for round $CURRENT_ROUND..." >&2
@@ -601,29 +605,31 @@ echo "Codex stderr saved to: $CODEX_STDERR_FILE" >&2
 # ========================================
 
 # Helper function to print Codex failure and block exit for retry
+# Uses JSON output with exit 0 (per Claude Code hooks spec) instead of exit 2
 codex_failure_exit() {
     local error_type="$1"
     local details="$2"
 
-    echo "" >&2
-    echo "========================================" >&2
-    echo "RLCR LOOP ERROR: Codex Review Failed" >&2
-    echo "========================================" >&2
-    echo "Error Type: $error_type" >&2
-    echo "" >&2
-    echo "$details" >&2
-    echo "" >&2
-    echo "Debug files:" >&2
-    echo "  Command:  $CODEX_CMD_FILE" >&2
-    echo "  Stdout:   $CODEX_STDOUT_FILE" >&2
-    echo "  Stderr:   $CODEX_STDERR_FILE" >&2
-    echo "" >&2
-    echo "Exit blocked - please retry or use /cancel-rlcr-loop to end the loop." >&2
-    echo "========================================" >&2
+    REASON="# Codex Review Failed
 
-    # Keep state file so loop can be retried
-    # Block exit (exit 2) to enforce review requirement
-    exit 2
+**Error Type:** $error_type
+
+$details
+
+**Debug files:**
+- Command: $CODEX_CMD_FILE
+- Stdout: $CODEX_STDOUT_FILE
+- Stderr: $CODEX_STDERR_FILE
+
+Please retry or use \`/cancel-rlcr-loop\` to end the loop."
+
+    cat <<EOF
+{
+    "decision": "block",
+    "reason": $(echo "$REASON" | jq -Rs .)
+}
+EOF
+    exit 0
 }
 
 # Check 1: Codex exit code indicates failure
