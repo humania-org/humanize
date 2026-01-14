@@ -1,0 +1,61 @@
+name: Shell Syntax Check
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  shell-syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Find all shell scripts
+        id: find-scripts
+        run: |
+          scripts=$(find . -name "*.sh" -type f | sort)
+          echo "Found shell scripts:"
+          echo "$scripts"
+          echo "scripts<<EOF" >> $GITHUB_OUTPUT
+          echo "$scripts" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Check bash syntax
+        run: |
+          echo "Checking bash syntax for all .sh files..."
+          exit_code=0
+          while IFS= read -r script; do
+            if [ -n "$script" ]; then
+              echo "Checking: $script"
+              if bash -n "$script"; then
+                echo "  bash: OK"
+              else
+                echo "  bash: FAILED"
+                exit_code=1
+              fi
+            fi
+          done <<< "${{ steps.find-scripts.outputs.scripts }}"
+          exit $exit_code
+
+      - name: Check zsh syntax
+        run: |
+          echo "Checking zsh syntax for all .sh files..."
+          exit_code=0
+          while IFS= read -r script; do
+            if [ -n "$script" ]; then
+              echo "Checking: $script"
+              if zsh -n "$script"; then
+                echo "  zsh: OK"
+              else
+                echo "  zsh: FAILED"
+                exit_code=1
+              fi
+            fi
+          done <<< "${{ steps.find-scripts.outputs.scripts }}"
+          exit $exit_code

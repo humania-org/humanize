@@ -1,0 +1,123 @@
+name: Version Bump Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-bump-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version bump
+        run: |
+          echo "Checking that all version numbers have been incremented..."
+
+          # Get the base branch (main)
+          git fetch origin main:refs/remotes/origin/main
+
+          # Function to compare versions (X.Y.Z format)
+          # Returns: 0 if pr > main (valid), 1 if pr <= main (invalid)
+          compare_versions() {
+            local main_ver="$1"
+            local pr_ver="$2"
+
+            # Split versions into components
+            local main_x main_y main_z pr_x pr_y pr_z
+            IFS='.' read -r main_x main_y main_z <<< "$main_ver"
+            IFS='.' read -r pr_x pr_y pr_z <<< "$pr_ver"
+
+            # Compare X first
+            if [ "$pr_x" -gt "$main_x" ]; then
+              return 0
+            elif [ "$pr_x" -lt "$main_x" ]; then
+              return 1
+            fi
+
+            # X is equal, compare Y
+            if [ "$pr_y" -gt "$main_y" ]; then
+              return 0
+            elif [ "$pr_y" -lt "$main_y" ]; then
+              return 1
+            fi
+
+            # X and Y are equal, compare Z
+            if [ "$pr_z" -gt "$main_z" ]; then
+              return 0
+            else
+              return 1
+            fi
+          }
+
+          # Files to check
+          FILES=(
+            ".claude-plugin/plugin.json"
+            ".claude-plugin/marketplace.json"
+            "README.md"
+          )
+
+          exit_code=0
+
+          for file in "${FILES[@]}"; do
+            echo ""
+            echo "=== Checking $file ==="
+
+            # Get version from main branch
+            if [ "$file" = "README.md" ]; then
+              # Extract version from README.md format: **Current Version: X.Y.Z**
+              main_version=$(git show origin/main:"$file" 2>/dev/null | grep -oP '\*\*Current Version: \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+              pr_version=$(grep -oP '\*\*Current Version: \K[0-9]+\.[0-9]+\.[0-9]+' "$file" | head -1)
+            else
+              # Extract version from JSON files
+              main_version=$(git show origin/main:"$file" 2>/dev/null | grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+              pr_version=$(grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' "$file" | head -1)
+            fi
+
+            echo "  Main branch version: $main_version"
+            echo "  PR branch version:   $pr_version"
+
+            if [ -z "$main_version" ]; then
+              echo "  WARNING: Could not find version in main branch (new file?)"
+              continue
+            fi
+
+            if [ -z "$pr_version" ]; then
+              echo "  ERROR: Could not find version in PR branch"
+              exit_code=1
+              continue
+            fi
+
+            if compare_versions "$main_version" "$pr_version"; then
+              echo "  OK: Version has been incremented"
+            else
+              if [ "$main_version" = "$pr_version" ]; then
+                echo "  ERROR: Version has NOT been changed!"
+              else
+                echo "  ERROR: Version has been DECREMENTED (regression not allowed)!"
+              fi
+              exit_code=1
+            fi
+          done
+
+          echo ""
+          if [ $exit_code -ne 0 ]; then
+            echo "========================================"
+            echo "FAILED: One or more version numbers have not been properly incremented."
+            echo "Please INCREMENT the version in ALL of these files:"
+            echo "  - .claude-plugin/plugin.json"
+            echo "  - .claude-plugin/marketplace.json"
+            echo "  - README.md (Current Version line)"
+            echo ""
+            echo "Version must be higher than main branch (X.Y.Z priority: X > Y > Z)"
+            echo "========================================"
+          else
+            echo "========================================"
+            echo "PASSED: All version numbers have been properly incremented."
+            echo "========================================"
+          fi
+
+          exit $exit_code
