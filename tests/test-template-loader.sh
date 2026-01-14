@@ -244,6 +244,248 @@ else
 fi
 
 # ========================================
+# Test 15-30: Shell Metacharacters in Values
+# ========================================
+# These tests ensure template values containing shell special characters
+# are rendered literally without interpretation.
+
+echo ""
+echo "========================================"
+echo "Shell Metacharacter Tests"
+echo "========================================"
+
+# Test 15: Ampersand (&) - shell background operator
+echo ""
+echo "Test 15: Ampersand in value"
+TEMPLATE="Note: {{NOTE}}"
+RESULT=$(render_template "$TEMPLATE" "NOTE=A & B")
+EXPECTED="Note: A & B"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Ampersand renders literally"
+else
+    fail "Ampersand in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 16: Backslash (\) - escape character
+echo ""
+echo "Test 16: Backslash in value"
+TEMPLATE="Path: {{PATH}}"
+RESULT=$(render_template "$TEMPLATE" 'PATH=C:\Users\test')
+EXPECTED='Path: C:\Users\test'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Backslash renders literally"
+else
+    fail "Backslash in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 17: Dollar sign ($) - variable expansion
+echo ""
+echo "Test 17: Dollar sign in value"
+TEMPLATE="Price: {{PRICE}}"
+RESULT=$(render_template "$TEMPLATE" 'PRICE=$100')
+EXPECTED='Price: $100'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Dollar sign renders literally"
+else
+    fail "Dollar sign in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 18: Backticks (`) - command substitution
+echo ""
+echo "Test 18: Backticks in value"
+TEMPLATE="Code: {{CODE}}"
+RESULT=$(render_template "$TEMPLATE" 'CODE=`whoami`')
+EXPECTED='Code: `whoami`'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Backticks render literally"
+else
+    fail "Backticks in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 19: Pipe (|) - command pipe
+echo ""
+echo "Test 19: Pipe in value"
+TEMPLATE="Cmd: {{CMD}}"
+RESULT=$(render_template "$TEMPLATE" 'CMD=cat file | grep foo')
+EXPECTED='Cmd: cat file | grep foo'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Pipe renders literally"
+else
+    fail "Pipe in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 20: Semicolon (;) - command separator
+echo ""
+echo "Test 20: Semicolon in value"
+TEMPLATE="Cmds: {{CMDS}}"
+RESULT=$(render_template "$TEMPLATE" 'CMDS=cmd1; cmd2; cmd3')
+EXPECTED='Cmds: cmd1; cmd2; cmd3'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Semicolon renders literally"
+else
+    fail "Semicolon in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 21: Glob patterns (*, ?, [])
+echo ""
+echo "Test 21: Glob patterns in value"
+TEMPLATE="Pattern: {{PATTERN}}"
+RESULT=$(render_template "$TEMPLATE" 'PATTERN=*.txt, file?.md, [a-z].sh')
+EXPECTED='Pattern: *.txt, file?.md, [a-z].sh'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Glob patterns render literally"
+else
+    fail "Glob patterns in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 22: Parentheses () - subshell
+echo ""
+echo "Test 22: Parentheses in value"
+TEMPLATE="Expr: {{EXPR}}"
+RESULT=$(render_template "$TEMPLATE" 'EXPR=(a + b) * c')
+EXPECTED='Expr: (a + b) * c'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Parentheses render literally"
+else
+    fail "Parentheses in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 23: Angle brackets (<>) - redirection
+echo ""
+echo "Test 23: Angle brackets in value"
+TEMPLATE="Redir: {{REDIR}}"
+RESULT=$(render_template "$TEMPLATE" 'REDIR=cat < input > output 2>&1')
+EXPECTED='Redir: cat < input > output 2>&1'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Angle brackets render literally"
+else
+    fail "Angle brackets in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 24: Double quotes (")
+echo ""
+echo "Test 24: Double quotes in value"
+TEMPLATE="Quoted: {{QUOTED}}"
+RESULT=$(render_template "$TEMPLATE" 'QUOTED=He said "hello"')
+EXPECTED='Quoted: He said "hello"'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Double quotes render literally"
+else
+    fail "Double quotes in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 25: Single quotes (')
+echo ""
+echo "Test 25: Single quotes in value"
+TEMPLATE="Quoted: {{QUOTED}}"
+RESULT=$(render_template "$TEMPLATE" "QUOTED=It's working")
+EXPECTED="Quoted: It's working"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Single quotes render literally"
+else
+    fail "Single quotes in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 26: Hash (#) - comment
+echo ""
+echo "Test 26: Hash in value"
+TEMPLATE="Comment: {{COMMENT}}"
+RESULT=$(render_template "$TEMPLATE" 'COMMENT=# This is a comment')
+EXPECTED='Comment: # This is a comment'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Hash renders literally"
+else
+    fail "Hash in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 27: Tilde (~) - home directory
+echo ""
+echo "Test 27: Tilde in value"
+TEMPLATE="Home: {{HOME_PATH}}"
+RESULT=$(render_template "$TEMPLATE" 'HOME_PATH=~/documents')
+EXPECTED='Home: ~/documents'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Tilde renders literally"
+else
+    fail "Tilde in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 28: Combined shell metacharacters
+echo ""
+echo "Test 28: Combined metacharacters"
+TEMPLATE="Complex: {{COMPLEX}}"
+RESULT=$(render_template "$TEMPLATE" 'COMPLEX=$HOME/*.txt | grep "test" & echo done')
+EXPECTED='Complex: $HOME/*.txt | grep "test" & echo done'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Combined metacharacters render literally"
+else
+    fail "Combined metacharacters in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 29: Multiple ampersands (regression test for gsub & bug)
+echo ""
+echo "Test 29: Multiple ampersands"
+TEMPLATE="Items: {{ITEMS}}"
+RESULT=$(render_template "$TEMPLATE" "ITEMS=A & B & C & D")
+EXPECTED="Items: A & B & C & D"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Multiple ampersands render correctly"
+else
+    fail "Multiple ampersands in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 30: Windows-style paths with backslashes
+echo ""
+echo "Test 30: Windows paths"
+TEMPLATE="WinPath: {{WINPATH}}"
+RESULT=$(render_template "$TEMPLATE" 'WINPATH=C:\Program Files\App\bin\run.exe')
+EXPECTED='WinPath: C:\Program Files\App\bin\run.exe'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Windows paths render correctly"
+else
+    fail "Windows paths in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 31: Regex-like patterns
+echo ""
+echo "Test 31: Regex patterns"
+TEMPLATE="Regex: {{REGEX}}"
+RESULT=$(render_template "$TEMPLATE" 'REGEX=\d+\.\d+\s*$')
+EXPECTED='Regex: \d+\.\d+\s*$'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Regex patterns render correctly"
+else
+    fail "Regex patterns in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 32: JSON-like content
+echo ""
+echo "Test 32: JSON content"
+TEMPLATE="JSON: {{JSON}}"
+RESULT=$(render_template "$TEMPLATE" 'JSON={"key": "value", "count": 42}')
+EXPECTED='JSON: {"key": "value", "count": 42}'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "JSON content renders correctly"
+else
+    fail "JSON content in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 33: Multiline value with metacharacters
+echo ""
+echo "Test 33: Multiline with metacharacters"
+TEMPLATE="Content: {{CONTENT}}"
+MULTILINE_VAL='Line 1: $VAR & stuff
+Line 2: path\to\file
+Line 3: `command`'
+RESULT=$(render_template "$TEMPLATE" "CONTENT=$MULTILINE_VAL")
+EXPECTED="Content: $MULTILINE_VAL"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Multiline with metacharacters renders correctly"
+else
+    fail "Multiline with metacharacters" "$EXPECTED" "$RESULT"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""
