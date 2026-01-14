@@ -520,10 +520,11 @@ if ! command -v codex &>/dev/null; then
     echo "" >&2
     echo "To install Codex CLI, visit: https://github.com/openai/codex" >&2
     echo "" >&2
-    echo "Loop terminated. Claude Code exit allowed." >&2
+    echo "Exit blocked - install codex and retry, or use /cancel-rlcr-loop to end the loop." >&2
     echo "========================================" >&2
-    rm -f "$STATE_FILE"
-    exit 0
+    # Keep state file so loop can be retried after installing codex
+    # Block exit (exit 2) to enforce review requirement
+    exit 2
 fi
 
 echo "Running Codex review for round $CURRENT_ROUND..." >&2
@@ -599,7 +600,7 @@ echo "Codex stderr saved to: $CODEX_STDERR_FILE" >&2
 # Check Codex Execution Result
 # ========================================
 
-# Helper function to print Codex failure and allow exit
+# Helper function to print Codex failure and block exit for retry
 codex_failure_exit() {
     local error_type="$1"
     local details="$2"
@@ -617,13 +618,12 @@ codex_failure_exit() {
     echo "  Stdout:   $CODEX_STDOUT_FILE" >&2
     echo "  Stderr:   $CODEX_STDERR_FILE" >&2
     echo "" >&2
-    echo "Loop terminated due to Codex failure." >&2
-    echo "Claude Code exit allowed." >&2
+    echo "Exit blocked - please retry or use /cancel-rlcr-loop to end the loop." >&2
     echo "========================================" >&2
 
-    # Clean up state file to end the loop
-    rm -f "$STATE_FILE"
-    exit 0
+    # Keep state file so loop can be retried
+    # Block exit (exit 2) to enforce review requirement
+    exit 2
 }
 
 # Check 1: Codex exit code indicates failure
