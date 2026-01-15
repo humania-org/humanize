@@ -186,6 +186,7 @@ fi
 # Note: These fields may not exist in older state files, so we provide defaults
 COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
 PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
+PLAN_FILE_TRACKED=$(grep -E "^plan_file_tracked:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file_tracked: *//' || echo "false")
 START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
 
 # ========================================
@@ -218,31 +219,55 @@ fi
 # ========================================
 # Check for Plan File Modification
 # ========================================
-# If the plan file has been modified since the loop started (compared to backup),
-# the loop should be terminated as the work may no longer align with the new plan.
+# For TRACKED plan files: modification is handled by git clean check (must be committed)
+# For UNTRACKED plan files: if modified, allow stop but show warning with instructions
 
 PLAN_BACKUP_FILE="$LOOP_DIR/plan-backup.md"
+PLAN_FILE_MODIFIED="false"
+
 if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
     if ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
-        # Plan file has changed - rename state.md to .bak to stop further loop iterations
-        mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
-
-        FALLBACK="# RLCR Loop Terminated - Plan File Modified
-
-The plan file has been modified since the loop started. Please restart the loop with the updated plan."
-        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified.md" "$FALLBACK" \
-            "PLAN_FILE=$PLAN_FILE_FROM_STATE")
-
-        jq -n \
-            --arg reason "$REASON" \
-            --arg msg "Loop: Terminated - plan file was modified, please restart the loop" \
-            '{
-                "decision": "allow",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
+        PLAN_FILE_MODIFIED="true"
     fi
+fi
+
+# Only warn about untracked plan file modifications (tracked files are handled by git clean check)
+if [[ "$PLAN_FILE_MODIFIED" == "true" ]] && [[ "$PLAN_FILE_TRACKED" != "true" ]]; then
+    # Untracked plan file has changed - allow stop but show warning
+    # Do NOT terminate the loop, just warn the user
+    FALLBACK="# Warning: Plan File Modified
+
+The plan file has been modified since the loop started.
+
+**Plan file**: \`{{PLAN_FILE}}\`
+**Backup**: \`{{PLAN_BACKUP_FILE}}\`
+
+The current plan differs from the backup taken when the loop started. Your work may no longer align with the updated plan.
+
+**Options:**
+1. **Restart the loop** with the new plan:
+   \`/humanize:start-rlcr-loop {{PLAN_FILE}}\`
+
+2. **Continue with the new plan** by overwriting the backup:
+   \`cp '{{PLAN_FILE}}' '{{PLAN_BACKUP_FILE}}'\`
+   Then type \`continue\` to resume the RLCR loop.
+
+3. **Revert to the original plan**:
+   \`cp '{{PLAN_BACKUP_FILE}}' '{{PLAN_FILE}}'\`
+   Then type \`continue\` to resume the RLCR loop."
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified-warning.md" "$FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
+        "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE")
+
+    jq -n \
+        --arg reason "$REASON" \
+        --arg msg "Loop: Warning - untracked plan file was modified, see options above" \
+        '{
+            "decision": "allow",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
 fi
 
 # Check if git is available and we're in a git repo

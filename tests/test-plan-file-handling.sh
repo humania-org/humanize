@@ -105,11 +105,50 @@ else
     fail "State file missing start_commit field"
 fi
 
+if grep -q "plan_file_tracked:" "$SETUP_SCRIPT"; then
+    pass "State file includes plan_file_tracked field"
+else
+    fail "State file missing plan_file_tracked field"
+fi
+
 # Test 2.2: Check plan backup is created
 if grep -q "plan-backup.md" "$SETUP_SCRIPT"; then
     pass "Setup script creates plan-backup.md"
 else
     fail "Setup script doesn't create plan-backup.md"
+fi
+
+# Test 2.3: Check PROJECT_ROOT is initialized unconditionally
+if grep -q 'PROJECT_ROOT=.*CLAUDE_PROJECT_DIR' "$SETUP_SCRIPT" | head -1 && \
+   grep -B5 'PLAN_FILE_REL=.*realpath' "$SETUP_SCRIPT" | grep -q 'PROJECT_ROOT='; then
+    pass "PROJECT_ROOT initialized before PLAN_FILE_REL calculation"
+else
+    # Alternative check: PROJECT_ROOT should be set before the relative path calculation
+    if grep -n 'PROJECT_ROOT=' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/proj_root_line && \
+       grep -n 'PLAN_FILE_REL=.*realpath' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/plan_rel_line; then
+        PROJ_LINE=$(cat /tmp/proj_root_line)
+        REL_LINE=$(cat /tmp/plan_rel_line)
+        if [[ "$PROJ_LINE" -lt "$REL_LINE" ]]; then
+            pass "PROJECT_ROOT initialized before PLAN_FILE_REL calculation"
+        else
+            fail "PROJECT_ROOT not initialized before PLAN_FILE_REL"
+        fi
+    else
+        fail "PROJECT_ROOT not initialized before PLAN_FILE_REL"
+    fi
+fi
+
+# Test 2.4: Check tracked plan file must be clean
+if grep -q "Plan file has uncommitted changes" "$SETUP_SCRIPT"; then
+    pass "Setup script validates tracked plan file must be clean"
+else
+    fail "Setup script missing tracked plan file clean check"
+fi
+
+if grep -q "git ls-files.*error-unmatch" "$SETUP_SCRIPT"; then
+    pass "Setup script uses git ls-files to check if plan file is tracked"
+else
+    fail "Setup script missing git ls-files check for tracked status"
 fi
 
 section "Section 3: Git-Ignored Validation"
@@ -286,11 +325,25 @@ else
     fail "Stop hook doesn't use diff for plan file comparison"
 fi
 
-# Test 4.14: Check plan file modification uses template
-if grep -q 'load_and_render_safe.*plan-file-modified.md' "$STOP_HOOK"; then
-    pass "Stop hook uses template for plan file modified message"
+# Test 4.14: Check stop hook reads plan_file_tracked from state
+if grep -q 'PLAN_FILE_TRACKED=.*grep.*plan_file_tracked' "$STOP_HOOK"; then
+    pass "Stop hook reads plan_file_tracked from state"
 else
-    fail "Stop hook doesn't use template for plan file modified message"
+    fail "Stop hook doesn't read plan_file_tracked from state"
+fi
+
+# Test 4.15: Check plan file modification uses warning template for untracked files
+if grep -q 'load_and_render_safe.*plan-file-modified-warning.md' "$STOP_HOOK"; then
+    pass "Stop hook uses warning template for untracked plan file modification"
+else
+    fail "Stop hook doesn't use warning template for plan file modification"
+fi
+
+# Test 4.16: Check plan file modification only warns for untracked files
+if grep -q 'PLAN_FILE_TRACKED.*!=.*true' "$STOP_HOOK"; then
+    pass "Stop hook only warns about untracked plan file modifications"
+else
+    fail "Stop hook missing check for plan_file_tracked in modification warning"
 fi
 
 section "Section 5: Template File Existence"
@@ -311,12 +364,12 @@ else
     fail "pre-112-state-file.md template missing"
 fi
 
-# Test 5.1c: Check plan-file-modified template exists
-TEMPLATE_FILE_MOD="$PROJECT_ROOT/prompt-template/block/plan-file-modified.md"
+# Test 5.1c: Check plan-file-modified-warning template exists
+TEMPLATE_FILE_MOD="$PROJECT_ROOT/prompt-template/block/plan-file-modified-warning.md"
 if [[ -f "$TEMPLATE_FILE_MOD" ]]; then
-    pass "plan-file-modified.md template exists"
+    pass "plan-file-modified-warning.md template exists"
 else
-    fail "plan-file-modified.md template missing"
+    fail "plan-file-modified-warning.md template missing"
 fi
 
 # Test 5.2: Check template has required placeholders

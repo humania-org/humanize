@@ -179,9 +179,11 @@ if [[ -z "$PLAN_FILE" ]]; then
     exit 1
 fi
 
+# Initialize PROJECT_ROOT unconditionally (needed for relative path calculation)
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
 # Make path absolute if relative
 if [[ ! "$PLAN_FILE" = /* ]]; then
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
     PLAN_FILE="$PROJECT_ROOT/$PLAN_FILE"
 fi
 
@@ -209,7 +211,7 @@ if ! git rev-parse HEAD &>/dev/null 2>&1; then
     exit 1
 fi
 
-# Get relative path for validation (P2 fix: only check relative path, not absolute)
+# Get relative path for validation
 PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE" 2>/dev/null || basename "$PLAN_FILE")
 
 # Check plan file relative path is simple (no spaces or regex metacharacters)
@@ -275,10 +277,48 @@ if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
 fi
 
 # ========================================
+# Check Plan File Tracking Status
+# ========================================
+# Determine if plan file is tracked in git (inside repo and not untracked/ignored)
+# If tracked, it must be clean (no uncommitted changes) before starting the loop
+
+PLAN_FILE_TRACKED="false"
+
+# Check if plan file is inside the repo (not starting with ../)
+if [[ "$PLAN_FILE_REL" != ../* ]]; then
+    # Check if it's tracked by git (not untracked and not ignored)
+    # A file is tracked if: it's not in the untracked list AND not ignored
+    if ! git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
+        # Not ignored, check if it's tracked (exists in git index or has been committed)
+        if git ls-files --error-unmatch "$PLAN_FILE_REL" &>/dev/null 2>&1; then
+            PLAN_FILE_TRACKED="true"
+        fi
+    fi
+fi
+
+# If plan file is tracked, it must be clean (no uncommitted changes)
+if [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
+    # Check if plan file has uncommitted changes (staged or unstaged)
+    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
+    if [[ -n "$PLAN_FILE_STATUS" ]]; then
+        echo "Error: Plan file has uncommitted changes" >&2
+        echo "" >&2
+        echo "Plan file: $PLAN_FILE_REL" >&2
+        echo "Status: $PLAN_FILE_STATUS" >&2
+        echo "" >&2
+        echo "The plan file is tracked by git and must be clean before starting RLCR loop." >&2
+        echo "Either:" >&2
+        echo "  1. Commit the plan file changes: git add '$PLAN_FILE_REL' && git commit -m 'Update plan'" >&2
+        echo "  2. Discard the changes: git checkout -- '$PLAN_FILE_REL'" >&2
+        echo "  3. Move the plan file outside the repo or add it to .gitignore" >&2
+        exit 1
+    fi
+fi
+
+# ========================================
 # Setup State Directory
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
 
 # Create timestamp for this loop session
@@ -310,6 +350,7 @@ codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
 commit_plan_file: $COMMIT_PLAN_FILE
 plan_file: $PLAN_FILE
+plan_file_tracked: $PLAN_FILE_TRACKED
 start_commit: $START_COMMIT
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
