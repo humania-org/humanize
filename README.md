@@ -222,7 +222,7 @@ The plan file behavior depends on the `--commit-plan-file` flag and whether the 
 
 #### Case 4: Outside repo without `--commit-plan-file`
 - **Setup**: No restrictions
-- **No checks**: Plan file changes do not affect the loop
+- **UserPromptSubmit hook**: If plan file content differs from backup, **blocks prompt** before processing with recovery options
 
 **Key principle**: Plan file content changes are detected **before prompt processing** via the UserPromptSubmit hook. This blocks work from starting with a stale plan, giving the user a chance to restart the loop or restore the original plan.
 

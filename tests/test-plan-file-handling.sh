@@ -428,6 +428,7 @@ cd "$MOCK_REPO"
 git init -q
 git config user.email "test@test.com"
 git config user.name "Test User"
+git config commit.gpgsign false
 
 # Create initial commit
 echo "initial" > file.txt
@@ -481,6 +482,7 @@ cd "$FRESH_REPO"
 git init -q
 git config user.email "test@test.com"
 git config user.name "Test User"
+git config commit.gpgsign false
 
 # Check that git rev-parse HEAD fails in empty repo
 if git rev-parse HEAD &>/dev/null; then
@@ -522,6 +524,7 @@ cd "$BEHAVIOR_TEST_REPO"
 git init -q
 git config user.email "test@test.com"
 git config user.name "Test User"
+git config commit.gpgsign false
 
 # Create initial commit
 echo "initial" > file.txt

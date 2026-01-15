@@ -86,15 +86,7 @@ get_relative_path() {
         fi
     fi
 
-    # Fallback to Python (widely available)
-    if command -v python3 &>/dev/null; then
-        python3 -c "import os; print(os.path.relpath('$target_real', '$base_real'))" 2>/dev/null && return 0
-    fi
-    if command -v python &>/dev/null; then
-        python -c "import os; print(os.path.relpath('$target_real', '$base_real'))" 2>/dev/null && return 0
-    fi
-
-    # Last resort: if target starts with base, strip the base prefix
+    # Fallback: if target starts with base, strip the base prefix
     if [[ "$target_real" == "$base_real"/* ]]; then
         echo "${target_real#$base_real/}"
         return 0
