@@ -202,18 +202,28 @@ OPTIONS:
 
 ### Plan File Handling
 
-By default, the plan file is treated as a working document and is **not committed** to version control:
+The plan file behavior depends on the `--commit-plan-file` flag and whether the plan file is inside or outside the git repository:
 
-- **Default behavior** (`--commit-plan-file` not set):
-  - Plan file is allowed to remain dirty (uncommitted changes)
-  - The git clean check ignores changes to the plan file
-  - Accidental commits of the plan file are blocked with an error
-  - A backup of the original plan file is saved to `.humanize-loop.local/<timestamp>/plan-backup.md`
+#### Case 1: Inside repo with `--commit-plan-file`
+- **Setup**: Plan file must be tracked (committed) AND clean (no uncommitted changes)
+- **Stop hook**: If plan file becomes dirty or modified, the loop **allows stop** with an error message
+- Plan file changes must be committed like any other file
 
-- **With `--commit-plan-file`**:
-  - Plan file must not be git-ignored
-  - Plan file changes must be committed like any other file
-  - Standard git clean check applies (no exceptions for plan file)
+#### Case 2: Outside repo with `--commit-plan-file`
+- **Setup**: Early failure - this configuration is not allowed
+- **Stop hook**: If detected (e.g., from manual state file edit), allows stop with conflict error
+
+#### Case 3: Inside repo without `--commit-plan-file` (default)
+- **Setup**: Plan file can be tracked or untracked, dirty or clean
+- **Stop hook**: Git clean check ignores the plan file; if plan file content differs from backup, the loop **allows stop** with a warning
+- Accidental commits of the plan file are blocked with an error
+- A backup of the original plan file is saved to `.humanize-loop.local/<timestamp>/plan-backup.md`
+
+#### Case 4: Outside repo without `--commit-plan-file`
+- **Setup**: No restrictions
+- **Stop hook**: No checks on the plan file
+
+**Key principle**: When the plan file is modified (content differs from backup), the loop always **allows stop** (does not continue looping) and shows an error or warning message with recovery options.
 
 ## Prerequisites
 

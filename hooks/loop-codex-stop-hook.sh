@@ -217,29 +217,134 @@ This loop was started with an older version of Humanize (pre-1.1.2). Please upda
 fi
 
 # ========================================
-# Check for Plan File Modification
+# Check for Plan File Issues
 # ========================================
-# For TRACKED plan files: modification is handled by git clean check (must be committed)
-# For UNTRACKED plan files: if modified, allow stop but show warning with instructions
+# Plan file handling has four cases (re-computed at stop time):
+# 2.1: --commit-plan-file set AND inside repo: Must be tracked AND clean; if not, ALLOW stop with error
+# 2.2: --commit-plan-file set AND outside repo: Configuration conflict; ALLOW stop with error
+# 2.3: --commit-plan-file NOT set AND inside repo: Can be modified; if modified, ALLOW stop with warning
+# 2.4: --commit-plan-file NOT set AND outside repo: No checks needed
+#
+# Key principle: If plan file differs from backup, ALWAYS allow stop (do not enter loop)
+# with appropriate error/warning message.
 
 PLAN_BACKUP_FILE="$LOOP_DIR/plan-backup.md"
 PLAN_FILE_MODIFIED="false"
 
+# Check if plan file content has changed compared to backup
 if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
     if ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
         PLAN_FILE_MODIFIED="true"
     fi
 fi
 
-# Only warn about untracked plan file modifications (tracked files are handled by git clean check)
-if [[ "$PLAN_FILE_MODIFIED" == "true" ]] && [[ "$PLAN_FILE_TRACKED" != "true" ]]; then
-    # Untracked plan file has changed - allow stop but show warning
-    # Do NOT terminate the loop, just warn the user
+# Case 2.2: --commit-plan-file set AND plan file is outside repo (configuration conflict)
+# This should have been caught by setup, but handle it here for robustness
+if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
+    # Re-compute relative path to detect if plan file is outside repo
+    PLAN_FILE_REL_CHECK=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+    if [[ "$PLAN_FILE_REL_CHECK" == ../* ]]; then
+        FALLBACK="# Configuration Conflict: Plan File Outside Repository
+
+**Error**: --commit-plan-file is set but the plan file is outside the git repository.
+
+**Plan file**: \`{{PLAN_FILE}}\`
+**Relative path**: \`{{PLAN_FILE_REL}}\`
+
+This is a configuration error that should have been caught at setup.
+The loop cannot continue with this configuration.
+
+**To fix**: Start a new loop with either:
+1. Move the plan file inside the repository and use --commit-plan-file
+2. Use the loop without --commit-plan-file for external plan files"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-outside-repo-conflict.md" "$FALLBACK" \
+            "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
+            "PLAN_FILE_REL=$PLAN_FILE_REL_CHECK")
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Error - --commit-plan-file conflicts with plan file outside repository" \
+            '{
+                "decision": "allow",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
+fi
+
+# Case 2.1: --commit-plan-file set AND inside repo AND tracked
+# If plan file has uncommitted changes OR content differs from backup: ALLOW stop with error
+if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
+    # Check for uncommitted changes (re-compute at stop time)
+    PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+    PLAN_FILE_DIRTY="false"
+    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
+    if [[ -n "$PLAN_FILE_STATUS" ]]; then
+        PLAN_FILE_DIRTY="true"
+    fi
+
+    if [[ "$PLAN_FILE_DIRTY" == "true" ]] || [[ "$PLAN_FILE_MODIFIED" == "true" ]]; then
+        ISSUE_DETAILS=""
+        if [[ "$PLAN_FILE_DIRTY" == "true" ]]; then
+            ISSUE_DETAILS="- **Uncommitted changes detected**: \`$PLAN_FILE_STATUS\`"
+        fi
+        if [[ "$PLAN_FILE_MODIFIED" == "true" ]]; then
+            if [[ -n "$ISSUE_DETAILS" ]]; then
+                ISSUE_DETAILS="$ISSUE_DETAILS
+"
+            fi
+            ISSUE_DETAILS="${ISSUE_DETAILS}- **Content differs from backup**: The plan file has been modified since loop started"
+        fi
+
+        FALLBACK="# Error: Plan File Changed (--commit-plan-file mode)
+
+The plan file has changed since the loop started, but --commit-plan-file requires it to be tracked and clean.
+
+**Plan file**: \`{{PLAN_FILE}}\`
+**Issues**:
+{{ISSUE_DETAILS}}
+
+**Backup**: \`{{PLAN_BACKUP_FILE}}\`
+
+The loop cannot continue because the plan file state has changed unexpectedly.
+
+**Options:**
+1. **Commit the plan file changes** and restart the loop
+2. **Revert to the original plan**: \`cp '{{PLAN_BACKUP_FILE}}' '{{PLAN_FILE}}'\` then commit
+3. **Start a new loop** without --commit-plan-file if you want the plan to remain uncommitted"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-changed-commit-mode.md" "$FALLBACK" \
+            "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
+            "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE" \
+            "ISSUE_DETAILS=$ISSUE_DETAILS")
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Error - plan file changed in --commit-plan-file mode" \
+            '{
+                "decision": "allow",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
+fi
+
+# Case 2.3: --commit-plan-file NOT set AND plan file inside repo (tracked or untracked)
+# If plan file content differs from backup: ALLOW stop with warning
+# (Case 2.4 doesn't need checking - external plan files without --commit-plan-file have no restrictions)
+if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ "$PLAN_FILE_MODIFIED" == "true" ]]; then
+    # Plan file has changed - allow stop but show warning with options
+    TRACKING_STATUS="untracked"
+    if [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
+        TRACKING_STATUS="tracked"
+    fi
+
     FALLBACK="# Warning: Plan File Modified
 
 The plan file has been modified since the loop started.
 
-**Plan file**: \`{{PLAN_FILE}}\`
+**Plan file**: \`{{PLAN_FILE}}\` ({{TRACKING_STATUS}})
 **Backup**: \`{{PLAN_BACKUP_FILE}}\`
 
 The current plan differs from the backup taken when the loop started. Your work may no longer align with the updated plan.
@@ -257,11 +362,12 @@ The current plan differs from the backup taken when the loop started. Your work 
    Then type \`continue\` to resume the RLCR loop."
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified-warning.md" "$FALLBACK" \
         "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
-        "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE")
+        "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE" \
+        "TRACKING_STATUS=$TRACKING_STATUS")
 
     jq -n \
         --arg reason "$REASON" \
-        --arg msg "Loop: Warning - untracked plan file was modified, see options above" \
+        --arg msg "Loop: Warning - plan file was modified ($TRACKING_STATUS), see options above" \
         '{
             "decision": "allow",
             "reason": $reason,

@@ -279,8 +279,13 @@ fi
 # ========================================
 # Check Plan File Tracking Status
 # ========================================
-# Determine if plan file is tracked in git (inside repo and not untracked/ignored)
-# If tracked, it must be clean (no uncommitted changes) before starting the loop
+# Determine if plan file is tracked in git (inside repo and committed)
+#
+# Plan file handling has four cases:
+# 2.1: --commit-plan-file set AND inside repo: Must be tracked AND clean
+# 2.2: --commit-plan-file set AND outside repo: Early fail (handled above at line 251-263)
+# 2.3: --commit-plan-file NOT set AND inside repo: Can be tracked/untracked, dirty/clean
+# 2.4: --commit-plan-file NOT set AND outside repo: No restrictions
 
 PLAN_FILE_TRACKED="false"
 
@@ -296,24 +301,44 @@ if [[ "$PLAN_FILE_REL" != ../* ]]; then
     fi
 fi
 
-# If plan file is tracked, it must be clean (no uncommitted changes)
-if [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
+# When --commit-plan-file is set, enforce strict requirements:
+# - Plan file must be tracked (not just "not ignored")
+# - Plan file must be clean (no uncommitted changes)
+if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
+    # Check if plan file is tracked
+    if [[ "$PLAN_FILE_TRACKED" != "true" ]]; then
+        echo "Error: --commit-plan-file is set but the plan file is not tracked by git" >&2
+        echo "" >&2
+        echo "Plan file: $PLAN_FILE_REL" >&2
+        echo "" >&2
+        echo "When using --commit-plan-file, the plan file must be committed to git." >&2
+        echo "Either:" >&2
+        echo "  1. Add and commit the plan file: git add '$PLAN_FILE_REL' && git commit -m 'Add plan file'" >&2
+        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        exit 1
+    fi
+
     # Check if plan file has uncommitted changes (staged or unstaged)
     PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
     if [[ -n "$PLAN_FILE_STATUS" ]]; then
-        echo "Error: Plan file has uncommitted changes" >&2
+        echo "Error: --commit-plan-file is set but the plan file has uncommitted changes" >&2
         echo "" >&2
         echo "Plan file: $PLAN_FILE_REL" >&2
         echo "Status: $PLAN_FILE_STATUS" >&2
         echo "" >&2
-        echo "The plan file is tracked by git and must be clean before starting RLCR loop." >&2
+        echo "When using --commit-plan-file, the plan file must be clean before starting." >&2
         echo "Either:" >&2
         echo "  1. Commit the plan file changes: git add '$PLAN_FILE_REL' && git commit -m 'Update plan'" >&2
         echo "  2. Discard the changes: git checkout -- '$PLAN_FILE_REL'" >&2
-        echo "  3. Move the plan file outside the repo or add it to .gitignore" >&2
+        echo "  3. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
         exit 1
     fi
 fi
+
+# When --commit-plan-file is NOT set:
+# - Plan file can be tracked or untracked
+# - Plan file can be dirty (uncommitted changes are allowed)
+# - The stop hook will filter out the plan file from git clean checks
 
 # ========================================
 # Setup State Directory

@@ -2,7 +2,7 @@
 
 The plan file has been modified since the loop started.
 
-**Plan file**: `{{PLAN_FILE}}`
+**Plan file**: `{{PLAN_FILE}}` ({{TRACKING_STATUS}})
 **Backup**: `{{PLAN_BACKUP_FILE}}`
 
 The current plan differs from the backup taken when the loop started. Your work may no longer align with the updated plan.
