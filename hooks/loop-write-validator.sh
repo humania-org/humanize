@@ -56,10 +56,12 @@ if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" 
     exit 0
 fi
 
-# For state.md and goal-tracker.md in .humanize-loop.local, we need further validation
+# For state.md, goal-tracker.md, and plan.md in .humanize-loop.local, we need further validation
 # For other files in .humanize-loop.local that aren't summaries, allow them
+FILENAME=$(basename "$FILE_PATH")
+IS_PLAN_BACKUP=$([[ "$FILENAME" == "plan.md" ]] && echo "true" || echo "false")
 if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]]; then
-    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER"; then
+    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
         exit 0
     fi
 fi
@@ -85,6 +87,19 @@ CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
 if is_state_file_path "$FILE_PATH_LOWER"; then
     state_file_blocked_message >&2
     exit 2
+fi
+
+# ========================================
+# Block Plan Backup Writes
+# ========================================
+
+if [[ "$IS_PLAN_BACKUP" == "true" ]]; then
+    if [[ "$FILE_PATH" == *"/.humanize-loop.local/"* ]]; then
+        FALLBACK="Writing to plan.md backup is not allowed during RLCR loop."
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
+        echo "$REASON" >&2
+        exit 2
+    fi
 fi
 
 # ========================================

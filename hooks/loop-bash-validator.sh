@@ -75,6 +75,17 @@ if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
 fi
 
 # ========================================
+# Block Plan Backup Modifications (All Rounds)
+# ========================================
+# Plan backup is read-only - protects plan integrity during loop
+
+if echo "$COMMAND" | grep -qE "(>|>>|tee|mv|cp|rm).*\.humanize-loop\.local/[^/]+/plan\.md"; then
+    REASON="Modifying plan.md backup via bash is not allowed during RLCR loop."
+    echo "$REASON" >&2
+    exit 2
+fi
+
+# ========================================
 # Block Goal Tracker Modifications (All Rounds)
 # ========================================
 # Round 0: prompt to use Write/Edit

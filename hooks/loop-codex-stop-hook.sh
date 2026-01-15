@@ -59,6 +59,95 @@ fi
 STATE_FILE="$LOOP_DIR/state.md"
 
 # ========================================
+# Parse State File (Early - needed for integrity checks)
+# ========================================
+
+if [[ ! -f "$STATE_FILE" ]]; then
+    exit 0
+fi
+
+EARLY_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+PLAN_TRACKED=$(echo "$EARLY_FRONTMATTER" | grep '^plan_tracked:' | sed 's/plan_tracked: *//' | tr -d ' ')
+START_BRANCH=$(echo "$EARLY_FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch: *//' | tr -d ' ')
+PLAN_FILE_PATH=$(echo "$EARLY_FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//')
+
+# ========================================
+# Quick-check 0: Schema Validation (v1.1.2+ fields)
+# ========================================
+# If schema is outdated, allow exit with unexpected status
+
+if [[ -z "$PLAN_TRACKED" || -z "$START_BRANCH" ]]; then
+    mv "$STATE_FILE" "$LOOP_DIR/unexpected-state.md"
+    echo "Loop terminated: state schema outdated (missing plan_tracked or start_branch)" >&2
+    echo "State preserved as: $LOOP_DIR/unexpected-state.md" >&2
+    echo "Please update humanize plugin to v1.1.2+ and restart the loop." >&2
+    exit 0  # Allow exit
+fi
+
+# ========================================
+# Quick-check 0.5: Branch Consistency
+# ========================================
+
+CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
+    REASON="Git branch changed during RLCR loop.
+
+Started on: $START_BRANCH
+Current: $CURRENT_BRANCH
+
+Branch switching is not allowed. Switch back to $START_BRANCH or cancel the loop."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - branch changed" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
+# Quick-check 0.6: Plan File Integrity
+# ========================================
+
+BACKUP_PLAN="$LOOP_DIR/plan.md"
+FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE_PATH"
+
+# Check backup exists
+if [[ ! -f "$BACKUP_PLAN" ]]; then
+    REASON="Plan file backup not found in loop directory.
+
+Please copy the plan file to the loop directory:
+  cp \"$FULL_PLAN_PATH\" \"$BACKUP_PLAN\"
+
+This backup is required for plan integrity verification."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan backup missing" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# Check original plan file still matches backup
+if [[ ! -f "$FULL_PLAN_PATH" ]]; then
+    REASON="Project plan file has been deleted.
+
+Original: $PLAN_FILE_PATH
+Backup available at: $BACKUP_PLAN
+
+You can restore from backup if needed. Plan file modifications are not allowed during RLCR loop."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file deleted" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+if ! diff -q "$FULL_PLAN_PATH" "$BACKUP_PLAN" &>/dev/null; then
+    REASON="Plan file has been modified during RLCR loop.
+
+Modifying plan files is forbidden during an active RLCR loop.
+If you need to change the plan, please restart the RLCR loop with the updated plan file.
+
+Original backup: $BACKUP_PLAN"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file modified" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
 # Quick Check: Are All Todos Completed?
 # ========================================
 # Before running expensive Codex review, check if Claude still has
@@ -303,7 +392,8 @@ CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 # Validate numeric fields
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (current_round), stopping loop" >&2
-    rm -f "$STATE_FILE"
+    mv "$STATE_FILE" "$LOOP_DIR/unexpected-state.md"
+    echo "State preserved as: $LOOP_DIR/unexpected-state.md" >&2
     exit 0
 fi
 
@@ -409,7 +499,8 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 
 if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
-    rm -f "$STATE_FILE"
+    mv "$STATE_FILE" "$LOOP_DIR/maxiter-state.md"
+    echo "State preserved as: $LOOP_DIR/maxiter-state.md" >&2
     exit 0
 fi
 
@@ -722,7 +813,8 @@ if [[ "$LAST_LINE_TRIMMED" == "COMPLETE" ]]; then
     else
         echo "Codex review passed. Loop complete!" >&2
     fi
-    rm -f "$STATE_FILE"
+    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
+    echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
     exit 0
 fi
 
@@ -752,7 +844,8 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
-    rm -f "$STATE_FILE"
+    mv "$STATE_FILE" "$LOOP_DIR/stop-state.md"
+    echo "State preserved as: $LOOP_DIR/stop-state.md" >&2
     exit 0
 fi
 

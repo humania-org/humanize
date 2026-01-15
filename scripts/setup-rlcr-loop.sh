@@ -25,6 +25,8 @@ DEFAULT_MAX_ITERATIONS=42
 # ========================================
 
 PLAN_FILE=""
+PLAN_FILE_EXPLICIT=""
+TRACK_PLAN_FILE="false"
 MAX_ITERATIONS="$DEFAULT_MAX_ITERATIONS"
 CODEX_MODEL="$DEFAULT_CODEX_MODEL"
 CODEX_EFFORT="$DEFAULT_CODEX_EFFORT"
@@ -43,6 +45,8 @@ ARGUMENTS:
                        (must exist and have at least 5 lines)
 
 OPTIONS:
+  --plan-file <path>   Explicit plan file path (alternative to positional arg)
+  --track-plan-file    Indicate plan file should be tracked in git (must be clean)
   --max <N>            Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
                        Codex model and reasoning effort (default: gpt-5.2-codex:high)
@@ -138,6 +142,18 @@ while [[ $# -gt 0 ]]; do
             PUSH_EVERY_ROUND="true"
             shift
             ;;
+        --plan-file)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --plan-file requires a file path" >&2
+                exit 1
+            fi
+            PLAN_FILE_EXPLICIT="$2"
+            shift 2
+            ;;
+        --track-plan-file)
+            TRACK_PLAN_FILE="true"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1" >&2
             echo "Use --help for usage information" >&2
@@ -160,6 +176,17 @@ done
 # Validate Prerequisites
 # ========================================
 
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# Merge explicit and positional plan file
+if [[ -n "$PLAN_FILE_EXPLICIT" && -n "$PLAN_FILE" ]]; then
+    echo "Error: Cannot specify both --plan-file and positional plan file" >&2
+    exit 1
+fi
+if [[ -n "$PLAN_FILE_EXPLICIT" ]]; then
+    PLAN_FILE="$PLAN_FILE_EXPLICIT"
+fi
+
 # Check plan file is provided
 if [[ -z "$PLAN_FILE" ]]; then
     echo "Error: No plan file provided" >&2
@@ -170,20 +197,107 @@ if [[ -z "$PLAN_FILE" ]]; then
     exit 1
 fi
 
-# Make path absolute if relative
-if [[ ! "$PLAN_FILE" = /* ]]; then
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-    PLAN_FILE="$PROJECT_ROOT/$PLAN_FILE"
+# ========================================
+# Git Repository Validation
+# ========================================
+
+# Check git repo
+if ! git rev-parse --git-dir &>/dev/null; then
+    echo "Error: Project must be a git repository" >&2
+    exit 1
 fi
 
-# Check plan file exists
-if [[ ! -f "$PLAN_FILE" ]]; then
+# Check at least one commit
+if ! git rev-parse HEAD &>/dev/null 2>&1; then
+    echo "Error: Git repository must have at least one commit" >&2
+    exit 1
+fi
+
+# ========================================
+# Plan File Path Validation
+# ========================================
+
+# Reject absolute paths
+if [[ "$PLAN_FILE" = /* ]]; then
+    echo "Error: Plan file must be a relative path, got: $PLAN_FILE" >&2
+    exit 1
+fi
+
+# Build full path
+FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
+
+# Reject symlinks
+if [[ -L "$FULL_PLAN_PATH" ]]; then
+    echo "Error: Plan file cannot be a symbolic link" >&2
+    exit 1
+fi
+
+# Check file exists
+if [[ ! -f "$FULL_PLAN_PATH" ]]; then
     echo "Error: Plan file not found: $PLAN_FILE" >&2
     exit 1
 fi
 
+# Check file is within project (no ../ escaping)
+REAL_PLAN_PATH=$(cd "$(dirname "$FULL_PLAN_PATH")" && pwd)/$(basename "$FULL_PLAN_PATH")
+if [[ ! "$REAL_PLAN_PATH" = "$PROJECT_ROOT"/* ]]; then
+    echo "Error: Plan file must be within project directory" >&2
+    exit 1
+fi
+
+# Check not in submodule
+if git -C "$PROJECT_ROOT" submodule status 2>/dev/null | grep -q .; then
+    # Get list of submodule paths
+    SUBMODULES=$(git -C "$PROJECT_ROOT" submodule status | awk '{print $2}')
+    for submod in $SUBMODULES; do
+        if [[ "$PLAN_FILE" = "$submod"/* || "$PLAN_FILE" = "$submod" ]]; then
+            echo "Error: Plan file cannot be inside a git submodule: $submod" >&2
+            exit 1
+        fi
+    done
+fi
+
+# ========================================
+# Plan File Tracking Status Validation
+# ========================================
+
+PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+PLAN_IS_IGNORED=$(git -C "$PROJECT_ROOT" check-ignore -q "$PLAN_FILE" 2>/dev/null && echo "true" || echo "false")
+PLAN_IS_TRACKED=$(git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+
+if [[ "$TRACK_PLAN_FILE" == "true" ]]; then
+    # Must be tracked and clean
+    if [[ "$PLAN_IS_TRACKED" != "true" ]]; then
+        echo "Error: --track-plan-file requires plan file to be tracked in git" >&2
+        echo "  File: $PLAN_FILE" >&2
+        echo "  Run: git add $PLAN_FILE && git commit" >&2
+        exit 1
+    fi
+    if [[ -n "$PLAN_GIT_STATUS" ]]; then
+        echo "Error: --track-plan-file requires plan file to be clean (no modifications)" >&2
+        echo "  File: $PLAN_FILE" >&2
+        echo "  Status: $PLAN_GIT_STATUS" >&2
+        echo "  Commit or stash your changes first" >&2
+        exit 1
+    fi
+else
+    # Must be gitignored (not tracked)
+    if [[ "$PLAN_IS_TRACKED" == "true" ]]; then
+        echo "Error: Plan file must be gitignored when not using --track-plan-file" >&2
+        echo "  File: $PLAN_FILE" >&2
+        echo "  Either:" >&2
+        echo "    1. Add to .gitignore and remove from git: git rm --cached $PLAN_FILE" >&2
+        echo "    2. Use --track-plan-file if you want to track the plan file" >&2
+        exit 1
+    fi
+fi
+
+# ========================================
+# Plan File Content Validation
+# ========================================
+
 # Check plan file has at least 5 lines
-LINE_COUNT=$(wc -l < "$PLAN_FILE" | tr -d ' ')
+LINE_COUNT=$(wc -l < "$FULL_PLAN_PATH" | tr -d ' ')
 if [[ "$LINE_COUNT" -lt 5 ]]; then
     echo "Error: Plan is too simple (only $LINE_COUNT lines, need at least 5)" >&2
     echo "" >&2
@@ -201,10 +315,15 @@ if ! command -v codex &>/dev/null; then
 fi
 
 # ========================================
+# Record Branch
+# ========================================
+
+START_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)
+
+# ========================================
 # Setup State Directory
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
 
 # Create timestamp for this loop session
@@ -212,6 +331,9 @@ TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 LOOP_DIR="$LOOP_BASE_DIR/$TIMESTAMP"
 
 mkdir -p "$LOOP_DIR"
+
+# Copy plan file to loop directory as backup
+cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
 
 # Docs path default
 DOCS_PATH="docs"
@@ -229,6 +351,8 @@ codex_effort: $CODEX_EFFORT
 codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
 plan_file: $PLAN_FILE
+plan_tracked: $TRACK_PLAN_FILE
+start_branch: $START_BRANCH
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
@@ -238,7 +362,7 @@ EOF
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
-PLAN_CONTENT=$(cat "$PLAN_FILE")
+PLAN_CONTENT=$(cat "$FULL_PLAN_PATH")
 
 cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 # Goal Tracker
@@ -262,10 +386,10 @@ GOAL_TRACKER_EOF
 
 # Extract goal from plan file (look for ## Goal, ## Objective, or first paragraph)
 # This is a heuristic - Claude will refine it in round 0
-GOAL_LINE=$(grep -i -m1 '^\s*##\s*\(goal\|objective\|purpose\)' "$PLAN_FILE" 2>/dev/null || echo "")
+GOAL_LINE=$(grep -i -m1 '^\s*##\s*\(goal\|objective\|purpose\)' "$FULL_PLAN_PATH" 2>/dev/null || echo "")
 if [[ -n "$GOAL_LINE" ]]; then
     # Get the content after the heading
-    GOAL_SECTION=$(sed -n '/^\s*##\s*[Gg]oal\|^\s*##\s*[Oo]bjective\|^\s*##\s*[Pp]urpose/,/^\s*##/p' "$PLAN_FILE" | head -20 | tail -n +2 | head -10)
+    GOAL_SECTION=$(sed -n '/^\s*##\s*[Gg]oal\|^\s*##\s*[Oo]bjective\|^\s*##\s*[Pp]urpose/,/^\s*##/p' "$FULL_PLAN_PATH" | head -20 | tail -n +2 | head -10)
     echo "$GOAL_SECTION" >> "$GOAL_TRACKER_FILE"
 else
     # Use first non-empty, non-heading paragraph as goal description
@@ -283,7 +407,7 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 GOAL_TRACKER_EOF
 
 # Extract acceptance criteria from plan file (look for ## Acceptance, ## Criteria, ## Requirements)
-AC_SECTION=$(sed -n '/^\s*##\s*[Aa]cceptance\|^\s*##\s*[Cc]riteria\|^\s*##\s*[Rr]equirements/,/^\s*##/p' "$PLAN_FILE" 2>/dev/null | head -30 | tail -n +2 | head -25)
+AC_SECTION=$(sed -n '/^\s*##\s*[Aa]cceptance\|^\s*##\s*[Cc]riteria\|^\s*##\s*[Rr]equirements/,/^\s*##/p' "$FULL_PLAN_PATH" 2>/dev/null | head -30 | tail -n +2 | head -25)
 if [[ -n "$AC_SECTION" ]]; then
     echo "$AC_SECTION" >> "$GOAL_TRACKER_FILE"
 else
@@ -355,7 +479,7 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 For all tasks that need to be completed, please create Todos to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Todos for ALL discovered issues and attempt to resolve each one.
 
-$(cat "$PLAN_FILE")
+$(cat "$LOOP_DIR/plan.md")
 
 ---
 
@@ -402,6 +526,8 @@ cat << EOF
 === start-rlcr-loop activated ===
 
 Plan File: $PLAN_FILE ($LINE_COUNT lines)
+Plan Tracked: $TRACK_PLAN_FILE
+Start Branch: $START_BRANCH
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT

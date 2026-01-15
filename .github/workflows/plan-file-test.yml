@@ -1,0 +1,51 @@
+name: Plan File Validation Tests
+
+on:
+  push:
+    paths:
+      - 'scripts/setup-rlcr-loop.sh'
+      - 'hooks/loop-plan-file-validator.sh'
+      - 'hooks/loop-codex-stop-hook.sh'
+      - 'hooks/loop-write-validator.sh'
+      - 'hooks/loop-edit-validator.sh'
+      - 'hooks/loop-bash-validator.sh'
+      - 'hooks/lib/loop-common.sh'
+      - 'tests/test-plan-file-*.sh'
+      - 'tests/test-state-exit-naming.sh'
+  pull_request:
+    paths:
+      - 'scripts/setup-rlcr-loop.sh'
+      - 'hooks/loop-plan-file-validator.sh'
+      - 'hooks/loop-codex-stop-hook.sh'
+      - 'hooks/loop-write-validator.sh'
+      - 'hooks/loop-edit-validator.sh'
+      - 'hooks/loop-bash-validator.sh'
+      - 'hooks/lib/loop-common.sh'
+      - 'tests/test-plan-file-*.sh'
+      - 'tests/test-state-exit-naming.sh'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Run plan file validation tests
+        run: |
+          chmod +x tests/test-plan-file-validation.sh
+          ./tests/test-plan-file-validation.sh
+
+      - name: Run plan file hook tests
+        run: |
+          chmod +x tests/test-plan-file-hooks.sh
+          ./tests/test-plan-file-hooks.sh
+
+      - name: Run state exit naming tests
+        run: |
+          chmod +x tests/test-state-exit-naming.sh
+          ./tests/test-state-exit-naming.sh
