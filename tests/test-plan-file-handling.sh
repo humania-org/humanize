@@ -312,71 +312,15 @@ else
     fail "Stop hook doesn't follow Claude Code hooks spec for allowing stop"
 fi
 
-# Test 4.12: Check plan file modification detection
-if grep -q "Plan File Issues" "$STOP_HOOK" || grep -q "Plan File Modification" "$STOP_HOOK"; then
-    pass "Stop hook has plan file modification check"
-else
-    fail "Stop hook missing plan file modification check"
-fi
+# Note: Plan file validation tests (Cases 1-4) have been moved to Section 9
+# (UserPromptSubmit Hook Tests) as all plan file validation is now handled by
+# loop-plan-validator.sh which runs BEFORE the prompt is processed.
 
-# Test 4.13: Check plan file modification uses diff
-if grep -q 'diff -q.*PLAN_FILE_FROM_STATE.*PLAN_BACKUP_FILE' "$STOP_HOOK"; then
-    pass "Stop hook uses diff to compare plan file with backup"
+# Test 4.12: Check stop hook has note about UserPromptSubmit handling plan validation
+if grep -q "Plan File Validation Now in UserPromptSubmit" "$STOP_HOOK"; then
+    pass "Stop hook documents that plan validation moved to UserPromptSubmit"
 else
-    fail "Stop hook doesn't use diff for plan file comparison"
-fi
-
-# Test 4.14: Check stop hook reads plan_file_tracked from state
-if grep -q 'PLAN_FILE_TRACKED=.*grep.*plan_file_tracked' "$STOP_HOOK"; then
-    pass "Stop hook reads plan_file_tracked from state"
-else
-    fail "Stop hook doesn't read plan_file_tracked from state"
-fi
-
-# Test 4.15: Check plan file modification uses warning template for untracked files
-if grep -q 'load_and_render_safe.*plan-file-modified-warning.md' "$STOP_HOOK"; then
-    pass "Stop hook uses warning template for untracked plan file modification"
-else
-    fail "Stop hook doesn't use warning template for plan file modification"
-fi
-
-# Test 4.16: Check plan file modification handles case 2.3 (no --commit-plan-file)
-if grep -q 'COMMIT_PLAN_FILE.*!=.*true.*&&.*PLAN_FILE_MODIFIED' "$STOP_HOOK"; then
-    pass "Stop hook handles case 2.3 (modified plan file without --commit-plan-file)"
-else
-    fail "Stop hook missing case 2.3 handling"
-fi
-
-# Test 4.17: Check stop hook handles case 2.1 (--commit-plan-file with tracked file)
-if grep -q 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_TRACKED.*==.*true' "$STOP_HOOK"; then
-    pass "Stop hook handles case 2.1 (--commit-plan-file with tracked file)"
-else
-    fail "Stop hook missing case 2.1 handling"
-fi
-
-# Test 4.18: Check stop hook handles case 2.2 (--commit-plan-file with outside repo)
-if grep -q 'Configuration Conflict.*Plan File Outside Repository' "$STOP_HOOK"; then
-    pass "Stop hook handles case 2.2 (--commit-plan-file with outside repo)"
-else
-    fail "Stop hook missing case 2.2 handling"
-fi
-
-# Test 4.19: Check stop hook allows exit for plan file issues (not blocks)
-# Per Claude Code hooks spec: omit decision field to allow stop (don't use "decision": "block")
-# Case 2.1 block is the one that starts with COMMIT_PLAN_FILE.*==.*true && PLAN_FILE_TRACKED
-# Verify it does NOT contain "decision": "block" in the jq output for case 2.1
-CASE_21_OUTPUT=$(grep -A60 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_TRACKED.*==.*true' "$STOP_HOOK" | grep -A30 'jq -n')
-if echo "$CASE_21_OUTPUT" | grep -q '"decision": "block"'; then
-    fail "Stop hook should allow exit (not block) for plan file issues in case 2.1"
-else
-    pass "Stop hook allows exit (not blocks) for case 2.1 plan file issues"
-fi
-
-# Test 4.20: Check stop hook re-computes plan file dirty status at stop time
-if grep -q 'PLAN_FILE_DIRTY=.*false' "$STOP_HOOK" && grep -q 'git status --porcelain.*PLAN_FILE_REL' "$STOP_HOOK"; then
-    pass "Stop hook re-computes plan file dirty status at stop time"
-else
-    fail "Stop hook doesn't re-compute plan file dirty status"
+    fail "Stop hook missing documentation about UserPromptSubmit plan validation"
 fi
 
 section "Section 5: Template File Existence"
@@ -397,12 +341,28 @@ else
     fail "pre-112-state-file.md template missing"
 fi
 
-# Test 5.1c: Check plan-file-modified-warning template exists
-TEMPLATE_FILE_MOD="$PROJECT_ROOT/prompt-template/block/plan-file-modified-warning.md"
-if [[ -f "$TEMPLATE_FILE_MOD" ]]; then
-    pass "plan-file-modified-warning.md template exists"
+# Test 5.1c: Check plan-file-changed-prompt-block template exists (for UserPromptSubmit hook)
+TEMPLATE_FILE_CHANGED_PROMPT="$PROJECT_ROOT/prompt-template/block/plan-file-changed-prompt-block.md"
+if [[ -f "$TEMPLATE_FILE_CHANGED_PROMPT" ]]; then
+    pass "plan-file-changed-prompt-block.md template exists"
 else
-    fail "plan-file-modified-warning.md template missing"
+    fail "plan-file-changed-prompt-block.md template missing"
+fi
+
+# Test 5.1c2: Check plan-file-uncommitted template exists (for UserPromptSubmit Case 1)
+TEMPLATE_FILE_UNCOMMITTED="$PROJECT_ROOT/prompt-template/block/plan-file-uncommitted.md"
+if [[ -f "$TEMPLATE_FILE_UNCOMMITTED" ]]; then
+    pass "plan-file-uncommitted.md template exists"
+else
+    fail "plan-file-uncommitted.md template missing"
+fi
+
+# Test 5.1c3: Check plan-file-not-tracked template exists (for UserPromptSubmit Case 1)
+TEMPLATE_FILE_NOT_TRACKED="$PROJECT_ROOT/prompt-template/block/plan-file-not-tracked.md"
+if [[ -f "$TEMPLATE_FILE_NOT_TRACKED" ]]; then
+    pass "plan-file-not-tracked.md template exists"
+else
+    fail "plan-file-not-tracked.md template missing"
 fi
 
 # Test 5.1d: Check plan-file-outside-repo-conflict template exists
@@ -691,41 +651,147 @@ SPEC_COMMENT_COUNT=$(grep -c 'Per Claude Code hooks spec: omit' "$PROJECT_ROOT/h
 # Default to 0 if empty
 INVALID_ALLOW_COUNT=${INVALID_ALLOW_COUNT:-0}
 SPEC_COMMENT_COUNT=${SPEC_COMMENT_COUNT:-0}
-if [[ "$INVALID_ALLOW_COUNT" -eq 0 ]] && [[ "$SPEC_COMMENT_COUNT" -ge 3 ]]; then
+if [[ "$INVALID_ALLOW_COUNT" -eq 0 ]] && [[ "$SPEC_COMMENT_COUNT" -ge 1 ]]; then
     pass "Stop hook follows Claude Code hooks spec (omits decision field to allow stop)"
 else
     fail "Stop hook doesn't follow Claude Code hooks spec: found $INVALID_ALLOW_COUNT invalid 'allow' decisions, $SPEC_COMMENT_COUNT spec comments"
 fi
 
-# Test 8.5: Stop hook re-computes tracking status at stop time (not relying solely on state file)
-echo "Testing stop hook re-computation of plan file status..."
+# Test 8.5: Stop hook documents that plan validation is in UserPromptSubmit
+echo "Testing stop hook documentation about plan validation..."
 
-# Verify stop hook re-computes the relative path
-if grep -q 'PLAN_FILE_REL_CHECK=.*realpath' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"; then
-    pass "Stop hook re-computes plan file relative path at stop time"
+if grep -q "Plan File Validation Now in UserPromptSubmit" "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"; then
+    pass "Stop hook documents that plan validation moved to UserPromptSubmit"
 else
-    fail "Stop hook doesn't re-compute plan file relative path"
+    fail "Stop hook missing documentation about plan validation in UserPromptSubmit"
 fi
 
-# Verify stop hook re-computes dirty status
-if grep -q 'PLAN_FILE_DIRTY=.*false' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" && \
-   grep -q 'git status --porcelain' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"; then
-    pass "Stop hook re-computes plan file dirty status at stop time"
-else
-    fail "Stop hook doesn't re-compute dirty status at stop time"
-fi
-
-# Test 8.6: Stop hook handles case 2.3 for both tracked and untracked modified files
-echo "Testing stop hook handles tracked and untracked modified files in case 2.3..."
-
-# Verify stop hook includes TRACKING_STATUS variable
-if grep -q 'TRACKING_STATUS=' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"; then
-    pass "Stop hook tracks whether modified file is tracked or untracked"
-else
-    fail "Stop hook doesn't distinguish between tracked and untracked modified files"
-fi
+# Note: Plan file validation (Cases 1-4) is now handled by UserPromptSubmit hook
+# Tests for these cases are in Section 9
 
 cd "$SCRIPT_DIR"
+
+section "Section 9: UserPromptSubmit Hook Tests"
+
+# The UserPromptSubmit hook (loop-plan-validator.sh) now handles plan file content validation
+# It runs BEFORE Claude processes the prompt, blocking if the plan has changed
+
+PLAN_VALIDATOR="$PROJECT_ROOT/hooks/loop-plan-validator.sh"
+
+# Test 9.1: Check plan validator hook exists
+echo "Testing UserPromptSubmit hook for plan file validation..."
+
+if [[ -f "$PLAN_VALIDATOR" ]]; then
+    pass "UserPromptSubmit hook (loop-plan-validator.sh) exists"
+else
+    fail "UserPromptSubmit hook (loop-plan-validator.sh) missing"
+fi
+
+# Test 9.2: Check hook is registered in hooks.json
+HOOKS_JSON="$PROJECT_ROOT/hooks/hooks.json"
+if grep -q "UserPromptSubmit" "$HOOKS_JSON"; then
+    pass "UserPromptSubmit hook is registered in hooks.json"
+else
+    fail "UserPromptSubmit hook not registered in hooks.json"
+fi
+
+if grep -q "loop-plan-validator.sh" "$HOOKS_JSON"; then
+    pass "loop-plan-validator.sh is referenced in hooks.json"
+else
+    fail "loop-plan-validator.sh not referenced in hooks.json"
+fi
+
+# Test 9.3: Check plan validator determines plan file location
+if grep -q 'PLAN_FILE_INSIDE_REPO=' "$PLAN_VALIDATOR"; then
+    pass "Plan validator determines if plan file is inside/outside repo"
+else
+    fail "Plan validator doesn't determine plan file location"
+fi
+
+# Test 9.4: Case 3 - --commit-plan-file + Outside repo = Configuration Conflict
+echo "Testing Case 3: --commit-plan-file + Outside repo..."
+if grep -q 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_INSIDE_REPO.*==.*false' "$PLAN_VALIDATOR"; then
+    pass "Plan validator handles Case 3 (--commit-plan-file + outside repo)"
+else
+    fail "Plan validator doesn't handle Case 3"
+fi
+
+if grep -q 'plan-file-outside-repo-conflict.md' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses template for Case 3 conflict"
+else
+    fail "Plan validator doesn't use template for Case 3"
+fi
+
+# Test 9.5: Case 1 - --commit-plan-file + Inside repo = Must be tracked AND clean
+echo "Testing Case 1: --commit-plan-file + Inside repo..."
+if grep -q 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_INSIDE_REPO.*==.*true' "$PLAN_VALIDATOR"; then
+    pass "Plan validator handles Case 1 (--commit-plan-file + inside repo)"
+else
+    fail "Plan validator doesn't handle Case 1"
+fi
+
+# Test 9.5b: Check plan validator verifies plan file is tracked
+if grep -q 'git ls-files --error-unmatch' "$PLAN_VALIDATOR"; then
+    pass "Plan validator checks if plan file is tracked (Case 1)"
+else
+    fail "Plan validator doesn't check tracked status"
+fi
+
+# Test 9.5c: Check plan validator verifies plan file is clean
+if grep -q 'git status --porcelain' "$PLAN_VALIDATOR"; then
+    pass "Plan validator checks if plan file is clean (Case 1)"
+else
+    fail "Plan validator doesn't check clean status"
+fi
+
+# Test 9.5d: Check plan validator uses templates for Case 1 errors
+if grep -q 'plan-file-not-tracked.md' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses template for not-tracked error"
+else
+    fail "Plan validator doesn't use template for not-tracked error"
+fi
+
+if grep -q 'plan-file-uncommitted.md' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses template for uncommitted error"
+else
+    fail "Plan validator doesn't use template for uncommitted error"
+fi
+
+# Test 9.6: All Cases - Check plan file content vs backup
+echo "Testing content check (all cases)..."
+if grep -q 'diff -q.*PLAN_FILE.*PLAN_BACKUP_FILE' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses diff to compare plan file with backup"
+else
+    fail "Plan validator doesn't use diff for plan file comparison"
+fi
+
+# Test 9.7: Check plan validator handles missing plan file
+if grep -q 'PLAN_MISSING' "$PLAN_VALIDATOR"; then
+    pass "Plan validator handles missing/deleted plan file"
+else
+    fail "Plan validator doesn't handle missing plan file"
+fi
+
+# Test 9.8: Check plan validator uses exit code 2 to block (per Claude Code spec)
+if grep -q 'exit 2' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses exit code 2 to block prompt"
+else
+    fail "Plan validator doesn't use exit code 2 for blocking"
+fi
+
+# Test 9.9: Check plan validator uses stderr for block message
+if grep -q 'echo.*>&2' "$PLAN_VALIDATOR" && grep -q 'exit 2' "$PLAN_VALIDATOR"; then
+    pass "Plan validator outputs block message to stderr"
+else
+    fail "Plan validator doesn't output block message to stderr"
+fi
+
+# Test 9.10: Check plan validator uses template for content changed error
+if grep -q 'load_and_render_safe.*plan-file-changed-prompt-block.md' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses template for content changed error"
+else
+    fail "Plan validator doesn't use template for content changed error"
+fi
 
 section "Test Summary"
 

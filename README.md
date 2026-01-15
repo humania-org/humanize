@@ -206,7 +206,8 @@ The plan file behavior depends on the `--commit-plan-file` flag and whether the 
 
 #### Case 1: Inside repo with `--commit-plan-file`
 - **Setup**: Plan file must be tracked (committed) AND clean (no uncommitted changes)
-- **Stop hook**: If plan file becomes dirty or modified, the loop **allows stop** with an error message
+- **UserPromptSubmit hook**: If plan file content differs from backup, **blocks prompt** before processing
+- **Stop hook**: If plan file has uncommitted changes (dirty), allows stop with error message
 - Plan file changes must be committed like any other file
 
 #### Case 2: Outside repo with `--commit-plan-file`
@@ -215,15 +216,15 @@ The plan file behavior depends on the `--commit-plan-file` flag and whether the 
 
 #### Case 3: Inside repo without `--commit-plan-file` (default)
 - **Setup**: Plan file can be tracked or untracked, dirty or clean
-- **Stop hook**: If plan file content differs from backup (or is missing), the loop **allows stop** with a warning, **short-circuiting all other checks** including git clean check and Codex review
+- **UserPromptSubmit hook**: If plan file content differs from backup (or is missing), **blocks prompt** before processing with recovery options
 - Accidental commits of the plan file are blocked with an error
 - A backup of the original plan file is saved to `.humanize-loop.local/<timestamp>/plan-backup.md`
 
 #### Case 4: Outside repo without `--commit-plan-file`
 - **Setup**: No restrictions
-- **Stop hook**: No checks on the plan file (plan file changes do not affect the loop)
+- **No checks**: Plan file changes do not affect the loop
 
-**Key principle**: When the plan file is modified (content differs from backup or file is missing), the loop always **allows stop** (does not continue looping) and **short-circuits all other checks** (git clean, unpushed commits, Codex review). This is intentional - a changed plan indicates the user may want to revise the implementation approach.
+**Key principle**: Plan file content changes are detected **before prompt processing** via the UserPromptSubmit hook. This blocks work from starting with a stale plan, giving the user a chance to restart the loop or restore the original plan.
 
 ## Prerequisites
 

@@ -1,6 +1,16 @@
 {
   "description": "Humanize Plugin Hooks - Validation hooks and Stop hooks for /start-rlcr-loop",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-plan-validator.sh"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write",
