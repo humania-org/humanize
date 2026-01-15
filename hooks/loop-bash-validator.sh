@@ -77,14 +77,19 @@ PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/
 if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
     # Check if command is a git commit command
     if [[ "$COMMAND_LOWER" =~ ^[[:space:]]*git[[:space:]]+commit ]]; then
-        # Get relative path of plan file
-        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+        # Get relative path of plan file from git toplevel (git diff outputs repo-relative paths)
+        GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+        if [[ -n "$GIT_TOPLEVEL" ]]; then
+            PLAN_FILE_REL_GIT=$(get_relative_path "$GIT_TOPLEVEL" "$PLAN_FILE_FROM_STATE")
+        else
+            PLAN_FILE_REL_GIT=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+        fi
 
         # Check if plan file is staged (would be included in commit)
         STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
 
         # Escape regex metacharacters for exact matching
-        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL_GIT" | sed 's/[.[\*^$()+?{|]/\\&/g')
 
         if echo "$STAGED_FILES" | grep -qx "$PLAN_FILE_ESCAPED"; then
             FALLBACK="# Git Commit Blocked: Plan File is Staged
@@ -106,7 +111,7 @@ Then retry your commit command.
 /humanize:start-rlcr-loop {{PLAN_FILE}} --commit-plan-file
 \`\`\`"
             load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-staged.md" "$FALLBACK" \
-                "PLAN_FILE=$PLAN_FILE_REL" >&2
+                "PLAN_FILE=$PLAN_FILE_REL_GIT" >&2
             exit 2
         fi
     fi

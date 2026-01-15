@@ -228,10 +228,16 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
     GIT_STATUS=$(git status --porcelain 2>/dev/null)
 
     # Filter out plan file from git status when commit_plan_file is false
+    # git status --porcelain outputs paths relative to git root, so use git toplevel
     FILTERED_GIT_STATUS="$GIT_STATUS"
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
-        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+        if [[ -n "$GIT_TOPLEVEL" ]]; then
+            PLAN_FILE_REL_GIT=$(get_relative_path "$GIT_TOPLEVEL" "$PLAN_FILE_FROM_STATE")
+        else
+            PLAN_FILE_REL_GIT=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+        fi
+        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL_GIT" | sed 's/[.[\*^$()+?{|]/\\&/g')
         FILTERED_GIT_STATUS=$(echo "$GIT_STATUS" | grep -v " ${PLAN_FILE_ESCAPED}\$" || true)
     fi
 
@@ -292,8 +298,14 @@ Please commit all changes before exiting.
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
         # Check commits since START_COMMIT for accidental plan file commits
         # Note: Pre-1.1.2 loops (empty START_COMMIT) are handled earlier and exit before reaching here
-        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
-        PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL" 2>/dev/null || true)
+        # Use git-toplevel-relative path for git log (consistent with git status filtering)
+        GIT_TOPLEVEL_POST=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+        if [[ -n "$GIT_TOPLEVEL_POST" ]]; then
+            PLAN_FILE_REL_POST=$(get_relative_path "$GIT_TOPLEVEL_POST" "$PLAN_FILE_FROM_STATE")
+        else
+            PLAN_FILE_REL_POST=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+        fi
+        PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL_POST" 2>/dev/null || true)
 
         if [[ -n "$PLAN_FILE_COMMITS" ]]; then
             FALLBACK="# Plan File Accidentally Committed
@@ -311,7 +323,7 @@ Commits containing the plan file:
 3. Re-commit without the plan file
 4. Or restart the loop with --commit-plan-file if you want to track the plan file"
             REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-committed.md" "$FALLBACK" \
-                "PLAN_FILE=$PLAN_FILE_REL" \
+                "PLAN_FILE=$PLAN_FILE_REL_POST" \
                 "PLAN_FILE_COMMITS=$PLAN_FILE_COMMITS")
 
             jq -n \
