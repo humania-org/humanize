@@ -78,8 +78,9 @@ fi
 # Block Plan Backup Modifications (All Rounds)
 # ========================================
 # Plan backup is read-only - protects plan integrity during loop
+# Use broad pattern matching to catch bypasses via shell expansion/substitution
 
-if command_modifies_file "$COMMAND_LOWER" "\.humanize-loop\.local/[^/]+/plan\.md"; then
+if echo "$COMMAND_LOWER" | grep -qE '\.humanize-loop\.local.*plan\.md'; then
     FALLBACK="Writing to plan.md backup is not allowed during RLCR loop."
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
     echo "$REASON" >&2

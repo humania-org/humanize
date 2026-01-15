@@ -243,6 +243,203 @@ else
 fi
 
 echo ""
+echo "=== Test: Command Injection Bypass Prevention ==="
+echo ""
+
+# Test 8.1: Block command substitution bypass attempt
+echo "Test 8.1: Block command substitution bypass"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/$(date +%Y)/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks command substitution bypass"
+else
+    fail "Command substitution bypass" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.2: Block glob expansion bypass attempt
+echo "Test 8.2: Block glob expansion bypass"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/*/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks glob expansion bypass"
+else
+    fail "Glob expansion bypass" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.3: Block brace expansion bypass attempt
+echo "Test 8.3: Block brace expansion bypass"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "tee .humanize-loop.local/{a,b,c}/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks brace expansion bypass"
+else
+    fail "Brace expansion bypass" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.4: Block piped command bypass attempt
+echo "Test 8.4: Block piped command bypass"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cat input.txt | tee .humanize-loop.local/2024-01-01_12-00-00/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks piped command bypass"
+else
+    fail "Piped command bypass" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.5: Block backtick command substitution bypass
+echo "Test 8.5: Block backtick command substitution bypass"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/`echo test`/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks backtick substitution bypass"
+else
+    fail "Backtick substitution bypass" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+echo ""
+echo "=== Test: YAML Quote Parsing ==="
+echo ""
+
+# Test 8.6: Hook correctly parses quoted start_branch (strips quotes)
+echo "Test 8.6: Hook correctly strips quotes from start_branch"
+setup_test_loop
+# Create state with quoted branch name
+cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: "plans/test-plan.md"
+plan_tracked: false
+start_branch: "main"
+---
+EOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should pass (no output, exit 0) - quotes should be stripped and "main" should match current branch
+if [[ $EXIT_CODE -eq 0 ]] && [[ -z "$RESULT" ]]; then
+    pass "Hook correctly strips quotes from start_branch"
+else
+    fail "Quote stripping from start_branch" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.7: Hook detects branch mismatch with quoted value
+echo "Test 8.7: Hook detects branch mismatch with quoted start_branch"
+setup_test_loop
+cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: "plans/test-plan.md"
+plan_tracked: false
+start_branch: "different-branch"
+---
+EOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should block due to branch mismatch (current is main, state says different-branch)
+if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | grep -q "branch"; then
+    pass "Hook detects branch mismatch with quoted start_branch"
+else
+    fail "Branch mismatch detection with quotes" "block with branch error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8.8: Stop hook correctly parses both quoted fields
+echo "Test 8.8: Stop hook parses quoted plan_file and start_branch"
+setup_test_loop
+cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: "plans/test-plan.md"
+plan_tracked: false
+start_branch: "main"
+---
+EOF
+# Create summary to get past that check
+cat > "$LOOP_DIR/round-0-summary.md" << 'SUMEOF'
+# Summary
+Work done.
+SUMEOF
+# Create goal tracker
+cat > "$LOOP_DIR/goal-tracker.md" << 'GTEOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test goal
+### Acceptance Criteria
+- Criterion 1
+## MUTABLE SECTION
+### Plan Version: 1 (Updated: Round 0)
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| Task 1 | AC1 | done | - |
+GTEOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should NOT fail on YAML parsing - if it fails, should be for other reasons (codex missing, etc)
+if ! echo "$RESULT" | grep -qi "yaml\|parse error\|invalid.*field"; then
+    pass "Stop hook parses quoted plan_file and start_branch"
+else
+    fail "Stop hook YAML parsing" "no YAML parse errors" "output: $RESULT"
+fi
+
+# Test 8.9: Hook handles plan_file path with hyphens correctly
+echo "Test 8.9: Hook handles plan_file with hyphens in path"
+setup_test_loop
+mkdir -p "$TEST_DIR/my-plans"
+cat > "$TEST_DIR/my-plans/test-plan.md" << 'EOF'
+# Test Plan
+## Goal
+Test the RLCR loop
+## Requirements
+- Requirement 1
+EOF
+cp "$TEST_DIR/my-plans/test-plan.md" "$LOOP_DIR/plan.md"
+cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: "my-plans/test-plan.md"
+plan_tracked: false
+start_branch: "main"
+---
+EOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]] && [[ -z "$RESULT" ]]; then
+    pass "Hook handles plan_file with hyphens in path"
+else
+    fail "Plan file path with hyphens" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Restore for remaining tests
+setup_test_loop
+
+echo ""
 echo "=== Test: Stop Hook Plan File Integrity ==="
 echo ""
 

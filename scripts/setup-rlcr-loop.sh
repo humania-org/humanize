@@ -366,7 +366,7 @@ codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
 plan_file: "$PLAN_FILE"
 plan_tracked: $TRACK_PLAN_FILE
-start_branch: $START_BRANCH
+start_branch: "$START_BRANCH"
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
