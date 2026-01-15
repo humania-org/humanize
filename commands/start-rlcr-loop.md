@@ -9,7 +9,7 @@ hide-from-slash-command-tool: "true"
 
 Execute the setup script to initialize the loop:
 
-```!
+```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh" $ARGUMENTS
 ```
 
