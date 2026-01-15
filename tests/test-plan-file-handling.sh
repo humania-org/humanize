@@ -201,17 +201,17 @@ else
     fail "Setup script doesn't require at least one commit"
 fi
 
-# Test 3.6: Check setup script validates plan file inside project when --commit-plan-file
+# Test 3.6: Check setup script validates plan file inside git repo when --commit-plan-file
 echo "Testing plan file location validation..."
 
-if grep -q "plan file is outside the project" "$SETUP_SCRIPT"; then
-    pass "Setup script validates plan file must be inside project for --commit-plan-file"
+if grep -q "plan file is outside the git repository" "$SETUP_SCRIPT"; then
+    pass "Setup script validates plan file must be inside git repo for --commit-plan-file"
 else
-    fail "Setup script missing outside project validation for --commit-plan-file"
+    fail "Setup script missing outside git repo validation for --commit-plan-file"
 fi
 
-if grep -q 'PLAN_FILE_REL.* == \.\./\*' "$SETUP_SCRIPT"; then
-    pass "Setup script checks for ../ prefix in relative path"
+if grep -q 'PLAN_FILE_REL_GIT.* == \.\./\*' "$SETUP_SCRIPT"; then
+    pass "Setup script checks for ../ prefix in git-relative path"
 else
     fail "Setup script doesn't check for ../ prefix"
 fi
@@ -652,7 +652,7 @@ Test outside repo rejection.
 EOF
 
 # Verify setup script would reject this combination
-if grep -q 'plan file is outside the project' "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh"; then
+if grep -q 'plan file is outside the git repository' "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh"; then
     pass "Case 2.2: Setup rejects outside repo plan file with --commit-plan-file"
 else
     fail "Case 2.2: Setup doesn't reject outside repo plan file with --commit-plan-file"

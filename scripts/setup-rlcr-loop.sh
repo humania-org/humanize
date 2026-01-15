@@ -240,12 +240,23 @@ if ! command -v codex &>/dev/null; then
     exit 1
 fi
 
+# Compute path relative to git toplevel for "inside git repo" check
+# This handles monorepo setups where PROJECT_ROOT may be a subdirectory
+GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+PLAN_FILE_REL_GIT=""
+if [[ -n "$GIT_TOPLEVEL" ]]; then
+    PLAN_FILE_REL_GIT=$(get_relative_path "$GIT_TOPLEVEL" "$PLAN_FILE")
+fi
+
 # Validate --commit-plan-file requirements
 if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
-    if [[ "$PLAN_FILE_REL" == ../* ]]; then
-        echo "Error: --commit-plan-file is set but the plan file is outside the project" >&2
-        echo "Plan file: $PLAN_FILE (relative: $PLAN_FILE_REL)" >&2
-        echo "Either move the plan file inside the project or omit --commit-plan-file" >&2
+    if [[ -z "$PLAN_FILE_REL_GIT" ]] || [[ "$PLAN_FILE_REL_GIT" == ../* ]]; then
+        echo "Error: --commit-plan-file is set but the plan file is outside the git repository" >&2
+        echo "Plan file: $PLAN_FILE" >&2
+        if [[ -n "$PLAN_FILE_REL_GIT" ]]; then
+            echo "Relative to git root: $PLAN_FILE_REL_GIT" >&2
+        fi
+        echo "Either move the plan file inside the git repository or omit --commit-plan-file" >&2
         exit 1
     fi
 
@@ -263,7 +274,7 @@ fi
 # Determine if plan file is tracked in git (inside repo and committed)
 
 PLAN_FILE_TRACKED="false"
-if [[ "$PLAN_FILE_REL" != ../* ]]; then
+if [[ -n "$PLAN_FILE_REL_GIT" ]] && [[ "$PLAN_FILE_REL_GIT" != ../* ]]; then
     if ! git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
         if git ls-files --error-unmatch "$PLAN_FILE_REL" &>/dev/null 2>&1; then
             PLAN_FILE_TRACKED="true"
