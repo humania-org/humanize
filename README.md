@@ -215,15 +215,15 @@ The plan file behavior depends on the `--commit-plan-file` flag and whether the 
 
 #### Case 3: Inside repo without `--commit-plan-file` (default)
 - **Setup**: Plan file can be tracked or untracked, dirty or clean
-- **Stop hook**: Git clean check ignores the plan file; if plan file content differs from backup, the loop **allows stop** with a warning
+- **Stop hook**: If plan file content differs from backup (or is missing), the loop **allows stop** with a warning, **short-circuiting all other checks** including git clean check and Codex review
 - Accidental commits of the plan file are blocked with an error
 - A backup of the original plan file is saved to `.humanize-loop.local/<timestamp>/plan-backup.md`
 
 #### Case 4: Outside repo without `--commit-plan-file`
 - **Setup**: No restrictions
-- **Stop hook**: No checks on the plan file
+- **Stop hook**: No checks on the plan file (plan file changes do not affect the loop)
 
-**Key principle**: When the plan file is modified (content differs from backup), the loop always **allows stop** (does not continue looping) and shows an error or warning message with recovery options.
+**Key principle**: When the plan file is modified (content differs from backup or file is missing), the loop always **allows stop** (does not continue looping) and **short-circuits all other checks** (git clean, unpushed commits, Codex review). This is intentional - a changed plan indicates the user may want to revise the implementation approach.
 
 ## Prerequisites
 

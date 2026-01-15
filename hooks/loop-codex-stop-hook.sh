@@ -221,10 +221,26 @@ fi
 
 PLAN_BACKUP_FILE="$LOOP_DIR/plan-backup.md"
 PLAN_FILE_MODIFIED="false"
+PLAN_FILE_MISSING="false"
 
-if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
-    if ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
+# Check if plan file content has changed compared to backup
+# Also treat missing/deleted plan file as modified (P4 fix)
+if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
+    if [[ ! -f "$PLAN_FILE_FROM_STATE" ]]; then
+        # Plan file was deleted/moved - treat as modified
         PLAN_FILE_MODIFIED="true"
+        PLAN_FILE_MISSING="true"
+    elif ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
+        PLAN_FILE_MODIFIED="true"
+    fi
+fi
+
+# Determine if plan file is inside or outside the repo (for case 3 vs case 4)
+PLAN_FILE_INSIDE_REPO="false"
+if [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
+    PLAN_FILE_REL_FOR_CHECK=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+    if [[ "$PLAN_FILE_REL_FOR_CHECK" != ../* ]]; then
+        PLAN_FILE_INSIDE_REPO="true"
     fi
 fi
 
@@ -316,11 +332,15 @@ The loop cannot continue because the plan file state has changed unexpectedly.
     fi
 fi
 
-# Case: --commit-plan-file NOT set but plan file modified - show warning
-if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ "$PLAN_FILE_MODIFIED" == "true" ]]; then
+# Case 3: --commit-plan-file NOT set AND plan file INSIDE repo AND modified - show warning
+# Skip for case 4 (outside repo) - no checks needed per docs
+if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ "$PLAN_FILE_MODIFIED" == "true" ]] && [[ "$PLAN_FILE_INSIDE_REPO" == "true" ]]; then
     TRACKING_STATUS="untracked"
     if [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
         TRACKING_STATUS="tracked"
+    fi
+    if [[ "$PLAN_FILE_MISSING" == "true" ]]; then
+        TRACKING_STATUS="missing"
     fi
 
     FALLBACK="# Warning: Plan File Modified
@@ -338,11 +358,11 @@ The current plan differs from the backup taken when the loop started. Your work 
 
 2. **Continue with the new plan** by overwriting the backup:
    \`cp '{{PLAN_FILE}}' '{{PLAN_BACKUP_FILE}}'\`
-   Then type \`continue\` to resume the RLCR loop.
+   Then start a new loop with \`/humanize:start-rlcr-loop {{PLAN_FILE}}\`
 
 3. **Revert to the original plan**:
    \`cp '{{PLAN_BACKUP_FILE}}' '{{PLAN_FILE}}'\`
-   Then type \`continue\` to resume the RLCR loop."
+   Then start a new loop with \`/humanize:start-rlcr-loop {{PLAN_FILE}}\`"
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified-warning.md" "$FALLBACK" \
         "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
         "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE" \

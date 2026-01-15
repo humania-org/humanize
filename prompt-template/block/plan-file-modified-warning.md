@@ -13,8 +13,8 @@ The current plan differs from the backup taken when the loop started. Your work 
 
 2. **Continue with the new plan** by overwriting the backup:
    `cp '{{PLAN_FILE}}' '{{PLAN_BACKUP_FILE}}'`
-   Then type `continue` to resume the RLCR loop.
+   Then start a new loop with `/humanize:start-rlcr-loop {{PLAN_FILE}}`
 
 3. **Revert to the original plan**:
    `cp '{{PLAN_BACKUP_FILE}}' '{{PLAN_FILE}}'`
-   Then type `continue` to resume the RLCR loop.
+   Then start a new loop with `/humanize:start-rlcr-loop {{PLAN_FILE}}`
