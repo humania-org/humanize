@@ -86,13 +86,51 @@ get_relative_path() {
         fi
     fi
 
-    # Fallback: if target starts with base, strip the base prefix
-    if [[ "$target_real" == "$base_real"/* ]]; then
-        echo "${target_real#$base_real/}"
+    # Fallback: compute relative path in bash (works for inside/outside base)
+    if [[ "$base_real" == /* ]] && [[ "$target_real" == /* ]]; then
+        local base_clean target_clean
+        base_clean="${base_real%/}"
+        target_clean="${target_real%/}"
+        [[ -z "$base_clean" ]] && base_clean="/"
+        [[ -z "$target_clean" ]] && target_clean="/"
+
+        if [[ "$base_clean" == "$target_clean" ]]; then
+            echo "."
+            return 0
+        fi
+
+        local base_trim target_trim
+        base_trim="${base_clean#/}"
+        target_trim="${target_clean#/}"
+
+        local -a base_parts target_parts rel_parts
+        IFS='/' read -r -a base_parts <<< "$base_trim"
+        IFS='/' read -r -a target_parts <<< "$target_trim"
+
+        local i=0
+        while [[ $i -lt ${#base_parts[@]} ]] && [[ $i -lt ${#target_parts[@]} ]] && \
+            [[ "${base_parts[$i]}" == "${target_parts[$i]}" ]]; do
+            ((i++))
+        done
+
+        local j
+        for ((j=i; j<${#base_parts[@]}; j++)); do
+            rel_parts+=("..")
+        done
+        for ((j=i; j<${#target_parts[@]}; j++)); do
+            rel_parts+=("${target_parts[$j]}")
+        done
+
+        if (( ${#rel_parts[@]} == 0 )); then
+            echo "."
+        else
+            local IFS='/'
+            echo "${rel_parts[*]}"
+        fi
         return 0
     fi
 
-    # Cannot compute relative path, return basename
+    # Cannot compute relative path, return basename as last resort
     basename "$target"
 }
 
