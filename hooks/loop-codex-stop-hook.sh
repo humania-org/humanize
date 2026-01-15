@@ -237,7 +237,9 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         else
             PLAN_FILE_REL_GIT=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
         fi
-        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL_GIT" | sed 's/[.[\*^$()+?{|]/\\&/g')
+        # Escape only basic grep special chars: . * [ ] ^ $ \
+        # Note: + ? { } | ( ) are literal in basic grep but become special when escaped!
+        PLAN_FILE_ESCAPED=$(printf '%s\n' "$PLAN_FILE_REL_GIT" | sed 's/[].[*^$\]/\\&/g')
         FILTERED_GIT_STATUS=$(echo "$GIT_STATUS" | grep -v " ${PLAN_FILE_ESCAPED}\$" || true)
     fi
 

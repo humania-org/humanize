@@ -88,10 +88,8 @@ if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
         # Check if plan file is staged (would be included in commit)
         STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
 
-        # Escape regex metacharacters for exact matching
-        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL_GIT" | sed 's/[.[\*^$()+?{|]/\\&/g')
-
-        if echo "$STAGED_FILES" | grep -qx "$PLAN_FILE_ESCAPED"; then
+        # Use grep -Fx for literal fixed-string exact-line matching (no regex)
+        if echo "$STAGED_FILES" | grep -qFx "$PLAN_FILE_REL_GIT"; then
             FALLBACK="# Git Commit Blocked: Plan File is Staged
 
 The plan file is staged and would be included in this commit, but \`--commit-plan-file\` was not set when starting the loop.
