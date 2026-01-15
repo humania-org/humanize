@@ -185,40 +185,15 @@ fi
 # Read plan file settings from state (defaults for older state files without these fields)
 COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
 PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
-PLAN_FILE_TRACKED=$(grep -E "^plan_file_tracked:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file_tracked: *//' || echo "false")
 START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
 
 # ========================================
-# Check for Pre-1.1.2 State File (Backward Compatibility)
+# Note: Pre-Prompt Validation in UserPromptSubmit Hook
 # ========================================
-# Old state files lack start_commit, which is required for post-commit validation.
-# Gracefully terminate and advise user to start a new loop.
-
-if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
-    mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
-
-    FALLBACK="# RLCR Loop Terminated - Upgrade Required
-
-This loop was started with an older version of Humanize (pre-1.1.2). Please update and start a new loop."
-    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/pre-112-state-file.md" "$FALLBACK")
-
-    # Per Claude Code hooks spec: omit "decision" field to allow stop
-    jq -n \
-        --arg reason "$REASON" \
-        --arg msg "Loop: Terminated - state file from pre-1.1.2 version, please start a new loop" \
-        '{
-            "reason": $reason,
-            "systemMessage": $msg
-        }'
-    exit 0
-fi
-
-# ========================================
-# Note: Plan File Validation Now in UserPromptSubmit Hook
-# ========================================
-# All plan file validation (tracked/clean status, content changes, configuration conflicts)
-# is now handled by loop-plan-validator.sh (UserPromptSubmit hook) which runs BEFORE
-# the prompt is processed. This ensures invalid states are caught early.
+# The following validations are handled by loop-plan-validator.sh (UserPromptSubmit hook)
+# which runs BEFORE the prompt is processed:
+# - Pre-1.1.2 state file detection (backward compatibility)
+# - Plan file validation (tracked/clean status, content changes, configuration conflicts)
 
 # Check if git is available and we're in a git repo
 if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then

@@ -50,6 +50,33 @@ if [[ ! -f "$STATE_FILE" ]]; then
     exit 0
 fi
 
+# ========================================
+# Check for Pre-1.1.2 State File (Backward Compatibility)
+# ========================================
+# Old state files lack start_commit, which is required for post-commit validation.
+# Block prompt and advise user to start a new loop.
+
+START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
+
+if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
+    # Rename state file to terminate the loop
+    mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
+
+    FALLBACK="# RLCR Loop Terminated - Upgrade Required
+
+This loop was started with an older version of Humanize (pre-1.1.2).
+The state file is missing required fields for proper operation.
+
+Your work has been preserved. Please start a new loop with the updated plugin.
+
+\`/humanize:start-rlcr-loop <your-plan-file>\`"
+
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/pre-112-state-file.md" "$FALLBACK")
+
+    echo "$REASON" >&2
+    exit 2
+fi
+
 PLAN_FILE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
 COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
 
