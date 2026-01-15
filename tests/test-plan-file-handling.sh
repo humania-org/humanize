@@ -292,6 +292,47 @@ fi
 # (UserPromptSubmit Hook Tests) as all pre-prompt validations are now handled by
 # loop-plan-validator.sh which runs BEFORE the prompt is processed.
 
+section "Section 4b: Bash Validator Pre-Commit Check"
+
+BASH_VALIDATOR="$PROJECT_ROOT/hooks/loop-bash-validator.sh"
+
+# Test 4b.1: Check bash validator has pre-commit check for staged plan file
+echo "Testing bash validator pre-commit check..."
+
+if grep -q 'Block Git Commit When Plan File is Staged' "$BASH_VALIDATOR"; then
+    pass "Bash validator has pre-commit check section"
+else
+    fail "Bash validator missing pre-commit check section"
+fi
+
+# Test 4b.2: Check bash validator detects git commit command
+if grep -q 'git.*commit' "$BASH_VALIDATOR"; then
+    pass "Bash validator detects git commit command"
+else
+    fail "Bash validator doesn't detect git commit command"
+fi
+
+# Test 4b.3: Check bash validator uses git diff --cached to check staged files
+if grep -q 'git diff --cached --name-only' "$BASH_VALIDATOR"; then
+    pass "Bash validator uses git diff --cached to check staged files"
+else
+    fail "Bash validator doesn't check staged files"
+fi
+
+# Test 4b.4: Check bash validator reads commit_plan_file from state
+if grep -q 'COMMIT_PLAN_FILE=.*grep.*commit_plan_file' "$BASH_VALIDATOR"; then
+    pass "Bash validator reads commit_plan_file from state"
+else
+    fail "Bash validator doesn't read commit_plan_file from state"
+fi
+
+# Test 4b.5: Check bash validator uses plan-file-staged template
+if grep -q 'plan-file-staged.md' "$BASH_VALIDATOR"; then
+    pass "Bash validator uses plan-file-staged template"
+else
+    fail "Bash validator doesn't use plan-file-staged template"
+fi
+
 section "Section 5: Template File Existence"
 
 # Test 5.1: Check plan-file-committed template exists
@@ -300,6 +341,14 @@ if [[ -f "$TEMPLATE_FILE" ]]; then
     pass "plan-file-committed.md template exists"
 else
     fail "plan-file-committed.md template missing"
+fi
+
+# Test 5.1a2: Check plan-file-staged template exists (for Bash validator pre-commit check)
+TEMPLATE_FILE_STAGED="$PROJECT_ROOT/prompt-template/block/plan-file-staged.md"
+if [[ -f "$TEMPLATE_FILE_STAGED" ]]; then
+    pass "plan-file-staged.md template exists"
+else
+    fail "plan-file-staged.md template missing"
 fi
 
 # Test 5.1b: Check pre-112-state-file template exists

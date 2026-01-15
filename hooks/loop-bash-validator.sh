@@ -65,6 +65,54 @@ Use --push-every-round flag when starting the loop if you need to push each roun
 fi
 
 # ========================================
+# Block Git Commit When Plan File is Staged
+# ========================================
+# When commit_plan_file is false, prevent committing if plan file is staged.
+# This is a pre-commit check that catches the issue before it happens,
+# complementing the post-commit check in the stop hook.
+
+COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
+PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
+
+if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
+    # Check if command is a git commit command
+    if [[ "$COMMAND_LOWER" =~ ^[[:space:]]*git[[:space:]]+commit ]]; then
+        # Get relative path of plan file
+        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+
+        # Check if plan file is staged (would be included in commit)
+        STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
+
+        # Escape regex metacharacters for exact matching
+        PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
+
+        if echo "$STAGED_FILES" | grep -qx "$PLAN_FILE_ESCAPED"; then
+            FALLBACK="# Git Commit Blocked: Plan File is Staged
+
+The plan file is staged and would be included in this commit, but \`--commit-plan-file\` was not set when starting the loop.
+
+**Plan file**: \`{{PLAN_FILE}}\`
+
+**To fix**: Unstage the plan file before committing:
+\`\`\`bash
+git reset HEAD {{PLAN_FILE}}
+\`\`\`
+
+Then retry your commit command.
+
+**Alternative**: If you want to track plan file changes, restart the loop with \`--commit-plan-file\`:
+\`\`\`
+/humanize:cancel-rlcr-loop
+/humanize:start-rlcr-loop {{PLAN_FILE}} --commit-plan-file
+\`\`\`"
+            load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-staged.md" "$FALLBACK" \
+                "PLAN_FILE=$PLAN_FILE_REL" >&2
+            exit 2
+        fi
+    fi
+fi
+
+# ========================================
 # Block State File Modifications (All Rounds)
 # ========================================
 # State file is managed by the loop system, not Claude
