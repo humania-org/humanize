@@ -205,11 +205,11 @@ if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; 
 This loop was started with an older version of Humanize (pre-1.1.2). Please update and start a new loop."
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/pre-112-state-file.md" "$FALLBACK")
 
+    # Per Claude Code hooks spec: omit "decision" field to allow stop
     jq -n \
         --arg reason "$REASON" \
         --arg msg "Loop: Terminated - state file from pre-1.1.2 version, please start a new loop" \
         '{
-            "decision": "allow",
             "reason": $reason,
             "systemMessage": $msg
         }'
@@ -261,11 +261,11 @@ The loop cannot continue with this configuration.
             "PLAN_FILE=$PLAN_FILE_FROM_STATE" \
             "PLAN_FILE_REL=$PLAN_FILE_REL_CHECK")
 
+        # Per Claude Code hooks spec: omit "decision" field to allow stop
         jq -n \
             --arg reason "$REASON" \
             --arg msg "Loop: Error - --commit-plan-file conflicts with plan file outside repository" \
             '{
-                "decision": "allow",
                 "reason": $reason,
                 "systemMessage": $msg
             }'
@@ -318,11 +318,11 @@ The loop cannot continue because the plan file state has changed unexpectedly.
             "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE" \
             "ISSUE_DETAILS=$ISSUE_DETAILS")
 
+        # Per Claude Code hooks spec: omit "decision" field to allow stop
         jq -n \
             --arg reason "$REASON" \
             --arg msg "Loop: Error - plan file changed in --commit-plan-file mode" \
             '{
-                "decision": "allow",
                 "reason": $reason,
                 "systemMessage": $msg
             }'
@@ -365,11 +365,11 @@ The current plan differs from the backup taken when the loop started. Your work 
         "PLAN_BACKUP_FILE=$PLAN_BACKUP_FILE" \
         "TRACKING_STATUS=$TRACKING_STATUS")
 
+    # Per Claude Code hooks spec: omit "decision" field to allow stop
     jq -n \
         --arg reason "$REASON" \
         --arg msg "Loop: Warning - plan file was modified ($TRACKING_STATUS), see options above" \
         '{
-            "decision": "allow",
             "reason": $reason,
             "systemMessage": $msg
         }'

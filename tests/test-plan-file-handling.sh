@@ -304,11 +304,12 @@ else
     fail "Stop hook doesn't rename old state files"
 fi
 
-# Test 4.11: Check old state files allow exit with warning
-if grep -q '"decision": "allow"' "$STOP_HOOK"; then
-    pass "Stop hook allows exit for old state files"
+# Test 4.11: Check stop hook follows Claude Code hooks spec (omits decision field to allow stop)
+# Per spec: "decision": "block" | undefined - use undefined (omit) to allow stop
+if grep -q 'Per Claude Code hooks spec: omit "decision" field to allow stop' "$STOP_HOOK"; then
+    pass "Stop hook follows spec: omits decision field to allow stop"
 else
-    fail "Stop hook doesn't allow exit for old state files"
+    fail "Stop hook doesn't follow Claude Code hooks spec for allowing stop"
 fi
 
 # Test 4.12: Check plan file modification detection
@@ -361,12 +362,14 @@ else
 fi
 
 # Test 4.19: Check stop hook allows exit for plan file issues (not blocks)
+# Per Claude Code hooks spec: omit decision field to allow stop (don't use "decision": "block")
 # Case 2.1 block is the one that starts with COMMIT_PLAN_FILE.*==.*true && PLAN_FILE_TRACKED
-# The jq command output spans multiple lines, so we need to check for 'decision.*allow' pattern
-if grep -A60 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_TRACKED.*==.*true' "$STOP_HOOK" | grep -q 'decision.*allow'; then
-    pass "Stop hook allows exit (not blocks) for case 2.1 plan file issues"
+# Verify it does NOT contain "decision": "block" in the jq output for case 2.1
+CASE_21_OUTPUT=$(grep -A60 'COMMIT_PLAN_FILE.*==.*true.*&&.*PLAN_FILE_TRACKED.*==.*true' "$STOP_HOOK" | grep -A30 'jq -n')
+if echo "$CASE_21_OUTPUT" | grep -q '"decision": "block"'; then
+    fail "Stop hook should allow exit (not block) for plan file issues in case 2.1"
 else
-    fail "Stop hook should allow exit for plan file issues in case 2.1"
+    pass "Stop hook allows exit (not blocks) for case 2.1 plan file issues"
 fi
 
 # Test 4.20: Check stop hook re-computes plan file dirty status at stop time
@@ -678,15 +681,20 @@ else
     fail "Case 2.2: Setup doesn't reject outside repo plan file with --commit-plan-file"
 fi
 
-# Test 8.4: Stop hook allows exit (not blocks) for plan file issues
-echo "Testing stop hook decision: allows exit for plan file issues..."
+# Test 8.4: Stop hook follows Claude Code hooks spec for allowing exit
+echo "Testing stop hook decision: follows hooks spec for allowing exit..."
 
-# Verify stop hook uses "allow" decision for plan file issues
-ALLOW_COUNT=$(grep -c '"decision": "allow"' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" || echo "0")
-if [[ "$ALLOW_COUNT" -ge 3 ]]; then
-    pass "Stop hook has multiple 'allow' decisions for plan file issues"
+# Per Claude Code hooks spec: omit "decision" field to allow stop (NOT "decision": "allow")
+# Verify stop hook does NOT use invalid "decision": "allow" and uses spec-compliant comments
+INVALID_ALLOW_COUNT=$(grep -c '"decision": "allow"' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>/dev/null || true)
+SPEC_COMMENT_COUNT=$(grep -c 'Per Claude Code hooks spec: omit' "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>/dev/null || true)
+# Default to 0 if empty
+INVALID_ALLOW_COUNT=${INVALID_ALLOW_COUNT:-0}
+SPEC_COMMENT_COUNT=${SPEC_COMMENT_COUNT:-0}
+if [[ "$INVALID_ALLOW_COUNT" -eq 0 ]] && [[ "$SPEC_COMMENT_COUNT" -ge 3 ]]; then
+    pass "Stop hook follows Claude Code hooks spec (omits decision field to allow stop)"
 else
-    fail "Stop hook might be blocking instead of allowing exit for plan file issues"
+    fail "Stop hook doesn't follow Claude Code hooks spec: found $INVALID_ALLOW_COUNT invalid 'allow' decisions, $SPEC_COMMENT_COUNT spec comments"
 fi
 
 # Test 8.5: Stop hook re-computes tracking status at stop time (not relying solely on state file)
