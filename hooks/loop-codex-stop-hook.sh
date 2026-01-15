@@ -182,8 +182,7 @@ fi
 # Before running expensive Codex review, check if all changes have been
 # committed and pushed. This ensures work is properly saved.
 
-# Read commit_plan_file and plan_file from state file early (needed for git clean check)
-# Note: These fields may not exist in older state files, so we provide defaults
+# Read plan file settings from state (defaults for older state files without these fields)
 COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
 PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
 PLAN_FILE_TRACKED=$(grep -E "^plan_file_tracked:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file_tracked: *//' || echo "false")
@@ -192,12 +191,10 @@ START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start
 # ========================================
 # Check for Pre-1.1.2 State File (Backward Compatibility)
 # ========================================
-# If start_commit is missing, this is an old state file from before 1.1.2.
-# We cannot safely run the post-commit check without knowing the starting commit.
-# Gracefully terminate the loop and advise user to update.
+# Old state files lack start_commit, which is required for post-commit validation.
+# Gracefully terminate and advise user to start a new loop.
 
 if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
-    # This is an old state file - rename to .bak to stop further loop iterations
     mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
 
     FALLBACK="# RLCR Loop Terminated - Upgrade Required
@@ -219,29 +216,20 @@ fi
 # ========================================
 # Check for Plan File Issues
 # ========================================
-# Plan file handling has four cases (re-computed at stop time):
-# 2.1: --commit-plan-file set AND inside repo: Must be tracked AND clean; if not, ALLOW stop with error
-# 2.2: --commit-plan-file set AND outside repo: Configuration conflict; ALLOW stop with error
-# 2.3: --commit-plan-file NOT set AND inside repo: Can be modified; if modified, ALLOW stop with warning
-# 2.4: --commit-plan-file NOT set AND outside repo: No checks needed
-#
-# Key principle: If plan file differs from backup, ALWAYS allow stop (do not enter loop)
-# with appropriate error/warning message.
+# Cases: commit-plan-file=true requires tracked+clean; otherwise allow dirty with warning.
+# If plan differs from backup, always allow stop with appropriate message.
 
 PLAN_BACKUP_FILE="$LOOP_DIR/plan-backup.md"
 PLAN_FILE_MODIFIED="false"
 
-# Check if plan file content has changed compared to backup
 if [[ -n "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_FILE_FROM_STATE" ]] && [[ -f "$PLAN_BACKUP_FILE" ]]; then
     if ! diff -q "$PLAN_FILE_FROM_STATE" "$PLAN_BACKUP_FILE" &>/dev/null; then
         PLAN_FILE_MODIFIED="true"
     fi
 fi
 
-# Case 2.2: --commit-plan-file set AND plan file is outside repo (configuration conflict)
-# This should have been caught by setup, but handle it here for robustness
+# Case: --commit-plan-file set but plan file is outside repo (configuration conflict)
 if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-    # Re-compute relative path to detect if plan file is outside repo
     PLAN_FILE_REL_CHECK=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
     if [[ "$PLAN_FILE_REL_CHECK" == ../* ]]; then
         FALLBACK="# Configuration Conflict: Plan File Outside Repository
@@ -273,13 +261,11 @@ The loop cannot continue with this configuration.
     fi
 fi
 
-# Case 2.1: --commit-plan-file set AND inside repo AND tracked
-# If plan file has uncommitted changes OR content differs from backup: ALLOW stop with error
+# Case: --commit-plan-file set, inside repo, tracked - check for dirty/modified state
 if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
-    # Check for uncommitted changes (re-compute at stop time)
     PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
-    PLAN_FILE_DIRTY="false"
     PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
+    PLAN_FILE_DIRTY="false"
     if [[ -n "$PLAN_FILE_STATUS" ]]; then
         PLAN_FILE_DIRTY="true"
     fi
@@ -330,11 +316,8 @@ The loop cannot continue because the plan file state has changed unexpectedly.
     fi
 fi
 
-# Case 2.3: --commit-plan-file NOT set AND plan file inside repo (tracked or untracked)
-# If plan file content differs from backup: ALLOW stop with warning
-# (Case 2.4 doesn't need checking - external plan files without --commit-plan-file have no restrictions)
+# Case: --commit-plan-file NOT set but plan file modified - show warning
 if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ "$PLAN_FILE_MODIFIED" == "true" ]]; then
-    # Plan file has changed - allow stop but show warning with options
     TRACKING_STATUS="untracked"
     if [[ "$PLAN_FILE_TRACKED" == "true" ]]; then
         TRACKING_STATUS="tracked"
@@ -384,15 +367,10 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
     # Check for uncommitted changes (staged or unstaged)
     GIT_STATUS=$(git status --porcelain 2>/dev/null)
 
-    # If commit_plan_file is false, filter out the plan file from git status
-    # This allows the plan file to remain uncommitted without blocking exit
+    # Filter out plan file from git status when commit_plan_file is false
     FILTERED_GIT_STATUS="$GIT_STATUS"
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-        # Get the relative path of the plan file
         PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
-        # Filter out lines where the plan file is the exact path (anchored to end of line)
-        # Git status porcelain format: "XY path" or "XY old -> new" for renames
-        # Escape special regex chars and anchor to end of line to avoid substring matches
         PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
         FILTERED_GIT_STATUS=$(echo "$GIT_STATUS" | grep -v " ${PLAN_FILE_ESCAPED}\$" || true)
     fi
@@ -423,7 +401,6 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         fi
     fi
 
-    # Block if there are uncommitted changes (excluding allowed plan file dirty state)
     if [[ -n "$GIT_ISSUES" ]]; then
         # Git has uncommitted changes - block and remind Claude to commit
         FALLBACK="# Git Not Clean
@@ -450,31 +427,21 @@ Please commit all changes before exiting.
     # ========================================
     # Post-Commit Check: Plan File Accidentally Committed?
     # ========================================
-    # When commit_plan_file is false, verify the plan file hasn't been
-    # accidentally committed since the loop started
+    # When commit_plan_file is false, verify plan file wasn't accidentally committed
 
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-        # Get relative path of plan file for git log check
         PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
 
-        # Check if the plan file appears in any commits since START_COMMIT
-        # Handle three cases:
-        # 1. START_COMMIT exists: check commits in range START_COMMIT..HEAD
-        # 2. START_COMMIT empty but repo has history: check all commits (for old state files or fresh loops)
-        # 3. Repo has no commits: skip check (nothing to check)
+        # Check commits since START_COMMIT (or all commits if START_COMMIT is empty)
         if [[ -n "$START_COMMIT" ]]; then
             PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL" 2>/dev/null || true)
         elif git rev-parse HEAD &>/dev/null; then
-            # No START_COMMIT but repo has commits - check all commits
-            # This handles old state files without start_commit field
             PLAN_FILE_COMMITS=$(git log --oneline --follow -- "$PLAN_FILE_REL" 2>/dev/null || true)
         else
-            # Fresh repo with no commits - nothing to check
             PLAN_FILE_COMMITS=""
         fi
 
         if [[ -n "$PLAN_FILE_COMMITS" ]]; then
-            # Plan file was accidentally committed - block and provide error
             FALLBACK="# Plan File Accidentally Committed
 
 The plan file was committed but --commit-plan-file was not set.

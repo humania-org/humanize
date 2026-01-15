@@ -179,7 +179,6 @@ if [[ -z "$PLAN_FILE" ]]; then
     exit 1
 fi
 
-# Initialize PROJECT_ROOT unconditionally (needed for relative path calculation)
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 # Make path absolute if relative
@@ -193,20 +192,15 @@ if [[ ! -f "$PLAN_FILE" ]]; then
     exit 1
 fi
 
-# Check we're in a git repository (required for RLCR loop)
+# Require git repository with at least one commit
 if ! git rev-parse --git-dir &>/dev/null 2>&1; then
     echo "Error: RLCR loop requires a git repository" >&2
-    echo "" >&2
-    echo "The current directory is not inside a git repository." >&2
     echo "Please initialize a git repository first: git init" >&2
     exit 1
 fi
 
-# Check the repository has at least one commit (required for start_commit tracking)
 if ! git rev-parse HEAD &>/dev/null 2>&1; then
     echo "Error: RLCR loop requires at least one commit in the repository" >&2
-    echo "" >&2
-    echo "The repository has no commits yet." >&2
     echo "Please create an initial commit first: git commit -m 'Initial commit'" >&2
     exit 1
 fi
@@ -214,16 +208,12 @@ fi
 # Get relative path for validation
 PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE" 2>/dev/null || basename "$PLAN_FILE")
 
-# Check plan file relative path is simple (no spaces or regex metacharacters)
-# This ensures reliable git status filtering in the stop hook
+# Reject paths with spaces or regex metacharacters (required for git status filtering)
 if [[ "$PLAN_FILE_REL" =~ [[:space:]\[\]\*\?\{\}\|\(\)\^\$\\] ]]; then
     echo "Error: Plan file path contains unsupported characters" >&2
-    echo "" >&2
     echo "Plan file: $PLAN_FILE_REL" >&2
-    echo "" >&2
     echo "Plan file paths must not contain spaces or special characters:" >&2
     echo "  spaces, [ ] * ? { } | ( ) ^ \$ \\" >&2
-    echo "" >&2
     echo "Please rename or move the plan file to a simpler path." >&2
     exit 1
 fi
@@ -246,32 +236,19 @@ if ! command -v codex &>/dev/null; then
     exit 1
 fi
 
-# Check if --commit-plan-file requires the plan file to be trackable
+# Validate --commit-plan-file requirements
 if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
-    # Check if plan file is outside the project (relative path starts with ../)
     if [[ "$PLAN_FILE_REL" == ../* ]]; then
         echo "Error: --commit-plan-file is set but the plan file is outside the project" >&2
-        echo "" >&2
-        echo "Plan file: $PLAN_FILE" >&2
-        echo "Relative path: $PLAN_FILE_REL" >&2
-        echo "" >&2
-        echo "When using --commit-plan-file, the plan file must be inside the git repository." >&2
-        echo "Either:" >&2
-        echo "  1. Move the plan file inside the project" >&2
-        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        echo "Plan file: $PLAN_FILE (relative: $PLAN_FILE_REL)" >&2
+        echo "Either move the plan file inside the project or omit --commit-plan-file" >&2
         exit 1
     fi
 
-    # Check if plan file is git-ignored
     if git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
         echo "Error: --commit-plan-file is set but the plan file is git-ignored" >&2
-        echo "" >&2
         echo "Plan file: $PLAN_FILE" >&2
-        echo "" >&2
-        echo "When using --commit-plan-file, the plan file must be trackable by git." >&2
-        echo "Either:" >&2
-        echo "  1. Remove the plan file from .gitignore" >&2
-        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        echo "Either remove from .gitignore or omit --commit-plan-file" >&2
         exit 1
     fi
 fi
@@ -280,65 +257,35 @@ fi
 # Check Plan File Tracking Status
 # ========================================
 # Determine if plan file is tracked in git (inside repo and committed)
-#
-# Plan file handling has four cases:
-# 2.1: --commit-plan-file set AND inside repo: Must be tracked AND clean
-# 2.2: --commit-plan-file set AND outside repo: Early fail (handled above at line 251-263)
-# 2.3: --commit-plan-file NOT set AND inside repo: Can be tracked/untracked, dirty/clean
-# 2.4: --commit-plan-file NOT set AND outside repo: No restrictions
 
 PLAN_FILE_TRACKED="false"
-
-# Check if plan file is inside the repo (not starting with ../)
 if [[ "$PLAN_FILE_REL" != ../* ]]; then
-    # Check if it's tracked by git (not untracked and not ignored)
-    # A file is tracked if: it's not in the untracked list AND not ignored
     if ! git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
-        # Not ignored, check if it's tracked (exists in git index or has been committed)
         if git ls-files --error-unmatch "$PLAN_FILE_REL" &>/dev/null 2>&1; then
             PLAN_FILE_TRACKED="true"
         fi
     fi
 fi
 
-# When --commit-plan-file is set, enforce strict requirements:
-# - Plan file must be tracked (not just "not ignored")
-# - Plan file must be clean (no uncommitted changes)
+# Enforce --commit-plan-file requirements: must be tracked and clean
 if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
-    # Check if plan file is tracked
     if [[ "$PLAN_FILE_TRACKED" != "true" ]]; then
         echo "Error: --commit-plan-file is set but the plan file is not tracked by git" >&2
-        echo "" >&2
         echo "Plan file: $PLAN_FILE_REL" >&2
-        echo "" >&2
-        echo "When using --commit-plan-file, the plan file must be committed to git." >&2
-        echo "Either:" >&2
-        echo "  1. Add and commit the plan file: git add '$PLAN_FILE_REL' && git commit -m 'Add plan file'" >&2
-        echo "  2. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        echo "Add and commit: git add '$PLAN_FILE_REL' && git commit -m 'Add plan file'" >&2
+        echo "Or omit --commit-plan-file to allow uncommitted plan files" >&2
         exit 1
     fi
 
-    # Check if plan file has uncommitted changes (staged or unstaged)
     PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
     if [[ -n "$PLAN_FILE_STATUS" ]]; then
         echo "Error: --commit-plan-file is set but the plan file has uncommitted changes" >&2
-        echo "" >&2
-        echo "Plan file: $PLAN_FILE_REL" >&2
-        echo "Status: $PLAN_FILE_STATUS" >&2
-        echo "" >&2
-        echo "When using --commit-plan-file, the plan file must be clean before starting." >&2
-        echo "Either:" >&2
-        echo "  1. Commit the plan file changes: git add '$PLAN_FILE_REL' && git commit -m 'Update plan'" >&2
-        echo "  2. Discard the changes: git checkout -- '$PLAN_FILE_REL'" >&2
-        echo "  3. Use the loop without --commit-plan-file (plan file stays uncommitted)" >&2
+        echo "Plan file: $PLAN_FILE_REL (status: $PLAN_FILE_STATUS)" >&2
+        echo "Commit changes: git add '$PLAN_FILE_REL' && git commit -m 'Update plan'" >&2
+        echo "Or omit --commit-plan-file to allow uncommitted plan files" >&2
         exit 1
     fi
 fi
-
-# When --commit-plan-file is NOT set:
-# - Plan file can be tracked or untracked
-# - Plan file can be dirty (uncommitted changes are allowed)
-# - The stop hook will filter out the plan file from git clean checks
 
 # ========================================
 # Setup State Directory
@@ -352,13 +299,9 @@ LOOP_DIR="$LOOP_BASE_DIR/$TIMESTAMP"
 
 mkdir -p "$LOOP_DIR"
 
-# Backup the plan file (for historical reference, not committed)
+# Backup plan file and record starting commit for post-commit validation
 cp "$PLAN_FILE" "$LOOP_DIR/plan-backup.md"
-
-# Get the starting commit hash for post-commit validation
 START_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
-
-# Docs path default
 DOCS_PATH="docs"
 
 # ========================================
