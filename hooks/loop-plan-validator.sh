@@ -88,11 +88,18 @@ fi
 # ========================================
 # Determine Plan File Location
 # ========================================
+# Use git toplevel (not PROJECT_ROOT) to handle monorepo subdirectories correctly
 
 PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE")
-PLAN_FILE_INSIDE_REPO="true"
-if [[ "$PLAN_FILE_REL" == ../* ]]; then
-    PLAN_FILE_INSIDE_REPO="false"
+
+# Compute path relative to git toplevel for inside/outside decision
+GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+PLAN_FILE_INSIDE_REPO="false"
+if [[ -n "$GIT_TOPLEVEL" ]]; then
+    PLAN_FILE_REL_GIT=$(get_relative_path "$GIT_TOPLEVEL" "$PLAN_FILE")
+    if [[ "$PLAN_FILE_REL_GIT" != ../* ]]; then
+        PLAN_FILE_INSIDE_REPO="true"
+    fi
 fi
 
 # ========================================
@@ -100,12 +107,15 @@ fi
 # ========================================
 
 if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ "$PLAN_FILE_INSIDE_REPO" == "false" ]]; then
+    # Use git-relative path for display if available
+    DISPLAY_REL="${PLAN_FILE_REL_GIT:-$PLAN_FILE_REL}"
+
     FALLBACK="# Configuration Conflict: Plan File Outside Repository
 
 **Error**: --commit-plan-file is set but the plan file is outside the git repository.
 
 **Plan file**: \`$PLAN_FILE\`
-**Relative path**: \`$PLAN_FILE_REL\`
+**Relative to git root**: \`$DISPLAY_REL\`
 
 This is a configuration error. The loop cannot continue.
 
@@ -117,7 +127,7 @@ This is a configuration error. The loop cannot continue.
 
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-outside-repo-conflict.md" "$FALLBACK" \
         "PLAN_FILE=$PLAN_FILE" \
-        "PLAN_FILE_REL=$PLAN_FILE_REL")
+        "PLAN_FILE_REL=$DISPLAY_REL")
 
     echo "$REASON" >&2
     exit 2
