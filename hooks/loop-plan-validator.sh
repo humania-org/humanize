@@ -173,8 +173,8 @@ fi
 # ========================================
 
 if [[ "$COMMIT_PLAN_FILE" == "true" ]] && [[ "$PLAN_FILE_INSIDE_REPO" == "true" ]]; then
-    # Check if plan file is tracked
-    if ! git ls-files --error-unmatch "$PLAN_FILE_REL" &>/dev/null 2>&1; then
+    # Check if plan file is tracked (use git-relative path for monorepo support)
+    if ! git ls-files --error-unmatch "$PLAN_FILE_REL_GIT" &>/dev/null 2>&1; then
         FALLBACK="# Error: Plan File Not Tracked
 
 The plan file is not tracked by git, but --commit-plan-file requires it to be tracked.
@@ -195,7 +195,8 @@ The plan file is not tracked by git, but --commit-plan-file requires it to be tr
     fi
 
     # Check if plan file is clean (no uncommitted changes)
-    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
+    # Use git-relative path for monorepo support
+    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL_GIT" 2>/dev/null || true)
     if [[ -n "$PLAN_FILE_STATUS" ]]; then
         FALLBACK="# Error: Plan File Has Uncommitted Changes
 
