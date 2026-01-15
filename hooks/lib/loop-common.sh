@@ -20,6 +20,46 @@ if ! validate_template_dir "$TEMPLATE_DIR" 2>/dev/null; then
     echo "Warning: Template directory validation failed. Using inline fallbacks." >&2
 fi
 
+# Stop an active loop by renaming state.md to <prefix>-state.md
+# This preserves the state file for manual inspection/restart if needed
+# The prefix indicates why the loop was stopped:
+#   - completed: Normal completion (Codex said COMPLETE)
+#   - stopped: Stagnation/circuit breaker (Codex said STOP, or max iterations)
+#   - unexpected: Error conditions (corruption, legacy state, branch change)
+#   - cancelled: User manually cancelled
+# Usage: stop_loop "$STATE_FILE" "completed|stopped|unexpected|cancelled"
+stop_loop() {
+    local state_file="$1"
+    local prefix="${2:-stopped}"  # Default to "stopped" for backward compatibility
+    if [[ -f "$state_file" ]]; then
+        local new_file="${state_file%state.md}${prefix}-state.md"
+        mv "$state_file" "$new_file" 2>/dev/null || rm -f "$state_file"
+    fi
+}
+
+# Check if HEAD is a descendant of start_commit
+# Returns 0 if HEAD is descendant (valid), 1 if not (user checked out older branch)
+# Usage: check_start_commit_ancestry "$START_COMMIT"
+check_start_commit_ancestry() {
+    local start_commit="$1"
+
+    # If no start_commit or not in a git repo, skip check
+    if [[ -z "$start_commit" ]]; then
+        return 0
+    fi
+
+    if ! command -v git &>/dev/null || ! git rev-parse --git-dir &>/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Check if start_commit is an ancestor of HEAD
+    if git merge-base --is-ancestor "$start_commit" HEAD 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Find the most recent active loop directory
 # Only checks the newest directory - older directories are ignored even if they have state.md
 # This prevents "zombie" loops from being revived after abnormal exits

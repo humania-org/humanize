@@ -115,17 +115,25 @@ This provides a real-time dashboard showing:
 
 - **Loop state**: Controlled solely by the presence of `.humanize-loop.local/*/state.md`
 - **Resume**: Simply restart Claude Code in the same directory - the loop continues automatically
-- **Cancel**: Remove the state file to stop the loop permanently
+- **Cancel**: Rename the state file with a prefix to stop the loop
 
 ```bash
 # Cancel the active loop
 /humanize:cancel-rlcr-loop
 
-# Or manually remove state file
-rm .humanize-loop.local/*/state.md
+# Or manually rename state file
+for f in .humanize-loop.local/*/state.md; do mv "$f" "${f%state.md}cancelled-state.md"; done
 ```
 
 The loop directory with all summaries and review results is preserved for reference.
+
+**State file prefixes indicate termination reason:**
+- `completed-state.md` - Normal completion (Codex said COMPLETE)
+- `stopped-state.md` - Stagnation/circuit breaker (Codex said STOP, or max iterations)
+- `cancelled-state.md` - User manually cancelled
+- `unexpected-state.md` - Error conditions (corruption, legacy state, branch change)
+
+Any prefixed state file can be renamed back to `state.md` to manually restart the loop.
 
 ## Goal Tracker System
 

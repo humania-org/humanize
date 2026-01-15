@@ -59,8 +59,8 @@ fi
 START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
 
 if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
-    # Rename state file to terminate the loop
-    mv "$STATE_FILE" "${STATE_FILE}.bak" 2>/dev/null || true
+    # Rename state file to terminate the loop (unexpected: legacy state file)
+    stop_loop "$STATE_FILE" "unexpected"
 
     FALLBACK="# RLCR Loop Terminated - Upgrade Required
 
@@ -72,6 +72,41 @@ Your work has been preserved. Please start a new loop with the updated plugin.
 \`/humanize:start-rlcr-loop <your-plan-file>\`"
 
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/pre-112-state-file.md" "$FALLBACK")
+
+    echo "$REASON" >&2
+    exit 2
+fi
+
+# ========================================
+# Check Git Ancestry (HEAD must be descendant of start_commit)
+# ========================================
+# If user checked out an older branch, the loop state is no longer valid.
+# Stop the loop and block the prompt.
+
+if ! check_start_commit_ancestry "$START_COMMIT"; then
+    CURRENT_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    START_COMMIT_SHORT=$(git rev-parse --short "$START_COMMIT" 2>/dev/null || echo "$START_COMMIT")
+
+    # Stop the loop (unexpected: branch changed)
+    stop_loop "$STATE_FILE" "unexpected"
+
+    FALLBACK="# RLCR Loop Terminated - Branch Changed
+
+The current HEAD (\`$CURRENT_HEAD\`) is not a descendant of the loop's start commit (\`$START_COMMIT_SHORT\`).
+
+This typically happens when you checked out an older branch or reset to a previous commit.
+
+The loop has been stopped because the commit history no longer matches.
+
+**To continue working:**
+1. If you want to continue the RLCR loop, checkout the original branch and start a new loop
+2. If you want to work without the loop, you can proceed normally
+
+\`/humanize:start-rlcr-loop <your-plan-file>\`"
+
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/branch-changed.md" "$FALLBACK" \
+        "CURRENT_HEAD=$CURRENT_HEAD" \
+        "START_COMMIT=$START_COMMIT_SHORT")
 
     echo "$REASON" >&2
     exit 2

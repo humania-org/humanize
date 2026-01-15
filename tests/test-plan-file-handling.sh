@@ -273,7 +273,7 @@ fi
 
 # Test 4.8: Check stop hook handles pre-1.1.2 loops (terminates and allows exit)
 if grep -q 'Check for Pre-1.1.2 State File' "$STOP_HOOK" && \
-   grep -q 'pre112.bak' "$STOP_HOOK"; then
+   grep -q 'stop_loop.*STATE_FILE' "$STOP_HOOK"; then
     pass "Stop hook detects and terminates pre-1.1.2 loops"
 else
     fail "Stop hook missing pre-1.1.2 loop handling"
@@ -516,7 +516,7 @@ echo "Testing pre-1.1.2 loop handling (terminate and allow exit)..."
 
 # When START_COMMIT is empty, stop hook terminates loop and allows Claude to exit
 # This is tested by checking the stop hook code structure
-if grep -q 'pre112.bak' "$STOP_HOOK" && grep -q 'Upgrade Required' "$STOP_HOOK"; then
+if grep -q 'stop_loop.*STATE_FILE' "$STOP_HOOK" && grep -q 'Upgrade Required' "$STOP_HOOK"; then
     pass "Stop hook terminates pre-1.1.2 loops with upgrade message"
 else
     fail "Stop hook missing pre-1.1.2 termination logic"
@@ -729,10 +729,11 @@ else
     fail "Plan validator doesn't use template for pre-1.1.2 message"
 fi
 
-if grep -q 'mv.*STATE_FILE.*\.bak' "$PLAN_VALIDATOR"; then
-    pass "Plan validator renames old state files to .bak"
+# Pre-1.1.2 loops now use stop_loop with "unexpected" prefix
+if grep -q 'stop_loop.*STATE_FILE.*"unexpected"' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses stop_loop with 'unexpected' prefix for pre-1.1.2 loops"
 else
-    fail "Plan validator doesn't rename old state files"
+    fail "Plan validator doesn't use stop_loop properly for pre-1.1.2 loops"
 fi
 
 # Test 9.4: Check plan validator determines plan file location
@@ -826,6 +827,197 @@ if grep -q 'load_and_render_safe.*plan-file-changed-prompt-block.md' "$PLAN_VALI
 else
     fail "Plan validator doesn't use template for content changed error"
 fi
+
+# Test 9.12: Plan validator uses stop_loop with prefix for state file handling
+if grep -q 'stop_loop.*STATE_FILE.*"unexpected"' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses stop_loop with 'unexpected' prefix"
+else
+    fail "Plan validator doesn't use stop_loop with proper prefix"
+fi
+
+section "Section 10: Git Ancestry Check and Loop Termination"
+
+LOOP_COMMON="$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+# Test 10.1: Check stop_loop function exists in loop-common.sh
+echo "Testing stop_loop function..."
+
+if grep -q 'stop_loop()' "$LOOP_COMMON"; then
+    pass "stop_loop function exists in loop-common.sh"
+else
+    fail "stop_loop function missing from loop-common.sh"
+fi
+
+# Test 10.2: Check stop_loop uses prefix parameter for renaming
+if grep -q '\${prefix}-state.md' "$LOOP_COMMON"; then
+    pass "stop_loop uses prefix parameter for state file renaming"
+else
+    fail "stop_loop doesn't use prefix parameter"
+fi
+
+# Test 10.3: Check check_start_commit_ancestry function exists
+echo "Testing check_start_commit_ancestry function..."
+
+if grep -q 'check_start_commit_ancestry()' "$LOOP_COMMON"; then
+    pass "check_start_commit_ancestry function exists in loop-common.sh"
+else
+    fail "check_start_commit_ancestry function missing"
+fi
+
+# Test 10.4: Check ancestry function uses git merge-base --is-ancestor
+if grep -q 'git merge-base --is-ancestor' "$LOOP_COMMON"; then
+    pass "Ancestry check uses git merge-base --is-ancestor"
+else
+    fail "Ancestry check doesn't use git merge-base --is-ancestor"
+fi
+
+# Test 10.5: Check plan validator has ancestry check
+echo "Testing plan validator ancestry check..."
+
+if grep -q 'Check Git Ancestry' "$PLAN_VALIDATOR"; then
+    pass "Plan validator has git ancestry check section"
+else
+    fail "Plan validator missing git ancestry check"
+fi
+
+if grep -q 'check_start_commit_ancestry' "$PLAN_VALIDATOR"; then
+    pass "Plan validator calls check_start_commit_ancestry"
+else
+    fail "Plan validator doesn't call check_start_commit_ancestry"
+fi
+
+# Test 10.6: Check bash validator has ancestry check
+echo "Testing bash validator ancestry check..."
+
+if grep -q 'Check Git Ancestry' "$BASH_VALIDATOR"; then
+    pass "Bash validator has git ancestry check section"
+else
+    fail "Bash validator missing git ancestry check"
+fi
+
+if grep -q 'check_start_commit_ancestry' "$BASH_VALIDATOR"; then
+    pass "Bash validator calls check_start_commit_ancestry"
+else
+    fail "Bash validator doesn't call check_start_commit_ancestry"
+fi
+
+# Test 10.7: Check stop hook uses stop_loop instead of rm
+echo "Testing stop hook uses stop_loop..."
+
+# Check that there are no rm -f $STATE_FILE occurrences
+if grep -q 'rm -f.*\$STATE_FILE' "$STOP_HOOK" 2>/dev/null; then
+    fail "Stop hook still uses rm -f for state file"
+else
+    pass "Stop hook doesn't use rm -f for state file"
+fi
+
+if grep -q 'stop_loop.*STATE_FILE' "$STOP_HOOK"; then
+    pass "Stop hook uses stop_loop function"
+else
+    fail "Stop hook doesn't use stop_loop function"
+fi
+
+# Test 10.8: Check cancel-rlcr-loop uses mv with cancelled prefix
+echo "Testing cancel-rlcr-loop uses cancelled prefix..."
+
+CANCEL_SKILL="$PROJECT_ROOT/commands/cancel-rlcr-loop.md"
+if grep -q 'cancelled-state.md' "$CANCEL_SKILL"; then
+    pass "Cancel skill renames to cancelled-state.md"
+else
+    fail "Cancel skill doesn't rename to cancelled-state.md"
+fi
+
+if grep -q 'rm.*state.md' "$CANCEL_SKILL"; then
+    fail "Cancel skill still uses rm for state.md"
+else
+    pass "Cancel skill doesn't use rm for state.md"
+fi
+
+# Test 10.9: Check branch-changed template exists
+echo "Testing branch-changed template..."
+
+BRANCH_CHANGED_TEMPLATE="$PROJECT_ROOT/prompt-template/block/branch-changed.md"
+if [[ -f "$BRANCH_CHANGED_TEMPLATE" ]]; then
+    pass "branch-changed.md template exists"
+else
+    warn "branch-changed.md template missing (fallback will be used)"
+fi
+
+# Test 10.9b: Check stop_loop is called with correct prefixes
+echo "Testing stop_loop prefix usage..."
+
+# Check stop hook uses "completed" prefix for COMPLETE
+if grep -q 'stop_loop.*"completed"' "$STOP_HOOK"; then
+    pass "Stop hook uses 'completed' prefix for COMPLETE"
+else
+    fail "Stop hook missing 'completed' prefix for COMPLETE"
+fi
+
+# Check stop hook uses "stopped" prefix for STOP/max iterations
+STOPPED_COUNT=$(grep -c 'stop_loop.*"stopped"' "$STOP_HOOK" 2>/dev/null || echo "0")
+if [[ "$STOPPED_COUNT" -ge 2 ]]; then
+    pass "Stop hook uses 'stopped' prefix for STOP and max iterations"
+else
+    fail "Stop hook missing 'stopped' prefix usage (found $STOPPED_COUNT, expected 2)"
+fi
+
+# Check stop hook uses "unexpected" prefix for errors
+UNEXPECTED_COUNT=$(grep -c 'stop_loop.*"unexpected"' "$STOP_HOOK" 2>/dev/null || echo "0")
+if [[ "$UNEXPECTED_COUNT" -ge 2 ]]; then
+    pass "Stop hook uses 'unexpected' prefix for error cases"
+else
+    fail "Stop hook missing 'unexpected' prefix usage (found $UNEXPECTED_COUNT, expected 2)"
+fi
+
+# Check plan validator uses "unexpected" prefix
+if grep -q 'stop_loop.*"unexpected"' "$PLAN_VALIDATOR"; then
+    pass "Plan validator uses 'unexpected' prefix"
+else
+    fail "Plan validator missing 'unexpected' prefix"
+fi
+
+# Check bash validator uses "unexpected" prefix
+if grep -q 'stop_loop.*"unexpected"' "$BASH_VALIDATOR"; then
+    pass "Bash validator uses 'unexpected' prefix"
+else
+    fail "Bash validator missing 'unexpected' prefix"
+fi
+
+# Test 10.10: Unit test for ancestry check
+echo "Testing ancestry check logic..."
+
+cd "$BEHAVIOR_TEST_REPO"
+
+# Get current HEAD as start_commit
+START_COMMIT=$(git rev-parse HEAD)
+
+# Create a new commit
+echo "new content" > new-file.txt
+git add new-file.txt
+git commit -q -m "New commit"
+
+# Test: HEAD should be descendant of START_COMMIT
+if git merge-base --is-ancestor "$START_COMMIT" HEAD; then
+    pass "Ancestry check correctly identifies descendant commit"
+else
+    fail "Ancestry check failed for descendant commit"
+fi
+
+# Test: START_COMMIT should NOT be descendant of itself if we go back
+# Create a branch from START_COMMIT
+git checkout -q -b old-branch "$START_COMMIT"
+
+# Now HEAD is START_COMMIT, which IS a descendant of itself (equal)
+if git merge-base --is-ancestor "$START_COMMIT" HEAD; then
+    pass "Ancestry check allows HEAD equal to start_commit"
+else
+    fail "Ancestry check should allow HEAD equal to start_commit"
+fi
+
+# Go back to main
+git checkout -q -
+
+cd "$SCRIPT_DIR"
 
 section "Test Summary"
 

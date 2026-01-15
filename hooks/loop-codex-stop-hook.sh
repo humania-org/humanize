@@ -194,8 +194,8 @@ START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start
 # Allow exit, terminate loop, and inform user to start a new loop.
 
 if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
-    # Terminate the loop by renaming state file
-    mv "$STATE_FILE" "${STATE_FILE}.pre112.bak" 2>/dev/null || true
+    # Terminate the loop by renaming state file (unexpected: legacy state file)
+    stop_loop "$STATE_FILE" "unexpected"
 
     echo "" >&2
     echo "========================================" >&2
@@ -404,7 +404,7 @@ CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 # Validate numeric fields
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (current_round), stopping loop" >&2
-    rm -f "$STATE_FILE"
+    stop_loop "$STATE_FILE" "unexpected"
     exit 0
 fi
 
@@ -510,7 +510,7 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 
 if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
-    rm -f "$STATE_FILE"
+    stop_loop "$STATE_FILE" "stopped"
     exit 0
 fi
 
@@ -823,7 +823,7 @@ if [[ "$LAST_LINE_TRIMMED" == "COMPLETE" ]]; then
     else
         echo "Codex review passed. Loop complete!" >&2
     fi
-    rm -f "$STATE_FILE"
+    stop_loop "$STATE_FILE" "completed"
     exit 0
 fi
 
@@ -853,7 +853,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
-    rm -f "$STATE_FILE"
+    stop_loop "$STATE_FILE" "stopped"
     exit 0
 fi
 

@@ -46,6 +46,38 @@ CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
 STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
 
 # ========================================
+# Check Git Ancestry (HEAD must be descendant of start_commit)
+# ========================================
+# If user checked out an older branch, block the command and stop the loop.
+
+START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
+
+if ! check_start_commit_ancestry "$START_COMMIT"; then
+    CURRENT_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    START_COMMIT_SHORT=$(git rev-parse --short "$START_COMMIT" 2>/dev/null || echo "$START_COMMIT")
+
+    # Stop the loop (unexpected: branch changed)
+    stop_loop "$STATE_FILE" "unexpected"
+
+    FALLBACK="# RLCR Loop Terminated - Branch Changed
+
+The current HEAD (\`$CURRENT_HEAD\`) is not a descendant of the loop's start commit (\`$START_COMMIT_SHORT\`).
+
+This typically happens when you checked out an older branch or reset to a previous commit.
+
+The loop has been stopped because the commit history no longer matches.
+
+**To continue working:**
+1. If you want to continue the RLCR loop, checkout the original branch and start a new loop
+2. If you want to work without the loop, you can proceed normally"
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/branch-changed.md" "$FALLBACK" \
+        "CURRENT_HEAD=$CURRENT_HEAD" \
+        "START_COMMIT=$START_COMMIT_SHORT" >&2
+    exit 2
+fi
+
+# ========================================
 # Block Git Push When push_every_round is false
 # ========================================
 # Default behavior: commits stay local, no need to push to remote

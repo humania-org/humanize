@@ -3,7 +3,7 @@
 This loop was started with an older version of Humanize (pre-1.1.2) that did not track the starting commit. The new plan file protection features cannot work reliably without this information.
 
 **What happened:**
-- Your state file has been renamed to `state.md.bak` to stop the loop
+- Your state file has been renamed to `unexpected-state.md` to stop the loop
 - Your work and summaries in `.humanize-loop.local/` are preserved
 
 **To continue your work:**
