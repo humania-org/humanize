@@ -121,6 +121,47 @@ else
     fail "Non-existent parent directory rejection" "exit 1 with directory not found error" "$RESULT"
 fi
 
+# Test 2.6: Path with spaces should fail
+echo "Test 2.6: Reject path with spaces"
+mkdir -p "$TEST_DIR/path with spaces"
+cat > "$TEST_DIR/path with spaces/plan.md" << 'EOF'
+# Plan
+## Goal
+Test spaces
+## Requirements
+- Requirement 1
+- Requirement 2
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "path with spaces/plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "cannot contain spaces"; then
+    pass "Path with spaces rejected"
+else
+    fail "Path with spaces rejection" "exit 1 with spaces error" "$RESULT"
+fi
+
+# Test 2.7: Filename with spaces should fail
+echo "Test 2.7: Reject filename with spaces"
+cat > "$TEST_DIR/plan with spaces.md" << 'EOF'
+# Plan
+## Goal
+Test spaces
+## Requirements
+- Requirement 1
+- Requirement 2
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plan with spaces.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "cannot contain spaces"; then
+    pass "Filename with spaces rejected"
+else
+    fail "Filename with spaces rejection" "exit 1 with spaces error" "$RESULT"
+fi
+
 # Test 3: Symlink should fail
 echo "Test 3: Reject symbolic link"
 ln -sf plans/test-plan.md "$TEST_DIR/link-plan.md"

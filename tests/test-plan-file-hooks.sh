@@ -64,12 +64,12 @@ EOF
     # Create plan backup
     cp plans/test-plan.md "$LOOP_DIR/plan.md"
 
-    # Create state file with v1.1.2+ fields
+    # Create state file with v1.1.2+ fields (plan_file is quoted in YAML)
     cat > "$LOOP_DIR/state.md" << EOF
 ---
 current_round: 0
 max_iterations: 42
-plan_file: plans/test-plan.md
+plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: main
 ---
@@ -94,13 +94,28 @@ else
     fail "Hook with valid state" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+# Test 1.5: Hook correctly parses YAML-quoted plan_file
+echo "Test 1.5: Hook correctly parses YAML-quoted plan_file"
+# The hook should strip quotes and find the plan file correctly
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# If the plan_file wasn't parsed correctly, it would fail to find the file
+# and might block. Success means empty output and exit 0.
+if [[ $EXIT_CODE -eq 0 ]] && [[ -z "$RESULT" ]]; then
+    pass "Hook correctly parses YAML-quoted plan_file"
+else
+    fail "Hook parsing YAML-quoted plan_file" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 # Test 2: Hook blocks when plan_tracked field is missing
 echo "Test 2: Hook blocks when plan_tracked field is missing"
 cat > "$LOOP_DIR/state.md" << 'EOF'
 ---
 current_round: 0
 max_iterations: 42
-plan_file: plans/test-plan.md
+plan_file: "plans/test-plan.md"
 start_branch: main
 ---
 EOF
@@ -120,7 +135,7 @@ cat > "$LOOP_DIR/state.md" << 'EOF'
 ---
 current_round: 0
 max_iterations: 42
-plan_file: plans/test-plan.md
+plan_file: "plans/test-plan.md"
 plan_tracked: false
 ---
 EOF
@@ -144,7 +159,7 @@ cat > "$LOOP_DIR/state.md" << 'EOF'
 ---
 current_round: 0
 max_iterations: 42
-plan_file: plans/test-plan.md
+plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: main
 ---

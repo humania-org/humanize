@@ -34,7 +34,7 @@ STATE_FILE="$LOOP_DIR/state.md"
 FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
 
 PLAN_TRACKED=$(echo "$FRONTMATTER" | grep '^plan_tracked:' | sed 's/plan_tracked: *//' | tr -d ' ' || true)
-PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//' || true)
+PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//; s/^"//; s/"$//' | tr -d ' ' || true)
 START_BRANCH=$(echo "$FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch: *//' | tr -d ' ' || true)
 
 # ========================================

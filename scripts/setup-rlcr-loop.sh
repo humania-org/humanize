@@ -42,7 +42,7 @@ USAGE:
 
 ARGUMENTS:
   <path/to/plan.md>    Path to a markdown file containing the implementation plan
-                       (must exist and have at least 5 lines)
+                       (must exist, have at least 5 lines, no spaces in path)
 
 OPTIONS:
   --plan-file <path>   Explicit plan file path (alternative to positional arg)
@@ -223,6 +223,14 @@ if [[ "$PLAN_FILE" = /* ]]; then
     exit 1
 fi
 
+# Reject paths with spaces (not supported for YAML serialization consistency)
+if [[ "$PLAN_FILE" =~ [[:space:]] ]]; then
+    echo "Error: Plan file path cannot contain spaces" >&2
+    echo "  Got: $PLAN_FILE" >&2
+    echo "  Rename the file or directory to remove spaces" >&2
+    exit 1
+fi
+
 # Build full path
 FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
@@ -356,7 +364,7 @@ codex_model: $CODEX_MODEL
 codex_effort: $CODEX_EFFORT
 codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
-plan_file: $PLAN_FILE
+plan_file: "$PLAN_FILE"
 plan_tracked: $TRACK_PLAN_FILE
 start_branch: $START_BRANCH
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
