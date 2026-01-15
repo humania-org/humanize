@@ -102,10 +102,51 @@ to_lower() {
     echo "$1" | tr '[:upper:]' '[:lower:]'
 }
 
+# Normalize a path: remove double slashes, resolve . and .. components
+# Usage: _normalize_path "/home//user/../project/./src"
+# Output: "/home/project/src"
+# Note: This is a helper for get_relative_path, defined at top level for zsh compatibility
+_normalize_path() {
+    # Enable shwordsplit for zsh (localoptions makes it local to this function)
+    [[ -n "$ZSH_VERSION" ]] && setopt localoptions shwordsplit
+
+    local path="$1"
+    # Remove trailing slash
+    path="${path%/}"
+    # Remove double slashes
+    while [[ "$path" == *//* ]]; do
+        path="${path//\/\//\/}"
+    done
+    # Resolve . and .. components by iterating over path parts
+    local result="" part old_ifs="$IFS"
+    IFS='/'
+    set -f  # Disable glob expansion
+    for part in ${path#/}; do
+        if [[ -z "$part" ]] || [[ "$part" == "." ]]; then
+            continue
+        elif [[ "$part" == ".." ]]; then
+            # Remove last component from result
+            result="${result%/*}"
+        else
+            result="$result/$part"
+        fi
+    done
+    set +f  # Re-enable glob expansion
+    IFS="$old_ifs"
+    if [[ -z "$result" ]]; then
+        echo "/"
+    else
+        echo "$result"
+    fi
+}
+
 # Compute relative path from base to target (portable across Linux/macOS/BSD)
 # Usage: get_relative_path "/base/dir" "/base/dir/sub/file.txt"
 # Output: "sub/file.txt"
 get_relative_path() {
+    # Enable 0-indexed arrays in zsh for bash compatibility
+    [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+
     local base="$1"
     local target="$2"
 
@@ -126,11 +167,13 @@ get_relative_path() {
         fi
     fi
 
-    # Fallback: compute relative path in bash (works for inside/outside base)
+    # Fallback: compute relative path in bash/zsh (works for inside/outside base)
     if [[ "$base_real" == /* ]] && [[ "$target_real" == /* ]]; then
         local base_clean target_clean
-        base_clean="${base_real%/}"
-        target_clean="${target_real%/}"
+
+        # Normalize paths using top-level helper (for zsh compatibility)
+        base_clean=$(_normalize_path "$base_real")
+        target_clean=$(_normalize_path "$target_real")
         [[ -z "$base_clean" ]] && base_clean="/"
         [[ -z "$target_clean" ]] && target_clean="/"
 
@@ -143,29 +186,43 @@ get_relative_path() {
         base_trim="${base_clean#/}"
         target_trim="${target_clean#/}"
 
-        local -a base_parts target_parts rel_parts
-        IFS='/' read -r -a base_parts <<< "$base_trim"
-        IFS='/' read -r -a target_parts <<< "$target_trim"
+        # Split paths into arrays (bash/zsh compatible using awk)
+        # This avoids read -a which is bash-specific
+        local base_parts target_parts rel_parts
+        base_parts=$(echo "$base_trim" | awk -F'/' '{ for(i=1;i<=NF;i++) if($i!="") print $i }')
+        target_parts=$(echo "$target_trim" | awk -F'/' '{ for(i=1;i<=NF;i++) if($i!="") print $i }')
 
+        # Convert to arrays using while read (portable)
+        local -a base_arr target_arr rel_arr
+        while IFS= read -r part; do
+            [[ -n "$part" ]] && base_arr+=("$part")
+        done <<< "$base_parts"
+        while IFS= read -r part; do
+            [[ -n "$part" ]] && target_arr+=("$part")
+        done <<< "$target_parts"
+
+        # Find common prefix length
         local i=0
-        while [[ $i -lt ${#base_parts[@]} ]] && [[ $i -lt ${#target_parts[@]} ]] && \
-            [[ "${base_parts[$i]}" == "${target_parts[$i]}" ]]; do
+        while [[ $i -lt ${#base_arr[@]} ]] && [[ $i -lt ${#target_arr[@]} ]] && \
+            [[ "${base_arr[$i]}" == "${target_arr[$i]}" ]]; do
             ((i++))
         done
 
+        # Add ".." for each remaining base component
         local j
-        for ((j=i; j<${#base_parts[@]}; j++)); do
-            rel_parts+=("..")
+        for ((j=i; j<${#base_arr[@]}; j++)); do
+            rel_arr+=("..")
         done
-        for ((j=i; j<${#target_parts[@]}; j++)); do
-            rel_parts+=("${target_parts[$j]}")
+        # Add remaining target components
+        for ((j=i; j<${#target_arr[@]}; j++)); do
+            rel_arr+=("${target_arr[$j]}")
         done
 
-        if (( ${#rel_parts[@]} == 0 )); then
+        if (( ${#rel_arr[@]} == 0 )); then
             echo "."
         else
             local IFS='/'
-            echo "${rel_parts[*]}"
+            echo "${rel_arr[*]}"
         fi
         return 0
     fi

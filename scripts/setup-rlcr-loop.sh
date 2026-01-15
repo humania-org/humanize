@@ -276,7 +276,7 @@ fi
 PLAN_FILE_TRACKED="false"
 if [[ -n "$PLAN_FILE_REL_GIT" ]] && [[ "$PLAN_FILE_REL_GIT" != ../* ]]; then
     if ! git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
-        if git ls-files --error-unmatch "$PLAN_FILE_REL" &>/dev/null 2>&1; then
+        if git ls-files --error-unmatch "$PLAN_FILE_REL_GIT" &>/dev/null 2>&1; then
             PLAN_FILE_TRACKED="true"
         fi
     fi
@@ -292,7 +292,7 @@ if [[ "$COMMIT_PLAN_FILE" == "true" ]]; then
         exit 1
     fi
 
-    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL" 2>/dev/null || true)
+    PLAN_FILE_STATUS=$(git status --porcelain "$PLAN_FILE_REL_GIT" 2>/dev/null || true)
     if [[ -n "$PLAN_FILE_STATUS" ]]; then
         echo "Error: --commit-plan-file is set but the plan file has uncommitted changes" >&2
         echo "Plan file: $PLAN_FILE_REL (status: $PLAN_FILE_STATUS)" >&2

@@ -77,41 +77,7 @@ Your work has been preserved. Please start a new loop with the updated plugin.
     exit 2
 fi
 
-# ========================================
-# Check Git Ancestry (HEAD must be descendant of start_commit)
-# ========================================
-# If user checked out an older branch, the loop state is no longer valid.
-# Stop the loop and block the prompt.
-
-if ! check_start_commit_ancestry "$START_COMMIT"; then
-    CURRENT_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    START_COMMIT_SHORT=$(git rev-parse --short "$START_COMMIT" 2>/dev/null || echo "$START_COMMIT")
-
-    # Stop the loop (unexpected: branch changed)
-    stop_loop "$STATE_FILE" "unexpected"
-
-    FALLBACK="# RLCR Loop Terminated - Branch Changed
-
-The current HEAD (\`$CURRENT_HEAD\`) is not a descendant of the loop's start commit (\`$START_COMMIT_SHORT\`).
-
-This typically happens when you checked out an older branch or reset to a previous commit.
-
-The loop has been stopped because the commit history no longer matches.
-
-**To continue working:**
-1. If you want to continue the RLCR loop, checkout the original branch and start a new loop
-2. If you want to work without the loop, you can proceed normally
-
-\`/humanize:start-rlcr-loop <your-plan-file>\`"
-
-    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/branch-changed.md" "$FALLBACK" \
-        "CURRENT_HEAD=$CURRENT_HEAD" \
-        "START_COMMIT=$START_COMMIT_SHORT")
-
-    echo "$REASON" >&2
-    exit 2
-fi
-
+# Read plan file settings first (needed for ancestry check decision)
 PLAN_FILE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/plan_file: *//' || echo "")
 COMMIT_PLAN_FILE=$(grep -E "^commit_plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/commit_plan_file: *//' || echo "false")
 
@@ -135,6 +101,69 @@ if [[ -n "$GIT_TOPLEVEL" ]]; then
     if [[ "$PLAN_FILE_REL_GIT" != ../* ]]; then
         PLAN_FILE_INSIDE_REPO="true"
     fi
+fi
+
+# ========================================
+# Check Git Ancestry - Only block if plan file has changes
+# ========================================
+# This check only applies when:
+#   - --commit-plan-file is NOT set (Case 2 or 4)
+#   - Plan file is inside the repo
+#   - Plan file is tracked by git
+# If ancestry fails but there are no changes to the plan file, allow the prompt.
+
+if ! check_start_commit_ancestry "$START_COMMIT"; then
+    # Ancestry failed - user may have checked out a different branch
+    SHOULD_BLOCK="false"
+
+    # Only check for plan file changes if:
+    # 1. --commit-plan-file is NOT set
+    # 2. Plan file is inside the repo
+    # 3. Plan file is tracked
+    if [[ "$COMMIT_PLAN_FILE" != "true" ]] && \
+       [[ "$PLAN_FILE_INSIDE_REPO" == "true" ]] && \
+       [[ -n "$PLAN_FILE_REL_GIT" ]] && \
+       git ls-files --error-unmatch "$PLAN_FILE_REL_GIT" &>/dev/null 2>&1; then
+
+        # Check if there are changes to the plan file between start_commit and HEAD
+        # Check both directions explicitly for clarity
+        FORWARD_CHANGES=$(git log --oneline "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL_GIT" 2>/dev/null || true)
+        BACKWARD_CHANGES=$(git log --oneline "HEAD..${START_COMMIT}" -- "$PLAN_FILE_REL_GIT" 2>/dev/null || true)
+        PLAN_FILE_CHANGES="${FORWARD_CHANGES}${BACKWARD_CHANGES}"
+
+        if [[ -n "$PLAN_FILE_CHANGES" ]]; then
+            SHOULD_BLOCK="true"
+        fi
+    fi
+
+    if [[ "$SHOULD_BLOCK" == "true" ]]; then
+        CURRENT_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        START_COMMIT_SHORT=$(git rev-parse --short "$START_COMMIT" 2>/dev/null || echo "$START_COMMIT")
+
+        # Stop the loop (unexpected: plan file changed on different branch)
+        stop_loop "$STATE_FILE" "unexpected"
+
+        FALLBACK="# RLCR Loop Terminated - Plan File Changed on Different Branch
+
+The current HEAD (\`$CURRENT_HEAD\`) diverged from the loop's start commit (\`$START_COMMIT_SHORT\`),
+and the plan file has changes between these commits.
+
+This typically happens when you checked out a different branch that has modified the plan file.
+
+**To continue working:**
+1. If you want to continue the RLCR loop, checkout the original branch and start a new loop
+2. If you want to work without the loop, you can proceed normally
+
+\`/humanize:start-rlcr-loop <your-plan-file>\`"
+
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/branch-changed.md" "$FALLBACK" \
+            "CURRENT_HEAD=$CURRENT_HEAD" \
+            "START_COMMIT=$START_COMMIT_SHORT")
+
+        echo "$REASON" >&2
+        exit 2
+    fi
+    # If SHOULD_BLOCK is false, allow the prompt to continue
 fi
 
 # ========================================
