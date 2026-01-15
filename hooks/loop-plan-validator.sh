@@ -89,7 +89,7 @@ fi
 # Determine Plan File Location
 # ========================================
 
-PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE" 2>/dev/null || basename "$PLAN_FILE")
+PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE")
 PLAN_FILE_INSIDE_REPO="true"
 if [[ "$PLAN_FILE_REL" == ../* ]]; then
     PLAN_FILE_INSIDE_REPO="false"

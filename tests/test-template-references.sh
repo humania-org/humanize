@@ -56,6 +56,7 @@ section "Section 1: Scanning Shell Scripts for Template References"
 # Find all shell scripts that might use templates
 SCRIPTS_TO_CHECK=(
     "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"
+    "$PROJECT_ROOT/hooks/loop-plan-validator.sh"
     "$PROJECT_ROOT/hooks/loop-read-validator.sh"
     "$PROJECT_ROOT/hooks/loop-write-validator.sh"
     "$PROJECT_ROOT/hooks/loop-edit-validator.sh"

@@ -188,11 +188,35 @@ PLAN_FILE_FROM_STATE=$(grep -E "^plan_file:" "$STATE_FILE" 2>/dev/null | sed 's/
 START_COMMIT=$(grep -E "^start_commit:" "$STATE_FILE" 2>/dev/null | sed 's/start_commit: *//' || echo "")
 
 # ========================================
+# Check for Pre-1.1.2 State File
+# ========================================
+# Old state files lack start_commit. These loops are incompatible with 1.1.2+.
+# Allow exit, terminate loop, and inform user to start a new loop.
+
+if [[ -z "$START_COMMIT" ]] && grep -q "^plan_file:" "$STATE_FILE" 2>/dev/null; then
+    # Terminate the loop by renaming state file
+    mv "$STATE_FILE" "${STATE_FILE}.pre112.bak" 2>/dev/null || true
+
+    echo "" >&2
+    echo "========================================" >&2
+    echo "RLCR Loop Terminated - Upgrade Required" >&2
+    echo "========================================" >&2
+    echo "This loop was created with Humanize pre-1.1.2." >&2
+    echo "Humanize 1.1.2+ loops are not compatible with older versions." >&2
+    echo "" >&2
+    echo "Your work has been preserved. Please start a new loop:" >&2
+    echo "  /humanize:start-rlcr-loop <your-plan-file>" >&2
+    echo "========================================" >&2
+
+    # Allow Claude to exit
+    exit 0
+fi
+
+# ========================================
 # Note: Pre-Prompt Validation in UserPromptSubmit Hook
 # ========================================
 # The following validations are handled by loop-plan-validator.sh (UserPromptSubmit hook)
 # which runs BEFORE the prompt is processed:
-# - Pre-1.1.2 state file detection (backward compatibility)
 # - Plan file validation (tracked/clean status, content changes, configuration conflicts)
 
 # Check if git is available and we're in a git repo
@@ -206,7 +230,7 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
     # Filter out plan file from git status when commit_plan_file is false
     FILTERED_GIT_STATUS="$GIT_STATUS"
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-        PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
+        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
         PLAN_FILE_ESCAPED=$(echo "$PLAN_FILE_REL" | sed 's/[.[\*^$()+?{|]/\\&/g')
         FILTERED_GIT_STATUS=$(echo "$GIT_STATUS" | grep -v " ${PLAN_FILE_ESCAPED}\$" || true)
     fi
@@ -266,16 +290,10 @@ Please commit all changes before exiting.
     # When commit_plan_file is false, verify plan file wasn't accidentally committed
 
     if [[ "$COMMIT_PLAN_FILE" != "true" ]] && [[ -n "$PLAN_FILE_FROM_STATE" ]]; then
-        PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE" 2>/dev/null || basename "$PLAN_FILE_FROM_STATE")
-
-        # Check commits since START_COMMIT (or all commits if START_COMMIT is empty)
-        if [[ -n "$START_COMMIT" ]]; then
-            PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL" 2>/dev/null || true)
-        elif git rev-parse HEAD &>/dev/null; then
-            PLAN_FILE_COMMITS=$(git log --oneline --follow -- "$PLAN_FILE_REL" 2>/dev/null || true)
-        else
-            PLAN_FILE_COMMITS=""
-        fi
+        # Check commits since START_COMMIT for accidental plan file commits
+        # Note: Pre-1.1.2 loops (empty START_COMMIT) are handled earlier and exit before reaching here
+        PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE_FROM_STATE")
+        PLAN_FILE_COMMITS=$(git log --oneline --follow "${START_COMMIT}..HEAD" -- "$PLAN_FILE_REL" 2>/dev/null || true)
 
         if [[ -n "$PLAN_FILE_COMMITS" ]]; then
             FALLBACK="# Plan File Accidentally Committed

@@ -119,23 +119,18 @@ else
 fi
 
 # Test 2.3: Check PROJECT_ROOT is initialized unconditionally
-if grep -q 'PROJECT_ROOT=.*CLAUDE_PROJECT_DIR' "$SETUP_SCRIPT" | head -1 && \
-   grep -B5 'PLAN_FILE_REL=.*realpath' "$SETUP_SCRIPT" | grep -q 'PROJECT_ROOT='; then
-    pass "PROJECT_ROOT initialized before PLAN_FILE_REL calculation"
-else
-    # Alternative check: PROJECT_ROOT should be set before the relative path calculation
-    if grep -n 'PROJECT_ROOT=' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/proj_root_line && \
-       grep -n 'PLAN_FILE_REL=.*realpath' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/plan_rel_line; then
-        PROJ_LINE=$(cat /tmp/proj_root_line)
-        REL_LINE=$(cat /tmp/plan_rel_line)
-        if [[ "$PROJ_LINE" -lt "$REL_LINE" ]]; then
-            pass "PROJECT_ROOT initialized before PLAN_FILE_REL calculation"
-        else
-            fail "PROJECT_ROOT not initialized before PLAN_FILE_REL"
-        fi
+# PLAN_FILE_REL now uses get_relative_path (portable function from loop-common.sh)
+if grep -n 'PROJECT_ROOT=' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/proj_root_line && \
+   grep -n 'PLAN_FILE_REL=.*get_relative_path' "$SETUP_SCRIPT" | head -1 | cut -d: -f1 > /tmp/plan_rel_line; then
+    PROJ_LINE=$(cat /tmp/proj_root_line)
+    REL_LINE=$(cat /tmp/plan_rel_line)
+    if [[ "$PROJ_LINE" -lt "$REL_LINE" ]]; then
+        pass "PROJECT_ROOT initialized before PLAN_FILE_REL calculation"
     else
         fail "PROJECT_ROOT not initialized before PLAN_FILE_REL"
     fi
+else
+    fail "PROJECT_ROOT not initialized before PLAN_FILE_REL"
 fi
 
 # Test 2.4: Check tracked plan file must be clean when --commit-plan-file is set
@@ -183,11 +178,11 @@ else
     fail "Setup script doesn't check for spaces in path"
 fi
 
-# Test 3.3: Check setup script validates relative path (P2 fix)
-if grep -q 'PLAN_FILE_REL=.*realpath.*relative-to' "$SETUP_SCRIPT"; then
-    pass "Setup script uses relative path for validation"
+# Test 3.3: Check setup script validates relative path (uses portable get_relative_path)
+if grep -q 'PLAN_FILE_REL=.*get_relative_path' "$SETUP_SCRIPT"; then
+    pass "Setup script uses portable relative path for validation"
 else
-    fail "Setup script doesn't use relative path for validation"
+    fail "Setup script doesn't use portable relative path for validation"
 fi
 
 # Test 3.4: Check setup script requires git repository
@@ -276,11 +271,12 @@ else
     fail "Stop hook missing end-of-line anchor in path filtering"
 fi
 
-# Test 4.8: Check post-commit handles empty START_COMMIT (P3 fix)
-if grep -q 'elif git rev-parse HEAD' "$STOP_HOOK"; then
-    pass "Stop hook handles repos without start_commit"
+# Test 4.8: Check stop hook handles pre-1.1.2 loops (terminates and allows exit)
+if grep -q 'Check for Pre-1.1.2 State File' "$STOP_HOOK" && \
+   grep -q 'pre112.bak' "$STOP_HOOK"; then
+    pass "Stop hook detects and terminates pre-1.1.2 loops"
 else
-    fail "Stop hook missing handler for empty start_commit"
+    fail "Stop hook missing pre-1.1.2 loop handling"
 fi
 
 # Note: Pre-1.1.2 state file check has moved to UserPromptSubmit hook (Section 9)
@@ -465,19 +461,15 @@ else
     fail "Git log incorrectly returned results for non-committed file"
 fi
 
-# P3 fix: Test detection without START_COMMIT (simulating old state files)
-echo "Testing post-commit check without START_COMMIT (P3 fix)..."
+# Test: Pre-1.1.2 loops are terminated by stop hook (no backward compat)
+echo "Testing pre-1.1.2 loop handling (terminate and allow exit)..."
 
-# When START_COMMIT is empty, should check all commits
-EMPTY_START=""
-if [[ -z "$EMPTY_START" ]]; then
-    # This simulates the fallback behavior when START_COMMIT is missing
-    ALL_PLAN_COMMITS=$(git log --oneline --follow -- "docs/plan.md" 2>/dev/null || true)
-    if [[ -n "$ALL_PLAN_COMMITS" ]]; then
-        pass "Git log without range detects plan file (backward compat)"
-    else
-        fail "Git log without range failed to detect plan file"
-    fi
+# When START_COMMIT is empty, stop hook terminates loop and allows Claude to exit
+# This is tested by checking the stop hook code structure
+if grep -q 'pre112.bak' "$STOP_HOOK" && grep -q 'Upgrade Required' "$STOP_HOOK"; then
+    pass "Stop hook terminates pre-1.1.2 loops with upgrade message"
+else
+    fail "Stop hook missing pre-1.1.2 termination logic"
 fi
 
 # P3 fix: Test fresh repo scenario

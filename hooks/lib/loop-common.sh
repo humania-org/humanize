@@ -62,6 +62,48 @@ to_lower() {
     echo "$1" | tr '[:upper:]' '[:lower:]'
 }
 
+# Compute relative path from base to target (portable across Linux/macOS/BSD)
+# Usage: get_relative_path "/base/dir" "/base/dir/sub/file.txt"
+# Output: "sub/file.txt"
+get_relative_path() {
+    local base="$1"
+    local target="$2"
+
+    # Normalize paths (resolve symlinks, remove trailing slashes)
+    local base_real target_real
+    base_real=$(cd "$base" 2>/dev/null && pwd -P) || base_real="$base"
+    target_real=$(realpath "$target" 2>/dev/null) || target_real="$target"
+
+    # Try GNU realpath --relative-to (Linux)
+    if realpath --relative-to="$base_real" "$target_real" 2>/dev/null; then
+        return 0
+    fi
+
+    # Try grealpath (macOS with coreutils)
+    if command -v grealpath &>/dev/null; then
+        if grealpath --relative-to="$base_real" "$target_real" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    # Fallback to Python (widely available)
+    if command -v python3 &>/dev/null; then
+        python3 -c "import os; print(os.path.relpath('$target_real', '$base_real'))" 2>/dev/null && return 0
+    fi
+    if command -v python &>/dev/null; then
+        python -c "import os; print(os.path.relpath('$target_real', '$base_real'))" 2>/dev/null && return 0
+    fi
+
+    # Last resort: if target starts with base, strip the base prefix
+    if [[ "$target_real" == "$base_real"/* ]]; then
+        echo "${target_real#$base_real/}"
+        return 0
+    fi
+
+    # Cannot compute relative path, return basename
+    basename "$target"
+}
+
 # Check if a path (lowercase) matches a round file pattern
 # Usage: is_round_file "$lowercase_path" "summary|prompt|todos"
 is_round_file_type() {

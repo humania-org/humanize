@@ -10,6 +10,10 @@
 
 set -euo pipefail
 
+# Source shared functions (for get_relative_path)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/loop-common.sh"
+
 # ========================================
 # Default Configuration
 # ========================================
@@ -205,8 +209,8 @@ if ! git rev-parse HEAD &>/dev/null 2>&1; then
     exit 1
 fi
 
-# Get relative path for validation
-PLAN_FILE_REL=$(realpath --relative-to="$PROJECT_ROOT" "$PLAN_FILE" 2>/dev/null || basename "$PLAN_FILE")
+# Get relative path for validation (uses portable get_relative_path from loop-common.sh)
+PLAN_FILE_REL=$(get_relative_path "$PROJECT_ROOT" "$PLAN_FILE")
 
 # Reject paths with spaces or regex metacharacters (required for git status filtering)
 if [[ "$PLAN_FILE_REL" =~ [[:space:]\[\]\*\?\{\}\|\(\)\^\$\\] ]]; then
