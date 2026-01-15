@@ -13,6 +13,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Source shared loop functions and template loader
+source "$SCRIPT_DIR/lib/loop-common.sh"
+
 # Read hook input (required for UserPromptSubmit hooks)
 INPUT=$(cat)
 
@@ -45,27 +48,37 @@ START_BRANCH=$(echo "$FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch
 # Schema Validation (v1.1.2+ required fields)
 # ========================================
 
-# Check for plan_tracked field
-if [[ -z "$PLAN_TRACKED" ]]; then
-    cat << 'EOF'
-{
-  "decision": "block",
-  "reason": "RLCR loop state file is missing `plan_tracked` field.\n\nThis indicates the loop was started with an older version of humanize.\n\n**Options:**\n1. Cancel the loop: `/humanize:cancel-rlcr-loop`\n2. Update humanize plugin to version 1.1.2+\n3. Restart the RLCR loop with the updated plugin"
-}
-EOF
-    exit 0
-fi
+# Helper function to output schema validation error
+schema_validation_error() {
+    local field_name="$1"
+    local fallback="RLCR loop state file is missing required field: \`${field_name}\`\n\nThis indicates the loop was started with an older version of humanize.\n\n**Options:**\n1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`\n2. Update humanize plugin to version 1.1.2+\n3. Restart the RLCR loop with the updated plugin"
 
-# Check for start_branch field
-if [[ -z "$START_BRANCH" ]]; then
-    cat << 'EOF'
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/schema-outdated.md" "$fallback" "FIELD_NAME=$field_name")
+
+    # Escape newlines for JSON
+    local escaped_reason
+    escaped_reason=$(echo "$reason" | jq -Rs '.')
+
+    cat << EOF
 {
   "decision": "block",
-  "reason": "RLCR loop state file is missing `start_branch` field.\n\nThis indicates the loop was started with an older version of humanize.\n\n**Options:**\n1. Cancel the loop: `/humanize:cancel-rlcr-loop`\n2. Update humanize plugin to version 1.1.2+\n3. Restart the RLCR loop with the updated plugin"
+  "reason": $escaped_reason
 }
 EOF
-    exit 0
-fi
+}
+
+# Check required fields
+REQUIRED_FIELDS=("plan_tracked:$PLAN_TRACKED" "start_branch:$START_BRANCH")
+for field_entry in "${REQUIRED_FIELDS[@]}"; do
+    field_name="${field_entry%%:*}"
+    field_value="${field_entry#*:}"
+
+    if [[ -z "$field_value" ]]; then
+        schema_validation_error "$field_name"
+        exit 0
+    fi
+done
 
 # ========================================
 # Branch Consistency Check

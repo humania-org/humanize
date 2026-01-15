@@ -79,8 +79,9 @@ fi
 # ========================================
 # Plan backup is read-only - protects plan integrity during loop
 
-if echo "$COMMAND" | grep -qE "(>|>>|tee|mv|cp|rm).*\.humanize-loop\.local/[^/]+/plan\.md"; then
-    REASON="Modifying plan.md backup via bash is not allowed during RLCR loop."
+if command_modifies_file "$COMMAND_LOWER" "\.humanize-loop\.local/[^/]+/plan\.md"; then
+    FALLBACK="Writing to plan.md backup is not allowed during RLCR loop."
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
     echo "$REASON" >&2
     exit 2
 fi

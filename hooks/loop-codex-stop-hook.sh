@@ -77,9 +77,8 @@ PLAN_FILE_PATH=$(echo "$EARLY_FRONTMATTER" | grep '^plan_file:' | sed 's/plan_fi
 # If schema is outdated, allow exit with unexpected status
 
 if [[ -z "$PLAN_TRACKED" || -z "$START_BRANCH" ]]; then
-    mv "$STATE_FILE" "$LOOP_DIR/unexpected-state.md"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
     echo "Loop terminated: state schema outdated (missing plan_tracked or start_branch)" >&2
-    echo "State preserved as: $LOOP_DIR/unexpected-state.md" >&2
     echo "Please update humanize plugin to v1.1.2+ and restart the loop." >&2
     exit 0  # Allow exit
 fi
@@ -392,8 +391,7 @@ CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 # Validate numeric fields
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (current_round), stopping loop" >&2
-    mv "$STATE_FILE" "$LOOP_DIR/unexpected-state.md"
-    echo "State preserved as: $LOOP_DIR/unexpected-state.md" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
     exit 0
 fi
 
@@ -499,8 +497,7 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 
 if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
-    mv "$STATE_FILE" "$LOOP_DIR/maxiter-state.md"
-    echo "State preserved as: $LOOP_DIR/maxiter-state.md" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "maxiter"
     exit 0
 fi
 
@@ -813,8 +810,7 @@ if [[ "$LAST_LINE_TRIMMED" == "COMPLETE" ]]; then
     else
         echo "Codex review passed. Loop complete!" >&2
     fi
-    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
-    echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "complete"
     exit 0
 fi
 
@@ -844,8 +840,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
-    mv "$STATE_FILE" "$LOOP_DIR/stop-state.md"
-    echo "State preserved as: $LOOP_DIR/stop-state.md" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "stop"
     exit 0
 fi
 

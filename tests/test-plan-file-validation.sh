@@ -109,6 +109,18 @@ else
     fail "Non-existent file rejection" "exit 1 with not found error" "$RESULT"
 fi
 
+# Test 2.5: Non-existent directory should fail with clear error
+echo "Test 2.5: Reject non-existent parent directory"
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "nonexistent-dir/plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "directory not found"; then
+    pass "Non-existent parent directory rejected with clear error"
+else
+    fail "Non-existent parent directory rejection" "exit 1 with directory not found error" "$RESULT"
+fi
+
 # Test 3: Symlink should fail
 echo "Test 3: Reject symbolic link"
 ln -sf plans/test-plan.md "$TEST_DIR/link-plan.md"

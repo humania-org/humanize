@@ -176,6 +176,69 @@ else
 fi
 
 echo ""
+echo "=== Test: end_loop() Function ==="
+echo ""
+
+# Test 8: end_loop rejects invalid reason
+echo "Test 8: end_loop rejects invalid reason"
+END_LOOP_TEST_DIR="$TEST_DIR/.humanize-loop.local/2024-01-03_12-00-00"
+mkdir -p "$END_LOOP_TEST_DIR"
+cat > "$END_LOOP_TEST_DIR/state.md" << 'EOF'
+---
+current_round: 0
+---
+EOF
+
+set +e
+RESULT=$(end_loop "$END_LOOP_TEST_DIR" "$END_LOOP_TEST_DIR/state.md" "invalid_reason" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "Invalid end_loop reason"; then
+    pass "end_loop rejects invalid reason"
+else
+    fail "end_loop invalid reason" "exit 1 with invalid reason error" "exit $EXIT_CODE: $RESULT"
+fi
+
+# Test 9: end_loop creates correct file for each valid reason
+echo "Test 9: end_loop creates correct files for valid reasons"
+REASONS_PASS=true
+for reason in complete cancel maxiter stop unexpected; do
+    mkdir -p "$END_LOOP_TEST_DIR"
+    cat > "$END_LOOP_TEST_DIR/state.md" << 'EOF'
+---
+current_round: 0
+---
+EOF
+    set +e
+    end_loop "$END_LOOP_TEST_DIR" "$END_LOOP_TEST_DIR/state.md" "$reason" >/dev/null 2>&1
+    EXIT_CODE=$?
+    set -e
+    EXPECTED_FILE="$END_LOOP_TEST_DIR/${reason}-state.md"
+    if [[ $EXIT_CODE -ne 0 ]] || [[ ! -f "$EXPECTED_FILE" ]]; then
+        fail "end_loop $reason" "$EXPECTED_FILE exists" "exit $EXIT_CODE, file exists: $(test -f "$EXPECTED_FILE" && echo yes || echo no)"
+        REASONS_PASS=false
+        break
+    fi
+    rm -f "$EXPECTED_FILE"
+done
+if [[ "$REASONS_PASS" == "true" ]]; then
+    pass "end_loop creates correct files for all valid reasons"
+fi
+
+# Test 10: end_loop handles missing state file
+echo "Test 10: end_loop handles missing state file gracefully"
+rm -f "$END_LOOP_TEST_DIR/state.md"
+set +e
+RESULT=$(end_loop "$END_LOOP_TEST_DIR" "$END_LOOP_TEST_DIR/state.md" "complete" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "State file not found"; then
+    pass "end_loop handles missing state file"
+else
+    fail "end_loop missing state file" "exit 1 with not found warning" "exit $EXIT_CODE: $RESULT"
+fi
+
+echo ""
 echo "========================================="
 echo "Test Results"
 echo "========================================="

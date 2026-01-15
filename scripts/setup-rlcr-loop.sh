@@ -232,6 +232,13 @@ if [[ -L "$FULL_PLAN_PATH" ]]; then
     exit 1
 fi
 
+# Check parent directory exists (provides clearer error for typos in path)
+PLAN_DIR="$(dirname "$FULL_PLAN_PATH")"
+if [[ ! -d "$PLAN_DIR" ]]; then
+    echo "Error: Plan file directory not found: $(dirname "$PLAN_FILE")" >&2
+    exit 1
+fi
+
 # Check file exists
 if [[ ! -f "$FULL_PLAN_PATH" ]]; then
     echo "Error: Plan file not found: $PLAN_FILE" >&2
@@ -239,7 +246,7 @@ if [[ ! -f "$FULL_PLAN_PATH" ]]; then
 fi
 
 # Check file is within project (no ../ escaping)
-REAL_PLAN_PATH=$(cd "$(dirname "$FULL_PLAN_PATH")" && pwd)/$(basename "$FULL_PLAN_PATH")
+REAL_PLAN_PATH=$(cd "$PLAN_DIR" && pwd)/$(basename "$FULL_PLAN_PATH")
 if [[ ! "$REAL_PLAN_PATH" = "$PROJECT_ROOT"/* ]]; then
     echo "Error: Plan file must be within project directory" >&2
     exit 1

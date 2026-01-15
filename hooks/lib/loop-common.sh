@@ -161,11 +161,13 @@ command_modifies_file() {
 
     local patterns=(
         ">[[:space:]]*[^[:space:]]*${file_pattern}"
+        ">>[[:space:]]*[^[:space:]]*${file_pattern}"
         "tee[[:space:]]+(-a[[:space:]]+)?[^[:space:]]*${file_pattern}"
         "sed[[:space:]]+-i[^|]*${file_pattern}"
         "awk[[:space:]]+-i[[:space:]]+inplace[^|]*${file_pattern}"
         "perl[[:space:]]+-[^[:space:]]*i[^|]*${file_pattern}"
         "(mv|cp)[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]*${file_pattern}"
+        "rm[[:space:]]+(-[rfv]+[[:space:]]+)?[^[:space:]]*${file_pattern}"
         "dd[[:space:]].*of=[^[:space:]]*${file_pattern}"
     )
 
@@ -189,4 +191,39 @@ After Round 0, only Codex can modify the Goal Tracker. Include a Goal Tracker Up
     load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \
         "CURRENT_ROUND=$current_round" \
         "SUMMARY_FILE=$summary_file"
+}
+
+# End the loop by renaming state.md to indicate exit reason
+# Usage: end_loop "$loop_dir" "$state_file" "complete|cancel|maxiter|stop|unexpected"
+# Arguments:
+#   $1 - loop_dir: Path to the loop directory
+#   $2 - state_file: Path to the state.md file
+#   $3 - reason: One of complete, cancel, maxiter, stop, unexpected
+# Returns: 0 on success, 1 on failure
+end_loop() {
+    local loop_dir="$1"
+    local state_file="$2"
+    local reason="$3"  # complete, cancel, maxiter, stop, unexpected
+
+    # Validate reason
+    case "$reason" in
+        complete|cancel|maxiter|stop|unexpected)
+            ;;
+        *)
+            echo "Error: Invalid end_loop reason: $reason" >&2
+            return 1
+            ;;
+    esac
+
+    local target_name="${reason}-state.md"
+
+    if [[ -f "$state_file" ]]; then
+        mv "$state_file" "$loop_dir/$target_name"
+        echo "Loop ended: $reason" >&2
+        echo "State preserved as: $loop_dir/$target_name" >&2
+        return 0
+    else
+        echo "Warning: State file not found, cannot end loop" >&2
+        return 1
+    fi
 }
