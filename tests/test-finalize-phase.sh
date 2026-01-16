@@ -108,6 +108,7 @@ plans/
 .humanize/
 .humanize*
 bin/
+transcript.jsonl
 GITIGNORE
         git add .gitignore
         git -c commit.gpgsign=false commit -q -m "Add gitignore"
@@ -468,6 +469,108 @@ if [[ -f "$LOOP_DIR/maxiter-state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.m
     pass "Max iterations skips Finalize Phase (creates maxiter-state.md)"
 else
     fail "Max iterations skip Finalize" "maxiter-state.md (no finalized-state.md)" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+fi
+
+echo ""
+echo "=== T-NEG-4: Finalize Phase Requires Todos Complete ==="
+echo ""
+
+# Setup for T-NEG-4: Finalize Phase with incomplete todos
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 5
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+setup_mock_codex_with_tracking "COMPLETE"
+
+# Create finalize-summary.md so it passes the summary check
+cat > "$LOOP_DIR/finalize-summary.md" << 'EOF'
+# Finalize Summary
+Code simplification complete.
+EOF
+
+# Create a transcript with incomplete todos
+TRANSCRIPT_FILE="$TEST_DIR/transcript.jsonl"
+cat > "$TRANSCRIPT_FILE" << 'EOF'
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "Task 1", "status": "completed", "activeForm": "Doing Task 1"}, {"content": "Task 2", "status": "in_progress", "activeForm": "Doing Task 2"}]}}]}}
+EOF
+
+echo "T-NEG-4: Finalize phase blocks exit when todos incomplete"
+HOOK_INPUT='{"stop_hook_active": false, "transcript_path": "'$TRANSCRIPT_FILE'"}'
+rm -f "$TEST_DIR/codex_called.marker"
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should block with incomplete todos message
+if echo "$RESULT" | grep -q '"decision".*block' && echo "$RESULT" | grep -qi "todo\|task"; then
+    pass "Finalize phase blocks exit when todos incomplete"
+else
+    fail "Finalize phase incomplete todos check" "block with todos error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Verify Codex was NOT called (check happens before Codex review, but Finalize skips Codex anyway)
+echo "T-NEG-4b: Codex not invoked during incomplete todos check"
+if [[ ! -f "$TEST_DIR/codex_called.marker" ]]; then
+    pass "Codex not invoked during incomplete todos check"
+else
+    fail "Codex invocation during todos check" "Codex not called" "Codex was called"
+fi
+
+echo ""
+echo "=== T-POS-5: Normal RLCR Rounds Unaffected (Stop Hook) ==="
+echo ""
+
+# Setup for T-POS-5: Normal round with non-COMPLETE Codex review
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 3 10  # current_round: 3, max_iterations: 10
+
+# Create a mock Codex that outputs review feedback (not COMPLETE)
+setup_mock_codex "## Review Feedback
+
+Some issues need to be addressed:
+- Issue 1: Fix the bug in function X
+- Issue 2: Add tests for edge case Y
+
+Please address these issues and try again.
+
+CONTINUE"
+
+# Create summary for current round (required to pass summary check)
+cat > "$LOOP_DIR/round-3-summary.md" << 'EOF'
+# Round 3 Summary
+Implemented the feature.
+EOF
+
+# Create transcript with all todos completed (to pass todo check)
+TRANSCRIPT_FILE="$TEST_DIR/transcript.jsonl"
+cat > "$TRANSCRIPT_FILE" << 'EOF'
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "Implement feature", "status": "completed", "activeForm": "Implementing"}]}}]}}
+EOF
+
+echo "T-POS-5: Normal round with non-COMPLETE review blocks with feedback"
+HOOK_INPUT='{"stop_hook_active": false, "transcript_path": "'$TRANSCRIPT_FILE'"}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# The key assertions for T-POS-5:
+# 1. Should block (not allow exit)
+# 2. state.md should still exist (not renamed to finalized-state.md or complete-state.md)
+# 3. Should produce feedback for next round (either in output or via round file)
+# Note: Review result file may or may not exist depending on cache dir setup, so we focus on the core assertions
+if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
+    pass "Normal round blocks with feedback, keeps state.md intact (not renamed)"
+else
+    fail "Normal round behavior" "block with state.md intact" "exit $EXIT_CODE, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none'), output: $RESULT"
+fi
+
+# Additional check: state.md round should be incremented for next round
+parse_state_file "$LOOP_DIR/state.md"
+if [[ "$STATE_CURRENT_ROUND" == "4" ]]; then
+    pass "Normal round increments current_round to 4"
+else
+    fail "Normal round increment" "current_round: 4" "current_round: $STATE_CURRENT_ROUND"
 fi
 
 echo ""
