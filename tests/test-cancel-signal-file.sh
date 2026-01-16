@@ -57,18 +57,16 @@ EOF
 }
 
 # Helper to simulate hook validation
+# Uses jq to properly encode the command string (handles special chars like ${})
 run_bash_validator() {
     local command="$1"
     local hook_input
-    hook_input=$(cat << ENDJSON
-{
-    "tool_name": "Bash",
-    "tool_input": {
-        "command": "$command"
-    }
-}
-ENDJSON
-)
+    hook_input=$(jq -n --arg cmd "$command" '{
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": $cmd
+        }
+    }')
     echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1
     return ${PIPESTATUS[1]}
 }
@@ -444,20 +442,45 @@ fi
 # ========================================
 # Tests the documented cancel command format with ${LOOP_DIR} variable syntax
 # The is_cancel_authorized function normalizes this to the actual path
+# IMPORTANT: We pass the literal ${loop_dir} string WITHOUT pre-expansion
+# to verify that normalization works correctly
 
-echo "POSITIVE TEST 4: Literal LOOP_DIR variable syntax allowed with signal"
+echo "POSITIVE TEST 4: Literal LOOP_DIR variable syntax allowed with signal (helper)"
 setup_test_loop "positive-4"
 touch "$LOOP_DIR/.cancel-requested"
-# Simulate the documented command format with literal ${loop_dir} (lowercased)
-# Note: We use the lowercased version since command_lower is passed to the helper
+# Pass literal ${loop_dir} string to test normalization in is_cancel_authorized
+# Note: command_lower receives the lowercased variable name
 COMMAND_LOWER='mv "${loop_dir}state.md" "${loop_dir}cancel-state.md"'
-# Replace loop_dir with the actual test loop dir for the test
-COMMAND_LOWER="${COMMAND_LOWER//\$\{loop_dir\}/$LOOP_DIR/}"
+# DO NOT pre-expand - the helper should normalize ${loop_dir} to actual path
 
 if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Literal LOOP_DIR variable syntax allowed"
+    pass "Literal LOOP_DIR variable syntax allowed (helper normalizes)"
 else
-    fail "LOOP_DIR variable syntax" "returns 0" "returns 1"
+    fail "LOOP_DIR variable syntax (helper)" "returns 0" "returns 1"
+fi
+
+# ========================================
+# POSITIVE TEST 5: Literal LOOP_DIR through validator (documented format)
+# ========================================
+# Tests the full validator flow with literal ${LOOP_DIR} variable syntax
+# This verifies the documented cancel command format works end-to-end
+
+echo "POSITIVE TEST 5: Literal LOOP_DIR through validator with signal"
+setup_test_loop "positive-5"
+touch "$LOOP_DIR/.cancel-requested"
+# Pass literal command with ${loop_dir} (lowercased for command_lower matching)
+# Note: run_bash_validator lowercases the command, so we use lowercase var name
+COMMAND='mv "${loop_dir}state.md" "${loop_dir}cancel-state.md"'
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Literal LOOP_DIR through validator allowed"
+else
+    fail "LOOP_DIR through validator" "exit 0" "exit $EXIT_CODE: $OUTPUT"
 fi
 
 # ========================================
@@ -521,10 +544,70 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 19: No active loop (no state.md)
+# NEGATIVE TEST 19: sudo mv state.md blocked (prefix bypass attempt)
 # ========================================
 
-echo "NEGATIVE TEST 19: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 19: sudo mv state.md blocked (prefix bypass)"
+setup_test_loop "negative-19"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="sudo mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "sudo mv state.md blocked"
+else
+    fail "sudo mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 20: Leading whitespace mv state.md blocked
+# ========================================
+
+echo "NEGATIVE TEST 20: Leading whitespace mv state.md blocked"
+setup_test_loop "negative-20"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="  mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Leading whitespace mv state.md blocked"
+else
+    fail "whitespace mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 21: env prefix mv state.md blocked
+# ========================================
+
+echo "NEGATIVE TEST 21: env prefix mv state.md blocked"
+setup_test_loop "negative-21"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="env PATH=/bin mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "env prefix mv state.md blocked"
+else
+    fail "env mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 22: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 22: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

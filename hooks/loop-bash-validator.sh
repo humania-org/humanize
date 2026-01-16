@@ -90,10 +90,12 @@ fi
 
 # Check 2: Source of mv/cp contains state.md (covers mv/cp FROM state.md to any destination)
 # This catches bypass attempts like: mv state.md /tmp/foo.txt
-# Pattern handles options like -f, -- before the source path
+# Pattern handles:
+# - Options like -f, -- before the source path
+# - Leading whitespace and command prefixes (sudo, env, command)
+# - Quoted relative paths like: mv -- "state.md" /tmp/foo
 # Requires state.md to be a proper filename (preceded by space, /, or quote)
-# Also handles quoted relative paths like: mv -- "state.md" /tmp/foo
-if echo "$COMMAND_LOWER" | grep -qE "^(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"; then
+if echo "$COMMAND_LOWER" | grep -qE "^[[:space:]]*(sudo[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"; then
     # Check for cancel signal file - allow authorized cancel operation
     if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
         exit 0

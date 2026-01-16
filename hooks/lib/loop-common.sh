@@ -286,9 +286,12 @@ is_cancel_authorized() {
 
     # Normalize: Replace $loop_dir and ${loop_dir} with actual path
     # This handles the documented cancel command format: mv "${LOOP_DIR}state.md" ...
+    # IMPORTANT: LOOP_DIR has a trailing slash (from `ls -1d */`), so ensure we preserve it
     local normalized="$command_lower"
     local loop_dir_lower
-    loop_dir_lower=$(echo "$active_loop_dir" | tr '[:upper:]' '[:lower:]')
+    # Ensure trailing slash is present for proper path matching
+    loop_dir_lower="${active_loop_dir%/}/"
+    loop_dir_lower=$(echo "$loop_dir_lower" | tr '[:upper:]' '[:lower:]')
 
     # Replace ${loop_dir} and $loop_dir patterns (case-insensitive after lowercasing)
     normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
