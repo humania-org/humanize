@@ -302,28 +302,68 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # Remove quotes for easier parsing
-    local unquoted
-    unquoted=$(echo "$normalized" | sed "s/[\"']//g")
-
     # Must start with mv followed by space
-    if ! echo "$unquoted" | grep -qE '^mv[[:space:]]+'; then
+    if ! echo "$normalized" | grep -qE '^mv[[:space:]]+'; then
         return 1
     fi
 
-    # Extract arguments after "mv "
+    # Extract arguments after "mv " - need to handle quoted args with spaces
     local args
-    args=$(echo "$unquoted" | sed 's/^mv[[:space:]]*//')
+    args=$(echo "$normalized" | sed 's/^mv[[:space:]]*//')
 
-    # Split into words - must have exactly 2 arguments
-    local -a words
-    read -ra words <<< "$args"
+    # Parse two arguments, respecting quotes
+    # Pattern matches: "quoted arg" or 'quoted arg' or unquoted-arg
+    # Use sed to extract first and second arguments
+    local src dest
 
-    if [[ ${#words[@]} -ne 2 ]]; then
+    # Try to match: "arg1" "arg2" or 'arg1' 'arg2' or "arg1" 'arg2' etc.
+    # First, check if we have quoted arguments
+    if echo "$args" | grep -qE "^[\"']"; then
+        # First arg is quoted - extract it
+        local quote_char
+        quote_char=$(echo "$args" | cut -c1)
+        if [[ "$quote_char" == '"' ]]; then
+            src=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
+            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
+        else
+            src=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
+            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
+        fi
+    else
+        # First arg is unquoted - take until whitespace
+        src=$(echo "$args" | sed 's/[[:space:]].*//')
+        args=$(echo "$args" | sed 's/^[^[:space:]]*[[:space:]]*//')
+    fi
+
+    # Now parse second argument
+    if echo "$args" | grep -qE "^[\"']"; then
+        local quote_char
+        quote_char=$(echo "$args" | cut -c1)
+        if [[ "$quote_char" == '"' ]]; then
+            dest=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
+            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
+        else
+            dest=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
+            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
+        fi
+    else
+        # Second arg is unquoted - take until whitespace or end
+        dest=$(echo "$args" | sed 's/[[:space:]].*//')
+        args=$(echo "$args" | sed 's/^[^[:space:]]*//')
+    fi
+
+    # Verify we got both arguments and nothing extra remains
+    if [[ -z "$src" ]] || [[ -z "$dest" ]]; then
         return 1
     fi
 
-    # Normalize paths by removing /./  and collapsing // to /
+    # Check for extra arguments (security: reject if anything remains)
+    args=$(echo "$args" | sed 's/^[[:space:]]*//')
+    if [[ -n "$args" ]]; then
+        return 1
+    fi
+
+    # Normalize paths by removing /./ and collapsing // to /
     # This allows paths like /path/to/./state.md to match /path/to/state.md
     local normalize_path
     normalize_path() {
@@ -332,16 +372,14 @@ is_cancel_authorized() {
 
     # First arg must be exactly ${active_loop_dir}/state.md (after normalization)
     # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
-    local src
-    src=$(normalize_path "${words[0]}")
+    src=$(normalize_path "$src")
     local expected_src="${loop_dir_lower}state.md"
     if [[ "$src" != "$expected_src" ]]; then
         return 1
     fi
 
     # Second arg must be exactly ${active_loop_dir}/cancel-state.md (after normalization)
-    local dest
-    dest=$(normalize_path "${words[1]}")
+    dest=$(normalize_path "$dest")
     local expected_dest="${loop_dir_lower}cancel-state.md"
     if [[ "$dest" != "$expected_dest" ]]; then
         return 1
