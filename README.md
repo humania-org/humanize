@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.1.3**
+**Current Version: 1.1.4**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -72,17 +72,17 @@ Your plan file should contain:
 
 ### Step 3: Monitor Progress
 
-All iteration artifacts are saved in `.humanize-loop.local/<timestamp>/`:
+All iteration artifacts are saved in `.humanize/rlcr/<timestamp>/`:
 
 ```bash
 # View current round
-cat .humanize-loop.local/*/state.md
+cat .humanize/rlcr/*/state.md
 
 # View Claude's latest summary
-cat .humanize-loop.local/*/round-*-summary.md | tail -50
+cat .humanize/rlcr/*/round-*-summary.md | tail -50
 
 # View Codex's review feedback
-cat .humanize-loop.local/*/round-*-review-result.md | tail -50
+cat .humanize/rlcr/*/round-*-review-result.md | tail -50
 ```
 
 **Real-time Monitoring Dashboard** (Recommended):
@@ -113,7 +113,7 @@ This provides a real-time dashboard showing:
 
 **The loop is fully interruptible** - you can exit Claude Code at any time and resume later:
 
-- **Loop state**: Controlled solely by the presence of `state.md` in the current loop directory (newest timestamp in `.humanize-loop.local/`)
+- **Loop state**: Controlled solely by the presence of `state.md` in the current loop directory (newest timestamp in `.humanize/rlcr/`)
 - **Resume**: Simply restart Claude Code in the same directory - the loop continues automatically
 - **Cancel**: Rename `state.md` to `cancel-state.md` to stop the loop permanently
 
@@ -122,7 +122,7 @@ This provides a real-time dashboard showing:
 /humanize:cancel-rlcr-loop
 
 # Or manually rename state file (find newest loop directory first)
-LOOP_DIR=$(ls -1d .humanize-loop.local/*/ | sort -r | head -1)
+LOOP_DIR=$(ls -1d .humanize/rlcr/*/ | sort -r | head -1)
 mv "${LOOP_DIR}state.md" "${LOOP_DIR}cancel-state.md"
 ```
 
@@ -241,7 +241,7 @@ humanize/
 
 ## State Directory Structure
 
-When loop is active, creates: `.humanize-loop.local/<TIMESTAMP>/`
+When loop is active, creates: `.humanize/rlcr/<TIMESTAMP>/`
 
 **Files Created**:
 - `state.md` - Current round, config (YAML frontmatter). Presence indicates active loop.

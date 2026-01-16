@@ -3,17 +3,17 @@
 # Part of rc.d configuration
 # Compatible with both bash and zsh
 
-# Monitor the latest Codex run log from .humanize-loop.local
+# Monitor the latest Codex run log from .humanize/rlcr
 # Automatically switches to newer logs when they appear
 # Features a fixed status bar at the top showing session info
 _humanize_monitor_codex() {
-    local loop_dir=".humanize-loop.local"
+    local loop_dir=".humanize/rlcr"
     local current_file=""
     local current_session_dir=""
     local check_interval=2  # seconds between checking for new files
     local status_bar_height=10  # number of lines for status bar (goal tracker + git status)
 
-    # Check if .humanize-loop.local exists
+    # Check if .humanize/rlcr exists
     if [[ ! -d "$loop_dir" ]]; then
         echo "Error: $loop_dir directory not found in current directory"
         echo "Are you in a project with an active humanize loop?"
@@ -54,7 +54,7 @@ _humanize_monitor_codex() {
         local sanitized_project=$(echo "$project_root" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
         local project_cache_dir="$cache_base/$sanitized_project"
 
-        # First, find valid session timestamps from local .humanize-loop.local
+        # First, find valid session timestamps from local .humanize/rlcr
         for session_dir in "$loop_dir"/*; do
             # Skip if glob didn't match anything
             [[ ! -e "$session_dir" ]] && continue
@@ -532,7 +532,7 @@ humanize() {
                 *)
                     echo "Usage: humanize monitor rlcr-loop"
                     echo ""
-                    echo "Monitor the latest RLCR loop log from .humanize-loop.local"
+                    echo "Monitor the latest RLCR loop log from .humanize/rlcr"
                     echo "Features:"
                     echo "  - Fixed status bar showing session info, round progress, model config"
                     echo "  - Goal tracker summary: Ultimate Goal, AC progress, task status"

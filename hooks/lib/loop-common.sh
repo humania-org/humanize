@@ -146,10 +146,11 @@ is_state_file_path() {
     echo "$path_lower" | grep -qE 'state\.md$'
 }
 
-# Check if a path is inside .humanize-loop.local directory
+# Check if a path is inside .humanize/rlcr directory (current) or .humanize-loop.local (legacy)
 is_in_humanize_loop_dir() {
     local path="$1"
-    echo "$path" | grep -q '\.humanize-loop\.local/'
+    # Match both new path (.humanize/rlcr/) and legacy path (.humanize-loop.local/)
+    echo "$path" | grep -qE '\.(humanize/rlcr|humanize-loop\.local)/'
 }
 
 # Check if a shell command attempts to modify a file matching the given pattern

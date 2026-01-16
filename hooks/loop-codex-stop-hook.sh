@@ -5,7 +5,7 @@
 # Intercepts Claude's exit attempts and uses Codex to review work.
 # If Codex doesn't confirm completion, blocks exit and feeds review back.
 #
-# State directory: .humanize-loop.local/<timestamp>/
+# State directory: .humanize/rlcr/<timestamp>/
 # State file: state.md (current_round, max_iterations, codex config)
 # Summary file: round-N-summary.md (Claude's work summary)
 # Review prompt: round-N-review-prompt.md (prompt sent to Codex)
@@ -41,7 +41,7 @@ HOOK_INPUT=$(cat)
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 
 # Source shared loop functions and template loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -354,17 +354,17 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         # Check for special cases in untracked files
         UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
 
-        # Check if .humanize-loop.local is untracked
-        if echo "$UNTRACKED" | grep -q '\.humanize-loop\.local'; then
+        # Check if .humanize or .humanize-loop.local is untracked
+        if echo "$UNTRACKED" | grep -qE '\.(humanize|humanize-loop\.local)'; then
             HUMANIZE_LOCAL_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-humanize-local.md" 2>/dev/null)
             if [[ -z "$HUMANIZE_LOCAL_NOTE" ]]; then
-                HUMANIZE_LOCAL_NOTE="Note: .humanize-loop.local/ is intentionally untracked."
+                HUMANIZE_LOCAL_NOTE="Note: .humanize/ directory is intentionally untracked."
             fi
             SPECIAL_NOTES="$SPECIAL_NOTES$HUMANIZE_LOCAL_NOTE"
         fi
 
         # Check for other untracked files (potential artifacts)
-        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize-loop\.local' || true)
+        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -vE '\.(humanize|humanize-loop\.local)' || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
             UNTRACKED_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-untracked.md" 2>/dev/null)
             if [[ -z "$UNTRACKED_NOTE" ]]; then
@@ -855,7 +855,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "Codex detected development stagnation during Full Alignment Check (Round $CURRENT_ROUND)." >&2
         echo "The loop has been stopped to prevent further unproductive iterations." >&2
         echo "" >&2
-        echo "Review the historical round files in .humanize-loop.local/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
+        echo "Review the historical round files in .humanize/rlcr/$(basename "$LOOP_DIR")/ to understand what went wrong." >&2
         echo "Consider:" >&2
         echo "  - Revisiting the original plan for clarity" >&2
         echo "  - Breaking down the task into smaller pieces" >&2

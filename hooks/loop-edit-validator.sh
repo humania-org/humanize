@@ -44,7 +44,7 @@ if is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
 fi
 
 # ========================================
-# Check if File is in .humanize-loop.local
+# Check if File is in .humanize/rlcr or .humanize-loop.local
 # ========================================
 
 if ! is_in_humanize_loop_dir "$FILE_PATH"; then
@@ -56,7 +56,7 @@ fi
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
@@ -80,7 +80,8 @@ fi
 
 FILENAME=$(basename "$FILE_PATH")
 if [[ "$FILENAME" == "plan.md" ]]; then
-    if [[ "$FILE_PATH" == *"/.humanize-loop.local/"* ]]; then
+    # Match both new path (.humanize/rlcr/) and legacy path (.humanize-loop.local/)
+    if [[ "$FILE_PATH" == *"/.humanize/rlcr/"* ]] || [[ "$FILE_PATH" == *"/.humanize-loop.local/"* ]]; then
         FALLBACK="Editing plan.md backup is not allowed during RLCR loop."
         REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
         echo "$REASON" >&2
@@ -104,7 +105,14 @@ fi
 
 if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
     # Extract filename from path (portable - works in bash and zsh)
-    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/[^/]*/\(.*\)$|\1|p')
+    # Try new path first, then legacy path
+    CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize/rlcr/[^/]*/\(.*\)$|\1|p')
+    if [[ -z "$CLAUDE_FILENAME" ]]; then
+        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize/rlcr/\(.*\)$|\1|p')
+    fi
+    if [[ -z "$CLAUDE_FILENAME" ]]; then
+        CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/[^/]*/\(.*\)$|\1|p')
+    fi
     if [[ -z "$CLAUDE_FILENAME" ]]; then
         CLAUDE_FILENAME=$(echo "$FILE_PATH" | sed -n 's|.*\.humanize-loop\.local/\(.*\)$|\1|p')
     fi

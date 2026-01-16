@@ -530,10 +530,10 @@ fi
 echo ""
 echo "Testing real template: codex/goal-tracker-update-section.md..."
 result=$(load_and_render "$TEMPLATE_DIR" "codex/goal-tracker-update-section.md" \
-    "GOAL_TRACKER_FILE=.humanize-loop.local/20240101/goal-tracker.md")
+    "GOAL_TRACKER_FILE=.humanize/rlcr/20240101/goal-tracker.md")
 
 if echo "$result" | grep -q "Goal Tracker Update Requests" && \
-   echo "$result" | grep -q ".humanize-loop.local/20240101/goal-tracker.md"; then
+   echo "$result" | grep -q ".humanize/rlcr/20240101/goal-tracker.md"; then
     pass "Real template: goal-tracker-update-section.md"
 else
     fail "Real template: goal-tracker-update-section.md"

@@ -53,7 +53,7 @@ setup_test_loop() {
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
     # Create loop directory structure
-    LOOP_DIR="$TEST_DIR/.humanize-loop.local/2024-01-01_12-00-00"
+    LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
     mkdir -p "$LOOP_DIR"
 
     # Create plan file (gitignored)
@@ -251,16 +251,16 @@ else
     fail "Bash validator blocking rm" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 8a: Bash validator blocks direct .humanize-loop.local/plan.md (no intermediate dir)
+# Test 8a: Bash validator blocks direct .humanize/rlcr/plan.md (no intermediate dir)
 # This tests Fix #1 for the regex bypass vulnerability
-echo "Test 8a: Block bash modifications to direct .humanize-loop.local/plan.md"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo evil > .humanize-loop.local/plan.md"}}'
+echo "Test 8a: Block bash modifications to direct .humanize/rlcr/plan.md"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo evil > .humanize/rlcr/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
-    pass "Bash validator blocks direct .humanize-loop.local/plan.md"
+    pass "Bash validator blocks direct .humanize/rlcr/plan.md"
 else
     fail "Bash validator direct plan.md" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
 fi
@@ -271,7 +271,7 @@ echo ""
 
 # Test 8.1: Block command substitution bypass attempt
 echo "Test 8.1: Block command substitution bypass"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/$(date +%Y)/plan.md"}}'
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize/rlcr/$(date +%Y)/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
@@ -284,7 +284,7 @@ fi
 
 # Test 8.2: Block glob expansion bypass attempt
 echo "Test 8.2: Block glob expansion bypass"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/*/plan.md"}}'
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize/rlcr/*/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
@@ -297,7 +297,7 @@ fi
 
 # Test 8.3: Block brace expansion bypass attempt
 echo "Test 8.3: Block brace expansion bypass"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "tee .humanize-loop.local/{a,b,c}/plan.md"}}'
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "tee .humanize/rlcr/{a,b,c}/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
@@ -310,7 +310,7 @@ fi
 
 # Test 8.4: Block piped command bypass attempt
 echo "Test 8.4: Block piped command bypass"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cat input.txt | tee .humanize-loop.local/2024-01-01_12-00-00/plan.md"}}'
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cat input.txt | tee .humanize/rlcr/2024-01-01_12-00-00/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
@@ -323,7 +323,7 @@ fi
 
 # Test 8.5: Block backtick command substitution bypass
 echo "Test 8.5: Block backtick command substitution bypass"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/`echo test`/plan.md"}}'
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize/rlcr/`echo test`/plan.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
@@ -584,7 +584,7 @@ EOF
 git add tracked-plan.md
 git commit -q -m "Add plan"
 # Create loop directory
-TRACKED_LOOP_DIR="$PWD/.humanize-loop.local/2024-01-01_12-00-00"
+TRACKED_LOOP_DIR="$PWD/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$TRACKED_LOOP_DIR"
 cp tracked-plan.md "$TRACKED_LOOP_DIR/plan.md"
 cat > "$TRACKED_LOOP_DIR/state.md" << EOF
@@ -678,7 +678,7 @@ EOF
 git add tracked-plan.md
 git commit -q -m "Add plan"
 # Create loop directory and backup
-TRACKED_LOOP_DIR="$PWD/.humanize-loop.local/2024-01-01_12-00-00"
+TRACKED_LOOP_DIR="$PWD/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$TRACKED_LOOP_DIR"
 cp tracked-plan.md "$TRACKED_LOOP_DIR/plan.md"
 cat > "$TRACKED_LOOP_DIR/state.md" << EOF

@@ -83,13 +83,13 @@ STOPPING:
 
 MONITORING:
   # View current state:
-  cat .humanize-loop.local/*/state.md
+  cat .humanize/rlcr/*/state.md
 
   # View latest summary:
-  cat .humanize-loop.local/*/round-*-summary.md | tail -50
+  cat .humanize/rlcr/*/round-*-summary.md | tail -50
 
   # View Codex review:
-  cat .humanize-loop.local/*/round-*-review-result.md | tail -50
+  cat .humanize/rlcr/*/round-*-review-result.md | tail -50
 HELP_EOF
     exit 0
 }
@@ -385,7 +385,7 @@ fi
 # Setup State Directory
 # ========================================
 
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 
 # Create timestamp for this loop session
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)

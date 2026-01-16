@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 INPUT=$(cat)
 
 # Find active loop using shared function
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize-loop.local"
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 # If no active loop, allow exit
