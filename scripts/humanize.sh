@@ -651,6 +651,7 @@ _humanize_monitor_codex() {
                 else
                     # New session has no log file yet - let outer loop handle it
                     current_file=""
+                    last_no_log_status=""  # Reset to ensure no-log branch re-renders
                     printf "==> Waiting for log file...\n\n"
                 fi
 
