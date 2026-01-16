@@ -80,6 +80,7 @@ find_active_loop() {
 
 # Extract current round number from state.md
 # Outputs the round number to stdout, defaults to 0
+# Note: For full state parsing, use parse_state_file() instead
 get_current_round() {
     local state_file="$1"
 
@@ -87,7 +88,7 @@ get_current_round() {
     frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
 
     local current_round
-    current_round=$(echo "$frontmatter" | grep '^current_round:' | sed 's/current_round: *//' | tr -d ' ')
+    current_round=$(echo "$frontmatter" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ')
 
     echo "${current_round:-0}"
 }

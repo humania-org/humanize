@@ -1,0 +1,99 @@
+#!/bin/bash
+#
+# Run all test suites for the Humanize plugin
+#
+# Usage: ./tests/run-all-tests.sh
+#
+# Exit codes:
+#   0 - All tests passed
+#   1 - One or more tests failed
+#
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+echo "========================================"
+echo "Running All Humanize Plugin Tests"
+echo "========================================"
+echo ""
+
+TOTAL_PASSED=0
+TOTAL_FAILED=0
+FAILED_SUITES=()
+
+# Test suites to run (in order)
+TEST_SUITES=(
+    "test-template-loader.sh"
+    "test-bash-validator-patterns.sh"
+    "test-todo-checker.sh"
+    "test-plan-file-validation.sh"
+    "test-template-references.sh"
+    "test-state-exit-naming.sh"
+)
+
+for suite in "${TEST_SUITES[@]}"; do
+    suite_path="$SCRIPT_DIR/$suite"
+
+    if [[ ! -f "$suite_path" ]]; then
+        echo -e "${YELLOW}SKIP${NC}: $suite (not found)"
+        continue
+    fi
+
+    echo -e "${BOLD}Running: $suite${NC}"
+    echo "----------------------------------------"
+
+    # Run the test suite and capture output
+    set +e
+    output=$("$suite_path" 2>&1)
+    exit_code=$?
+    set -e
+
+    # Extract pass/fail counts from output (look for "Passed: N" pattern)
+    passed=$(echo "$output" | grep -oE 'Passed:[[:space:]]*\[[0-9;m]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
+    failed=$(echo "$output" | grep -oE 'Failed:[[:space:]]*\[[0-9;m]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
+
+    # Default to 0 if extraction failed
+    passed=${passed:-0}
+    failed=${failed:-0}
+
+    TOTAL_PASSED=$((TOTAL_PASSED + passed))
+    TOTAL_FAILED=$((TOTAL_FAILED + failed))
+
+    if [[ $exit_code -ne 0 ]] || [[ "$failed" -gt 0 ]]; then
+        echo -e "${RED}FAILED${NC}: $suite (exit code: $exit_code, failed: $failed)"
+        FAILED_SUITES+=("$suite")
+        # Show the output for failed suites
+        echo "$output" | tail -30
+    else
+        echo -e "${GREEN}PASSED${NC}: $suite ($passed tests)"
+    fi
+    echo ""
+done
+
+echo "========================================"
+echo "Test Summary"
+echo "========================================"
+echo -e "Total Passed: ${GREEN}$TOTAL_PASSED${NC}"
+echo -e "Total Failed: ${RED}$TOTAL_FAILED${NC}"
+echo ""
+
+if [[ ${#FAILED_SUITES[@]} -gt 0 ]]; then
+    echo -e "${RED}Failed Test Suites:${NC}"
+    for suite in "${FAILED_SUITES[@]}"; do
+        echo "  - $suite"
+    done
+    echo ""
+    echo -e "${RED}Some tests failed!${NC}"
+    exit 1
+else
+    echo -e "${GREEN}All tests passed!${NC}"
+    exit 0
+fi

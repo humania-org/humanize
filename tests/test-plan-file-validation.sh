@@ -583,19 +583,40 @@ else
     fail "HTML-comment-only plan rejection" "exit 1 with insufficient content error" "$RESULT"
 fi
 
+# Test 9.9.2: Reject plan file with only shell/markdown comments (# lines)
+echo "Test 9.9.2: Reject plan with only # comments"
+cat > plans/hash-comment-plan.md << 'EOF'
+# This is a comment line 1
+# This is a comment line 2
+# This is a comment line 3
+# This is a comment line 4
+# This is a comment line 5
+# This is a comment line 6
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/hash-comment-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Plan with only # comments rejected"
+else
+    fail "#-comment-only plan rejection" "exit 1 with insufficient content error" "$RESULT"
+fi
+
 # Test 9.10: Accept plan with enough non-blank content
+# Note: Lines starting with # are treated as comments, so we use plain text
 echo "Test 9.10: Accept plan with sufficient non-blank content"
 cat > plans/good-plan.md << 'EOF'
-# Good Plan
+Good Plan
 
-## Goal
+Goal
 This is a valid plan file with enough content.
 
-## Requirements
+Requirements
 - Requirement 1
 - Requirement 2
 
-## Implementation
+Implementation
 Details here.
 EOF
 set +e

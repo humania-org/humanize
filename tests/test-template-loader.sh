@@ -576,16 +576,42 @@ else
     fail "Unicode in template" "$EXPECTED" "$RESULT"
 fi
 
+# Test 38.1: Actual non-ASCII Unicode in template (e acute)
+echo ""
+echo "Test 38.1: Non-ASCII Unicode in template"
+# Using French accented word "caf\xc3\xa9" (cafe with acute e)
+TEMPLATE=$'Caf\xc3\xa9: {{ITEM}}'
+RESULT=$(render_template "$TEMPLATE" "ITEM=espresso")
+EXPECTED=$'Caf\xc3\xa9: espresso'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Non-ASCII Unicode in template renders correctly"
+else
+    fail "Non-ASCII Unicode in template" "$EXPECTED" "$RESULT"
+fi
+
 # Test 39: Unicode characters in value
 echo ""
 echo "Test 39: Unicode characters in value"
 TEMPLATE="Message: {{MSG}}"
-RESULT=$(render_template "$TEMPLATE" "MSG=Bon jour mon ami")
-EXPECTED="Message: Bon jour mon ami"
+RESULT=$(render_template "$TEMPLATE" "MSG=Bonjour mon ami")
+EXPECTED="Message: Bonjour mon ami"
 if [[ "$RESULT" == "$EXPECTED" ]]; then
     pass "Unicode in value renders correctly"
 else
     fail "Unicode in value" "$EXPECTED" "$RESULT"
+fi
+
+# Test 39.1: Actual non-ASCII Unicode in value (accented characters)
+echo ""
+echo "Test 39.1: Non-ASCII Unicode in value"
+TEMPLATE="Location: {{PLACE}}"
+# Using "Caf\xc3\xa9" (cafe with acute e) and "\xc3\xa0" (a with grave)
+RESULT=$(render_template "$TEMPLATE" $'PLACE=Caf\xc3\xa9 \xc3\xa0 Paris')
+EXPECTED=$'Location: Caf\xc3\xa9 \xc3\xa0 Paris'
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass "Non-ASCII Unicode in value renders correctly"
+else
+    fail "Non-ASCII Unicode in value" "$EXPECTED" "$RESULT"
 fi
 
 # Test 40: Variable name edge cases - underscore prefix

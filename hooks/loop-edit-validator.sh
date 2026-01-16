@@ -63,7 +63,9 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-CURRENT_ROUND=$(get_current_round "$ACTIVE_LOOP_DIR/state.md")
+# Parse state file using shared function
+parse_state_file "$ACTIVE_LOOP_DIR/state.md"
+CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
 # Block State File Edits

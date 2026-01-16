@@ -20,6 +20,13 @@ DEFAULT_CODEX_EFFORT="high"
 DEFAULT_CODEX_TIMEOUT=5400
 DEFAULT_MAX_ITERATIONS=42
 
+# Default timeout for git operations (30 seconds)
+GIT_TIMEOUT=30
+
+# Source portable timeout wrapper
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$SCRIPT_DIR/portable-timeout.sh"
+
 # ========================================
 # Parse Arguments
 # ========================================
@@ -201,15 +208,15 @@ fi
 # Git Repository Validation
 # ========================================
 
-# Check git repo
-if ! git rev-parse --git-dir &>/dev/null; then
-    echo "Error: Project must be a git repository" >&2
+# Check git repo (with timeout)
+if ! run_with_timeout "$GIT_TIMEOUT" git rev-parse --git-dir &>/dev/null; then
+    echo "Error: Project must be a git repository (or git command timed out)" >&2
     exit 1
 fi
 
-# Check at least one commit
-if ! git rev-parse HEAD &>/dev/null 2>&1; then
-    echo "Error: Git repository must have at least one commit" >&2
+# Check at least one commit (with timeout)
+if ! run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD &>/dev/null 2>&1; then
+    echo "Error: Git repository must have at least one commit (or git command timed out)" >&2
     exit 1
 fi
 
@@ -285,9 +292,9 @@ fi
 # Check not in submodule
 # Quick check: only run expensive git submodule status if .gitmodules exists
 if [[ -f "$PROJECT_ROOT/.gitmodules" ]]; then
-    if git -C "$PROJECT_ROOT" submodule status 2>/dev/null | grep -q .; then
+    if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" submodule status 2>/dev/null | grep -q .; then
         # Get list of submodule paths
-        SUBMODULES=$(git -C "$PROJECT_ROOT" submodule status | awk '{print $2}')
+        SUBMODULES=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" submodule status | awk '{print $2}')
         for submod in $SUBMODULES; do
             if [[ "$PLAN_FILE" = "$submod"/* || "$PLAN_FILE" = "$submod" ]]; then
                 echo "Error: Plan file cannot be inside a git submodule: $submod" >&2
@@ -301,8 +308,8 @@ fi
 # Plan File Tracking Status Validation
 # ========================================
 
-PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
-PLAN_IS_TRACKED=$(git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
 
 if [[ "$TRACK_PLAN_FILE" == "true" ]]; then
     # Must be tracked and clean
@@ -346,14 +353,14 @@ if [[ "$LINE_COUNT" -lt 5 ]]; then
 fi
 
 # Check plan has actual content (not just whitespace/blank lines/comments)
-# Exclude: blank lines and HTML comments (<!-- ... -->)
-# Note: In markdown, # starts a heading (content), not a comment
-# A "content line" is any line that is not blank and not an HTML comment
+# Exclude: blank lines, shell/YAML comments (# ...), and HTML comments (<!-- ... -->)
+# Note: Lines starting with # are treated as comments, not markdown headings
+# A "content line" is any line that is not blank and not purely a comment
 # For multi-line HTML comments, we count lines inside them as non-content
 CONTENT_LINES=0
 IN_COMMENT=false
 while IFS= read -r line || [[ -n "$line" ]]; do
-    # Check for multi-line comment start
+    # Check for multi-line HTML comment start (<!-- without closing -->)
     if [[ "$line" =~ ^[[:space:]]*\<!--.*[^\-]$ ]] || [[ "$line" =~ ^[[:space:]]*\<!--[[:space:]]*$ ]]; then
         IN_COMMENT=true
         continue
@@ -365,11 +372,16 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         fi
         continue
     fi
-    # Skip blank lines and single-line HTML comments
+    # Skip blank lines
     if [[ "$line" =~ ^[[:space:]]*$ ]]; then
         continue
     fi
+    # Skip single-line HTML comments
     if [[ "$line" =~ ^[[:space:]]*\<!--.*--\>[[:space:]]*$ ]]; then
+        continue
+    fi
+    # Skip shell/YAML style comments (lines starting with #)
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then
         continue
     fi
     # This is a content line
@@ -395,7 +407,11 @@ fi
 # Record Branch
 # ========================================
 
-START_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)
+START_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)
+if [[ -z "$START_BRANCH" ]]; then
+    echo "Error: Failed to get current branch (git command timed out or failed)" >&2
+    exit 1
+fi
 
 # Validate branch name for YAML safety (prevents injection in state.md)
 # Reject branches with YAML-unsafe characters: colon, hash, quotes, newlines

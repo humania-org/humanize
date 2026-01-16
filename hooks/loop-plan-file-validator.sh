@@ -16,6 +16,13 @@ PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 # Source shared loop functions and template loader
 source "$SCRIPT_DIR/lib/loop-common.sh"
 
+# Source portable timeout wrapper for git operations
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
+
+# Default timeout for git operations (30 seconds)
+GIT_TIMEOUT=30
+
 # Read hook input (required for UserPromptSubmit hooks)
 INPUT=$(cat)
 
@@ -62,8 +69,8 @@ schema_validation_error() {
 EOF
 }
 
-# Check required fields
-REQUIRED_FIELDS=("plan_tracked:$PLAN_TRACKED" "start_branch:$START_BRANCH")
+# Check required fields (using FIELD_* constants from loop-common.sh)
+REQUIRED_FIELDS=("${FIELD_PLAN_TRACKED}:$PLAN_TRACKED" "${FIELD_START_BRANCH}:$START_BRANCH")
 for field_entry in "${REQUIRED_FIELDS[@]}"; do
     field_name="${field_entry%%:*}"
     field_value="${field_entry#*:}"
@@ -78,7 +85,7 @@ done
 # Branch Consistency Check
 # ========================================
 
-CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
     cat << EOF
 {
@@ -97,8 +104,8 @@ FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
 if [[ "$PLAN_TRACKED" == "true" ]]; then
     # Must be tracked and clean
-    PLAN_IS_TRACKED=$(git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
-    PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+    PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
 
     if [[ "$PLAN_IS_TRACKED" != "true" ]]; then
         cat << EOF
@@ -121,7 +128,7 @@ EOF
     fi
 else
     # Must be gitignored (not tracked)
-    PLAN_IS_TRACKED=$(git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+    PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
 
     if [[ "$PLAN_IS_TRACKED" == "true" ]]; then
         cat << EOF

@@ -134,7 +134,21 @@ fi
 # Quick-check 0.5: Branch Consistency
 # ========================================
 
-CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+GIT_EXIT_CODE=$?
+if [[ $GIT_EXIT_CODE -ne 0 || -z "$CURRENT_BRANCH" ]]; then
+    REASON="Git operation failed or timed out.
+
+Cannot verify branch consistency. This may indicate:
+- Git is not responding
+- Repository is in an invalid state
+- Network issues (if remote operations are involved)
+
+Please check git status manually and try again."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - git operation failed" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
 
 if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
     REASON="Git branch changed during RLCR loop.
@@ -234,6 +248,25 @@ if [[ -f "$TODO_CHECKER" ]]; then
     # Pass hook input to the todo checker
     TODO_RESULT=$(echo "$HOOK_INPUT" | python3 "$TODO_CHECKER" 2>&1) || TODO_EXIT=$?
     TODO_EXIT=${TODO_EXIT:-0}
+
+    if [[ "$TODO_EXIT" -eq 2 ]]; then
+        # Parse error - block and surface the error
+        REASON="Todo checker encountered a parse error.
+
+Error: $TODO_RESULT
+
+This may indicate an issue with the hook input or transcript format.
+Please try again or cancel the loop if this persists."
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Blocked - todo checker parse error" \
+            '{
+                "decision": "block",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
 
     if [[ "$TODO_EXIT" -eq 1 ]]; then
         # Incomplete todos found - block immediately without Codex review
