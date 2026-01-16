@@ -122,7 +122,21 @@ while IFS= read -r SEGMENT; do
     # Skip empty segments
     [[ -z "$SEGMENT" ]] && continue
 
-    if echo "$SEGMENT" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
+    # Strip leading redirections before pattern matching
+    # This handles cases like: 2>/tmp/x mv state.md, >/tmp/x mv state.md, 2>&1 mv state.md
+    # Pattern: [0-9]*[><][>&]*[0-9]*[^[:space:]]* matches redirections like 2>/tmp/x, >&2, &>/tmp/x
+    # Also strip placeholder chars \x01 (&>) and \x02 (>&) left from segment splitting
+    SEGMENT_CLEANED=$(echo "$SEGMENT" | sed '
+        :again
+        s/^[[:space:]]*[\x01\x02][[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*[0-9]*[><][>&]*[0-9]*[^[:space:]]*[[:space:]]*//
+        t again
+    ')
+
+    if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
         # Check for cancel signal file - allow authorized cancel operation
         if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
             exit 0
