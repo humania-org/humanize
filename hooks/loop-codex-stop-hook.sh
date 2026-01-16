@@ -527,17 +527,20 @@ if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     HAS_AC_PLACEHOLDER=false
     HAS_TASKS_PLACEHOLDER=false
 
-    # Use a generic placeholder pattern to detect uninitialized sections
-    # This matches "[To be extracted/defined/populated ..." patterns more robustly
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*plan'; then
+    # Use section-specific placeholder patterns to avoid overlap
+    # Each pattern matches the unique text for that section only
+    # Ultimate Goal: "[To be extracted from plan by Claude in Round 0]"
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be extracted from plan'; then
         HAS_GOAL_PLACEHOLDER=true
     fi
 
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*Claude.*Round 0'; then
+    # Acceptance Criteria: "[To be defined by Claude in Round 0 based on the plan]"
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be defined by Claude'; then
         HAS_AC_PLACEHOLDER=true
     fi
 
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*Claude.*plan\]'; then
+    # Active Tasks: "[To be populated by Claude based on plan]"
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be populated by Claude'; then
         HAS_TASKS_PLACEHOLDER=true
     fi
 
