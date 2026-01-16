@@ -113,6 +113,7 @@ fi
 # Split command on shell operators and check each segment
 # This catches chained commands like: true; mv state.md /tmp/foo
 MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
+MV_CP_FINALIZED_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']finalized-state\.md"
 
 # Replace shell operators with newlines, then check each segment
 # Order matters: |& before |, && before single &
@@ -226,6 +227,12 @@ while IFS= read -r SEGMENT; do
         t again
     ')
 
+    # Check for finalized-state.md as SOURCE first (more specific pattern)
+    if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_FINALIZED_SOURCE_PATTERN"; then
+        finalized_state_file_blocked_message >&2
+        exit 2
+    fi
+
     if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
         # Check for cancel signal file - allow authorized cancel operation
         if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
@@ -238,8 +245,13 @@ done <<< "$COMMAND_SEGMENTS"
 
 # Check 3: Shell wrapper bypass (sh -c, bash -c)
 # This catches bypass attempts like: sh -c 'mv state.md /tmp/foo'
-# Pattern: look for sh/bash with -c flag and state.md in the payload
+# Pattern: look for sh/bash with -c flag and state.md or finalized-state.md in the payload
 if echo "$COMMAND_LOWER" | grep -qE "(^|[[:space:]/])(sh|bash)[[:space:]]+-c[[:space:]]"; then
+    # Shell wrapper detected - check if payload contains mv/cp finalized-state.md (check first, more specific)
+    if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*finalized-state\.md"; then
+        finalized_state_file_blocked_message >&2
+        exit 2
+    fi
     # Shell wrapper detected - check if payload contains mv/cp state.md
     if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*state\.md"; then
         # Check for cancel signal file - allow authorized cancel operation

@@ -326,6 +326,30 @@ else
     fail "Bash validator finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+echo "T-NEG-5d: Bash validator blocks mv FROM finalized-state.md (source protection)"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "mv '$LOOP_DIR'/finalized-state.md /tmp/backup.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
+    pass "Bash validator blocks mv FROM finalized-state.md"
+else
+    fail "Bash validator mv FROM finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+echo "T-NEG-5e: Bash validator blocks cp FROM finalized-state.md (source protection)"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cp '$LOOP_DIR'/finalized-state.md /tmp/backup.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
+    pass "Bash validator blocks cp FROM finalized-state.md"
+else
+    fail "Bash validator cp FROM finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo ""
 echo "=== T-POS-2 & T-NEG-2/3/7: Stop Hook Finalize Phase Tests ==="
 echo ""
