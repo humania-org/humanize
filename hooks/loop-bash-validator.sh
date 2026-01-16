@@ -94,7 +94,8 @@ fi
 # - Options like -f, -- before the source path
 # - Leading whitespace and command prefixes with options (sudo -u root, env VAR=val, command --)
 # - Quoted relative paths like: mv -- "state.md" /tmp/foo
-# - Command chaining via ;, &&, ||, | (each segment is checked independently)
+# - Command chaining via ;, &&, ||, |, |&, & (each segment is checked independently)
+# - Shell wrappers: sh -c, bash -c, /bin/sh -c, /bin/bash -c
 # Requires state.md to be a proper filename (preceded by space, /, or quote)
 # Note: sudo/command patterns match zero or more arguments (each: space + optional-minus + non-space chars)
 
@@ -103,7 +104,9 @@ fi
 MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
 
 # Replace shell operators with newlines, then check each segment
-COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed 's/;/\n/g; s/&&/\n/g; s/||/\n/g; s/|/\n/g')
+# Order matters: |& before |, && before &
+# For &: only split on space-surrounded & (background operator), not redirections like 2>&1
+COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed 's/|&/\n/g; s/&&/\n/g; s/||/\n/g; s/|/\n/g; s/;/\n/g; s/ & /\n/g; s/ &$/\n/g')
 while IFS= read -r SEGMENT; do
     # Skip empty segments
     [[ -z "$SEGMENT" ]] && continue
@@ -117,6 +120,21 @@ while IFS= read -r SEGMENT; do
         exit 2
     fi
 done <<< "$COMMAND_SEGMENTS"
+
+# Check 3: Shell wrapper bypass (sh -c, bash -c)
+# This catches bypass attempts like: sh -c 'mv state.md /tmp/foo'
+# Pattern: look for sh/bash with -c flag and state.md in the payload
+if echo "$COMMAND_LOWER" | grep -qE "(^|[[:space:]/])(sh|bash)[[:space:]]+-c[[:space:]]"; then
+    # Shell wrapper detected - check if payload contains mv/cp state.md
+    if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*state\.md"; then
+        # Check for cancel signal file - allow authorized cancel operation
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        state_file_blocked_message >&2
+        exit 2
+    fi
+fi
 
 # ========================================
 # Block Plan Backup Modifications (All Rounds)
