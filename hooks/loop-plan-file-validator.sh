@@ -116,7 +116,7 @@ FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 if [[ "$PLAN_TRACKED" == "true" ]]; then
     # Must be tracked and clean
     # Use || LS_FILES_EXIT=$? to prevent set -e from aborting on non-zero exit
-    # ls-files --error-unmatch returns: 0 (tracked), 1 (not tracked), 124 (timeout)
+    # ls-files --error-unmatch returns: 0 (tracked), 1 (not tracked), 124 (timeout), other (error)
     run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null || LS_FILES_EXIT=$?
     LS_FILES_EXIT=${LS_FILES_EXIT:-0}
     if [[ $LS_FILES_EXIT -eq 124 ]]; then
@@ -128,10 +128,20 @@ if [[ "$PLAN_TRACKED" == "true" ]]; then
 }
 EOF
         exit 0
+    elif [[ $LS_FILES_EXIT -ne 0 && $LS_FILES_EXIT -ne 1 ]]; then
+        # Unexpected git error - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation failed while checking plan file tracking status (exit code: $LS_FILES_EXIT).\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
     fi
     PLAN_IS_TRACKED=$([[ $LS_FILES_EXIT -eq 0 ]] && echo "true" || echo "false")
 
     # Use || STATUS_EXIT=$? to prevent set -e from aborting on non-zero exit
+    # git status --porcelain returns: 0 (success), 124 (timeout), other (error)
     PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null) || STATUS_EXIT=$?
     STATUS_EXIT=${STATUS_EXIT:-0}
     if [[ $STATUS_EXIT -eq 124 ]]; then
@@ -140,6 +150,15 @@ EOF
 {
   "decision": "block",
   "reason": "Git operation timed out while checking plan file status.\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
+    elif [[ $STATUS_EXIT -ne 0 ]]; then
+        # Unexpected git error - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation failed while checking plan file status (exit code: $STATUS_EXIT).\\n\\nPlease check git status and try again."
 }
 EOF
         exit 0
@@ -166,9 +185,8 @@ EOF
     fi
 else
     # Must be gitignored (not tracked)
-    # Check if git command succeeds - fail closed on timeout
-    # ls-files --error-unmatch returns 1 for untracked files (expected behavior)
-    # We need to distinguish between: 0 (tracked), 1 (not tracked), 124 (timeout)
+    # Check if git command succeeds - fail closed on timeout/error
+    # ls-files --error-unmatch returns: 0 (tracked), 1 (not tracked), 124 (timeout), other (error)
     run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null || LS_FILES_EXIT=$?
     LS_FILES_EXIT=${LS_FILES_EXIT:-0}
     if [[ $LS_FILES_EXIT -eq 124 ]]; then
@@ -177,6 +195,15 @@ else
 {
   "decision": "block",
   "reason": "Git operation timed out while checking plan file tracking status.\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
+    elif [[ $LS_FILES_EXIT -ne 0 && $LS_FILES_EXIT -ne 1 ]]; then
+        # Unexpected git error - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation failed while checking plan file tracking status (exit code: $LS_FILES_EXIT).\\n\\nPlease check git status and try again."
 }
 EOF
         exit 0

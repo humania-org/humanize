@@ -43,7 +43,7 @@ setup_test_repo() {
         git config user.name "Test"
         echo "initial" > init.txt
         git add init.txt
-        git commit -q -m "Initial commit"
+        git -c commit.gpgsign=false commit -q -m "Initial commit"
 
         # Create test plan files
         mkdir -p plans
@@ -62,7 +62,7 @@ EOF
         # Add plans/ to gitignore (default behavior)
         echo "plans/" >> .gitignore
         git add .gitignore
-        git commit -q -m "Add gitignore"
+        git -c commit.gpgsign=false commit -q -m "Add gitignore"
     fi
 }
 
@@ -205,7 +205,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 # Create a plan directory that we'll make inaccessible
 mkdir -p plans
 cat > plans/plan.md << 'EOF'
@@ -218,7 +218,7 @@ Test path resolution
 EOF
 echo "plans/" >> .gitignore
 git add .gitignore
-git commit -q -m "Gitignore"
+git -c commit.gpgsign=false commit -q -m "Gitignore"
 # Make the plans directory unreadable (if we have permission to do so)
 if chmod 000 plans 2>/dev/null; then
     set +e
@@ -256,7 +256,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "../outside/escape-plan.md" 2>&1)
 EXIT_CODE=$?
@@ -333,7 +333,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 cat > tracked-plan.md << 'EOF'
 # Tracked Plan
 ## Goal
@@ -343,7 +343,7 @@ Test tracking
 - Requirement 2
 EOF
 git add tracked-plan.md
-git commit -q -m "Add plan"
+git -c commit.gpgsign=false commit -q -m "Add plan"
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "tracked-plan.md" 2>&1)
 EXIT_CODE=$?
@@ -365,7 +365,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 mkdir -p plans
 cat > plans/untracked-plan.md << 'EOF'
 # Untracked Plan
@@ -377,7 +377,7 @@ Test untracked
 EOF
 echo "plans/" >> .gitignore
 git add .gitignore
-git commit -q -m "Gitignore"
+git -c commit.gpgsign=false commit -q -m "Gitignore"
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --track-plan-file "plans/untracked-plan.md" 2>&1)
 EXIT_CODE=$?
@@ -399,7 +399,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 cat > modified-plan.md << 'EOF'
 # Modified Plan
 ## Goal
@@ -409,7 +409,7 @@ Test modified
 - Requirement 2
 EOF
 git add modified-plan.md
-git commit -q -m "Add plan"
+git -c commit.gpgsign=false commit -q -m "Add plan"
 echo "# Extra line" >> modified-plan.md
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --track-plan-file "modified-plan.md" 2>&1)
@@ -438,7 +438,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 # Get the default branch name for this repo (main or master)
 BRANCH_TEST_DEFAULT=$(git rev-parse --abbrev-ref HEAD)
 mkdir -p plans
@@ -452,7 +452,7 @@ Test branch validation
 EOF
 echo "plans/" >> .gitignore
 git add .gitignore
-git commit -q -m "Gitignore"
+git -c commit.gpgsign=false commit -q -m "Gitignore"
 # Try to create branch with colon (YAML-unsafe) - git may reject this
 if git checkout -q -b "feature:test" 2>/dev/null; then
     set +e
@@ -522,13 +522,13 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 mkdir -p plans
 # Create plan with only blank lines (6 lines total to pass the 5-line minimum)
 printf '\n\n\n\n\n\n' > plans/blank-plan.md
 echo "plans/" >> .gitignore
 git add .gitignore
-git commit -q -m "Gitignore"
+git -c commit.gpgsign=false commit -q -m "Gitignore"
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/blank-plan.md" 2>&1)
 EXIT_CODE=$?

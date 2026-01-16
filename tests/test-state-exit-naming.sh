@@ -43,7 +43,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

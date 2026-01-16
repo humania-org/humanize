@@ -134,8 +134,9 @@ fi
 # Quick-check 0.5: Branch Consistency
 # ========================================
 
-CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
-GIT_EXIT_CODE=$?
+# Use || GIT_EXIT_CODE=$? to prevent set -e from aborting on non-zero exit
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null) || GIT_EXIT_CODE=$?
+GIT_EXIT_CODE=${GIT_EXIT_CODE:-0}
 if [[ $GIT_EXIT_CODE -ne 0 || -z "$CURRENT_BRANCH" ]]; then
     REASON="Git operation failed or timed out.
 

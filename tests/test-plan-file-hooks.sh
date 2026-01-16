@@ -44,7 +44,7 @@ setup_test_loop() {
         git config user.name "Test"
         echo "initial" > init.txt
         git add init.txt
-        git commit -q -m "Initial commit"
+        git -c commit.gpgsign=false commit -q -m "Initial commit"
         # Capture default branch name (main or master depending on git version)
         DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     fi
@@ -67,7 +67,7 @@ Test the RLCR loop
 EOF
     echo "plans/" >> .gitignore
     git add .gitignore
-    git commit -q -m "Add gitignore"
+    git -c commit.gpgsign=false commit -q -m "Add gitignore"
 
     # Create plan backup
     cp plans/test-plan.md "$LOOP_DIR/plan.md"
@@ -570,7 +570,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 # Get the default branch name for this new repo
 TEST12_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # Create tracked plan file
@@ -582,7 +582,7 @@ Test tracked file
 - Requirement 1
 EOF
 git add tracked-plan.md
-git commit -q -m "Add plan"
+git -c commit.gpgsign=false commit -q -m "Add plan"
 # Create loop directory
 TRACKED_LOOP_DIR="$PWD/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$TRACKED_LOOP_DIR"
@@ -664,7 +664,7 @@ git config user.email "test@test.com"
 git config user.name "Test"
 echo "init" > init.txt
 git add init.txt
-git commit -q -m "Initial"
+git -c commit.gpgsign=false commit -q -m "Initial"
 # Get the default branch name for this new repo
 TEST14_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # Create tracked plan file
@@ -676,7 +676,7 @@ Test tracked file
 - Requirement 1
 EOF
 git add tracked-plan.md
-git commit -q -m "Add plan"
+git -c commit.gpgsign=false commit -q -m "Add plan"
 # Create loop directory and backup
 TRACKED_LOOP_DIR="$PWD/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$TRACKED_LOOP_DIR"
@@ -711,7 +711,7 @@ EOF
 # Modify and COMMIT the plan file (git status will be clean)
 echo "# Modified and committed" >> tracked-plan.md
 git add tracked-plan.md
-git commit -q -m "Modify plan"
+git -c commit.gpgsign=false commit -q -m "Modify plan"
 # Verify git status is clean for the plan file
 GIT_STATUS_CHECK=$(git status --porcelain tracked-plan.md)
 if [[ -n "$GIT_STATUS_CHECK" ]]; then
