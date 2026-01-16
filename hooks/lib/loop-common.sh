@@ -8,6 +8,41 @@
 # - loop-bash-validator.sh
 #
 
+# ========================================
+# Constants
+# ========================================
+
+# State file field names
+readonly FIELD_PLAN_TRACKED="plan_tracked"
+readonly FIELD_START_BRANCH="start_branch"
+readonly FIELD_PLAN_FILE="plan_file"
+readonly FIELD_CURRENT_ROUND="current_round"
+readonly FIELD_MAX_ITERATIONS="max_iterations"
+readonly FIELD_PUSH_EVERY_ROUND="push_every_round"
+readonly FIELD_CODEX_MODEL="codex_model"
+readonly FIELD_CODEX_EFFORT="codex_effort"
+readonly FIELD_CODEX_TIMEOUT="codex_timeout"
+
+# Codex review markers
+readonly MARKER_COMPLETE="COMPLETE"
+readonly MARKER_STOP="STOP"
+
+# Exit reasons (used with end_loop function)
+# complete   - Codex confirmed all goals achieved (normal success)
+# cancel     - User cancelled with /cancel-rlcr-loop
+# maxiter    - Reached maximum iterations limit
+# stop       - Codex triggered circuit breaker (stagnation detected)
+# unexpected - System error or invalid state (e.g., corrupted state file)
+readonly EXIT_COMPLETE="complete"
+readonly EXIT_CANCEL="cancel"
+readonly EXIT_MAXITER="maxiter"
+readonly EXIT_STOP="stop"
+readonly EXIT_UNEXPECTED="unexpected"
+
+# ========================================
+# Library Setup
+# ========================================
+
 # Source template loader
 LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$LOOP_COMMON_DIR/template-loader.sh"
@@ -55,6 +90,49 @@ get_current_round() {
     current_round=$(echo "$frontmatter" | grep '^current_round:' | sed 's/current_round: *//' | tr -d ' ')
 
     echo "${current_round:-0}"
+}
+
+# Parse state file frontmatter and set variables
+# Usage: parse_state_file "$STATE_FILE"
+# Sets the following variables (caller must declare them):
+#   STATE_FRONTMATTER - raw frontmatter content
+#   STATE_PLAN_TRACKED - "true" or "false"
+#   STATE_START_BRANCH - branch name
+#   STATE_PLAN_FILE - plan file path
+#   STATE_CURRENT_ROUND - current round number
+#   STATE_MAX_ITERATIONS - max iterations
+#   STATE_PUSH_EVERY_ROUND - "true" or "false"
+#   STATE_CODEX_MODEL - codex model name
+#   STATE_CODEX_EFFORT - codex effort level
+#   STATE_CODEX_TIMEOUT - codex timeout in seconds
+# Returns: 0 on success, 1 if file not found
+parse_state_file() {
+    local state_file="$1"
+
+    if [[ ! -f "$state_file" ]]; then
+        return 1
+    fi
+
+    STATE_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+
+    # Parse fields with consistent quote handling
+    # Legacy quote-stripping kept for backward compatibility with older state files
+    STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
+    STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
+    STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
+    STATE_PUSH_EVERY_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PUSH_EVERY_ROUND}:" | sed "s/${FIELD_PUSH_EVERY_ROUND}: *//" | tr -d ' ' || true)
+    STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
+    STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
+    STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+
+    # Apply defaults
+    STATE_CURRENT_ROUND="${STATE_CURRENT_ROUND:-0}"
+    STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
+    STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
+
+    return 0
 }
 
 # Convert a string to lowercase

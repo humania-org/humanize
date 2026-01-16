@@ -3,7 +3,22 @@
 # Template loading functions for RLCR loop hooks
 #
 # This library provides functions to load and render prompt templates.
+#
+# Template Variable Syntax
+# ========================
 # Templates use {{VARIABLE_NAME}} syntax for placeholders.
+# - Variable names: uppercase letters, numbers, underscores only
+# - Example: {{PLAN_FILE}}, {{CURRENT_ROUND}}, {{GOAL_TRACKER_FILE}}
+# - Single-pass substitution: {{VAR}} in a value will NOT be expanded
+# - Missing variables: placeholder is kept as-is (e.g., {{UNDEFINED}})
+#
+# Available functions:
+# - get_template_dir: Get path to template directory
+# - load_template: Load a template file by name
+# - render_template: Replace {{VAR}} placeholders with values
+# - load_and_render: Load and render in one call
+# - load_and_render_safe: Same as above but with fallback for missing templates
+# - validate_template_dir: Check if template directory is valid
 #
 
 # Get the template directory path

@@ -93,6 +93,19 @@ CODEX_MODEL="${CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 
+# Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
+# Use same validation patterns as setup-rlcr-loop.sh
+if [[ ! "$CODEX_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "Error: Invalid codex_model in state file: $CODEX_MODEL" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    exit 0
+fi
+if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: Invalid codex_effort in state file: $CODEX_EFFORT" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    exit 0
+fi
+
 # Validate numeric fields early
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (current_round), stopping loop" >&2
@@ -254,6 +267,20 @@ Complete these tasks before exiting:
 fi
 
 # ========================================
+# Cache Git Status Output
+# ========================================
+# Cache git status output to avoid calling it multiple times.
+# Used by both large file check and git clean check below.
+
+GIT_STATUS_CACHED=""
+GIT_IS_REPO=false
+
+if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+    GIT_IS_REPO=true
+    GIT_STATUS_CACHED=$(git status --porcelain 2>/dev/null || echo "")
+fi
+
+# ========================================
 # Quick Check: Large File Detection
 # ========================================
 # Check if any tracked or new files exceed the line limit.
@@ -261,7 +288,7 @@ fi
 
 MAX_LINES=2000
 
-if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+if [[ "$GIT_IS_REPO" == "true" ]]; then
     LARGE_FILES=""
 
     while IFS= read -r line; do
@@ -303,13 +330,14 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         # Count lines and trim whitespace (portable across shells)
         line_count=$(wc -l < "$filename" 2>/dev/null | tr -d ' ') || continue
 
+        # Validate line_count is numeric before comparison
+        [[ "$line_count" =~ ^[0-9]+$ ]] || continue
+
         if [ "$line_count" -gt "$MAX_LINES" ]; then
             LARGE_FILES="${LARGE_FILES}
 - \`${filename}\`: ${line_count} lines (${file_type} file)"
         fi
-    done <<EOF
-$(git status --porcelain 2>/dev/null)
-EOF
+    done <<< "$GIT_STATUS_CACHED"
 
     if [ -n "$LARGE_FILES" ]; then
         FALLBACK="# Large Files Detected
@@ -341,18 +369,17 @@ fi
 # Before running expensive Codex review, check if all changes have been
 # committed and pushed. This ensures work is properly saved.
 
-# Check if git is available and we're in a git repo
-if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+# Use cached git status from above
+if [[ "$GIT_IS_REPO" == "true" ]]; then
     GIT_ISSUES=""
     SPECIAL_NOTES=""
 
-    # Check for uncommitted changes (staged or unstaged)
-    GIT_STATUS=$(git status --porcelain 2>/dev/null)
-    if [[ -n "$GIT_STATUS" ]]; then
+    # Check for uncommitted changes (staged or unstaged) using cached status
+    if [[ -n "$GIT_STATUS_CACHED" ]]; then
         GIT_ISSUES="uncommitted changes"
 
         # Check for special cases in untracked files
-        UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
+        UNTRACKED=$(echo "$GIT_STATUS_CACHED" | grep '^??' || true)
 
         # Check if .humanize* directories are untracked (includes .humanize/ and any legacy .humanize-* dirs)
         if echo "$UNTRACKED" | grep -q '\.humanize'; then
@@ -472,15 +499,17 @@ if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     HAS_AC_PLACEHOLDER=false
     HAS_TASKS_PLACEHOLDER=false
 
-    if echo "$GOAL_TRACKER_CONTENT" | grep -q '\[To be extracted from plan'; then
+    # Use a generic placeholder pattern to detect uninitialized sections
+    # This matches "[To be extracted/defined/populated ..." patterns more robustly
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*plan'; then
         HAS_GOAL_PLACEHOLDER=true
     fi
 
-    if echo "$GOAL_TRACKER_CONTENT" | grep -q '\[To be defined by Claude'; then
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*Claude.*Round 0'; then
         HAS_AC_PLACEHOLDER=true
     fi
 
-    if echo "$GOAL_TRACKER_CONTENT" | grep -q '\[To be populated by Claude'; then
+    if echo "$GOAL_TRACKER_CONTENT" | grep -qE '\[To be (extracted|defined|populated) .*Claude.*plan\]'; then
         HAS_TASKS_PLACEHOLDER=true
     fi
 

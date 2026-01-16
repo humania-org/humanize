@@ -508,6 +508,85 @@ else
 fi
 
 echo ""
+echo "=== Test: Plan File Content Validation ==="
+echo ""
+
+# Test 9.8: Reject plan file with only blank lines
+echo "Test 9.8: Reject plan with only blank lines"
+cd "$TEST_DIR"
+rm -rf content-test 2>/dev/null || true
+mkdir -p content-test
+cd content-test
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+echo "init" > init.txt
+git add init.txt
+git commit -q -m "Initial"
+mkdir -p plans
+# Create plan with only blank lines (6 lines total to pass the 5-line minimum)
+printf '\n\n\n\n\n\n' > plans/blank-plan.md
+echo "plans/" >> .gitignore
+git add .gitignore
+git commit -q -m "Gitignore"
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/blank-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Plan with only blank lines rejected"
+else
+    fail "Blank plan rejection" "exit 1 with insufficient content error" "$RESULT"
+fi
+
+# Test 9.9: Reject plan file with only few non-blank lines
+echo "Test 9.9: Reject plan with too few non-blank lines"
+# Create plan with mostly blank lines and only 2 non-blank lines
+cat > plans/sparse-plan.md << 'EOF'
+# Title
+
+
+Only one more line
+
+
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/sparse-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Plan with too few non-blank lines rejected"
+else
+    fail "Sparse plan rejection" "exit 1 with insufficient content error" "$RESULT"
+fi
+
+# Test 9.10: Accept plan with enough non-blank content
+echo "Test 9.10: Accept plan with sufficient non-blank content"
+cat > plans/good-plan.md << 'EOF'
+# Good Plan
+
+## Goal
+This is a valid plan file with enough content.
+
+## Requirements
+- Requirement 1
+- Requirement 2
+
+## Implementation
+Details here.
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/good-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should not fail due to content validation (may fail later for other reasons like codex)
+if ! echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Valid plan with sufficient content accepted"
+else
+    fail "Valid plan acceptance" "no insufficient content error" "$RESULT"
+fi
+
+echo ""
 echo "=== Test: CLI Options ==="
 echo ""
 

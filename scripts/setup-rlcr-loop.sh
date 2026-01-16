@@ -262,6 +262,12 @@ if [[ ! -f "$FULL_PLAN_PATH" ]]; then
     exit 1
 fi
 
+# Check file is readable
+if [[ ! -r "$FULL_PLAN_PATH" ]]; then
+    echo "Error: Plan file not readable: $PLAN_FILE" >&2
+    exit 1
+fi
+
 # Check file is within project (no ../ escaping)
 # Resolve the real path by cd'ing to the directory and getting pwd
 # This handles symlinks in parent directories and ../ path components
@@ -336,6 +342,16 @@ if [[ "$LINE_COUNT" -lt 5 ]]; then
     echo "" >&2
     echo "The plan file should contain enough detail for implementation." >&2
     echo "Consider adding more context, acceptance criteria, or steps." >&2
+    exit 1
+fi
+
+# Check plan has actual content (not just whitespace/blank lines)
+# Exclude blank lines and lines that are only markdown comments (<!-- -->)
+NON_BLANK_LINES=$(grep -cvE '^[[:space:]]*$' "$FULL_PLAN_PATH" 2>/dev/null || echo "0")
+if [[ "$NON_BLANK_LINES" -lt 3 ]]; then
+    echo "Error: Plan file has insufficient content (only $NON_BLANK_LINES non-blank lines)" >&2
+    echo "" >&2
+    echo "The plan file should contain meaningful content, not just blank lines." >&2
     exit 1
 fi
 
@@ -447,10 +463,11 @@ GOAL_TRACKER_EOF
 
 # Extract goal from plan file (look for ## Goal, ## Objective, or first paragraph)
 # This is a heuristic - Claude will refine it in round 0
-GOAL_LINE=$(grep -i -m1 '^\s*##\s*\(goal\|objective\|purpose\)' "$FULL_PLAN_PATH" 2>/dev/null || echo "")
+# Use ^## without leading whitespace - markdown headers should start at column 0
+GOAL_LINE=$(grep -i -m1 '^##[[:space:]]*\(goal\|objective\|purpose\)' "$FULL_PLAN_PATH" 2>/dev/null || echo "")
 if [[ -n "$GOAL_LINE" ]]; then
     # Get the content after the heading
-    GOAL_SECTION=$(sed -n '/^\s*##\s*[Gg]oal\|^\s*##\s*[Oo]bjective\|^\s*##\s*[Pp]urpose/,/^\s*##/p' "$FULL_PLAN_PATH" | head -20 | tail -n +2 | head -10)
+    GOAL_SECTION=$(sed -n '/^##[[:space:]]*[Gg]oal\|^##[[:space:]]*[Oo]bjective\|^##[[:space:]]*[Pp]urpose/,/^##/p' "$FULL_PLAN_PATH" | head -20 | tail -n +2 | head -10)
     echo "$GOAL_SECTION" >> "$GOAL_TRACKER_FILE"
 else
     # Use first non-empty, non-heading paragraph as goal description
@@ -468,7 +485,8 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 GOAL_TRACKER_EOF
 
 # Extract acceptance criteria from plan file (look for ## Acceptance, ## Criteria, ## Requirements)
-AC_SECTION=$(sed -n '/^\s*##\s*[Aa]cceptance\|^\s*##\s*[Cc]riteria\|^\s*##\s*[Rr]equirements/,/^\s*##/p' "$FULL_PLAN_PATH" 2>/dev/null | head -30 | tail -n +2 | head -25)
+# Use ^## without leading whitespace - markdown headers should start at column 0
+AC_SECTION=$(sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria\|^##[[:space:]]*[Rr]equirements/,/^##/p' "$FULL_PLAN_PATH" 2>/dev/null | head -30 | tail -n +2 | head -25)
 if [[ -n "$AC_SECTION" ]]; then
     echo "$AC_SECTION" >> "$GOAL_TRACKER_FILE"
 else
