@@ -514,7 +514,7 @@ _humanize_monitor_codex() {
     # Track last read position for incremental reading
     local last_size=0
     local file_size=0
-    local no_log_message_shown=false
+    local last_no_log_status=""  # Track last rendered no-log status for refresh
 
     # Main monitoring loop
     while [[ "$monitor_running" == "true" ]]; do
@@ -533,7 +533,9 @@ _humanize_monitor_codex() {
 
         # Handle case when no log file exists
         if [[ -z "$current_file" ]]; then
-            if [[ "$no_log_message_shown" != "true" ]]; then
+            # Render no-log message if status changed or not yet shown
+            if [[ "$last_no_log_status" != "$current_loop_status" ]]; then
+                tput cup $status_bar_height 0
                 tput ed  # Clear scroll region
                 if [[ "$current_loop_status" == "active" ]]; then
                     printf "\nWaiting for log file...\n"
@@ -542,7 +544,7 @@ _humanize_monitor_codex() {
                     printf "\nNo log file available for this session.\n"
                     printf "Loop status: %s\n" "$current_loop_status"
                 fi
-                no_log_message_shown=true
+                last_no_log_status="$current_loop_status"
             fi
 
             # Poll for new log files
@@ -556,6 +558,20 @@ _humanize_monitor_codex() {
                 _draw_status_bar "$current_session_dir" "N/A" "$current_loop_status"
                 [[ "$monitor_running" != "true" ]] && break
 
+                # Re-render no-log message if loop status changed
+                if [[ "$last_no_log_status" != "$current_loop_status" ]]; then
+                    tput cup $status_bar_height 0
+                    tput ed
+                    if [[ "$current_loop_status" == "active" ]]; then
+                        printf "\nWaiting for log file...\n"
+                        printf "Status bar will update as session progresses.\n"
+                    else
+                        printf "\nNo log file available for this session.\n"
+                        printf "Loop status: %s\n" "$current_loop_status"
+                    fi
+                    last_no_log_status="$current_loop_status"
+                fi
+
                 # Check for new log files
                 local latest=$(_find_latest_codex_log)
                 local latest_session=$(_find_latest_session)
@@ -564,7 +580,7 @@ _humanize_monitor_codex() {
                 if [[ -n "$latest" ]]; then
                     current_file="$latest"
                     current_session_dir="$latest_session"
-                    no_log_message_shown=false
+                    last_no_log_status=""  # Reset for next no-log scenario
                     tput cup $status_bar_height 0
                     tput ed
                     printf "\n==> Log file found: %s\n\n" "$current_file"
