@@ -92,10 +92,11 @@ fi
 # This catches bypass attempts like: mv state.md /tmp/foo.txt
 # Pattern handles:
 # - Options like -f, -- before the source path
-# - Leading whitespace and command prefixes (sudo, env, command)
+# - Leading whitespace and command prefixes with options (sudo -u root, env VAR=val, command --)
 # - Quoted relative paths like: mv -- "state.md" /tmp/foo
 # Requires state.md to be a proper filename (preceded by space, /, or quote)
-if echo "$COMMAND_LOWER" | grep -qE "^[[:space:]]*(sudo[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"; then
+# Note: sudo/command patterns match zero or more arguments (each: space + optional-minus + non-space chars)
+if echo "$COMMAND_LOWER" | grep -qE "^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"; then
     # Check for cancel signal file - allow authorized cancel operation
     if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
         exit 0

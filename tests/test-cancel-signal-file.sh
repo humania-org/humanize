@@ -604,10 +604,50 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 22: No active loop (no state.md)
+# NEGATIVE TEST 22: sudo -u root mv state.md blocked (prefix with options)
 # ========================================
 
-echo "NEGATIVE TEST 22: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 22: sudo -u root mv state.md blocked (prefix with options)"
+setup_test_loop "negative-22"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="sudo -u root mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "sudo -u root mv state.md blocked"
+else
+    fail "sudo -u root mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 23: command -- mv state.md blocked (prefix with options)
+# ========================================
+
+echo "NEGATIVE TEST 23: command -- mv state.md blocked (prefix with options)"
+setup_test_loop "negative-23"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="command -- mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "command -- mv state.md blocked"
+else
+    fail "command -- mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 24: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 24: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"
