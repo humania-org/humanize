@@ -42,7 +42,11 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
+# Detect if we're in Finalize Phase (finalized-state.md exists)
 STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
+if [[ -f "$ACTIVE_LOOP_DIR/finalized-state.md" ]]; then
+    STATE_FILE="$ACTIVE_LOOP_DIR/finalized-state.md"
+fi
 
 # Parse state file using shared function to get current round
 parse_state_file "$STATE_FILE"
@@ -72,11 +76,18 @@ fi
 # Block State File Modifications (All Rounds)
 # ========================================
 # State file is managed by the loop system, not Claude
+# This includes both state.md and finalized-state.md
+# NOTE: Check finalized-state.md FIRST because state\.md pattern also matches finalized-state.md
 # Exception: Allow mv to cancel-state.md when cancel signal file exists
 #
 # Note: We check TWO patterns for mv/cp:
 # 1. command_modifies_file checks if DESTINATION contains state.md
 # 2. Additional check below catches if SOURCE contains state.md (e.g., mv state.md /tmp/foo)
+
+if command_modifies_file "$COMMAND_LOWER" "finalized-state\.md"; then
+    finalized_state_file_blocked_message >&2
+    exit 2
+fi
 
 # Check 1: Destination contains state.md (covers writes, redirects, mv/cp TO state.md)
 if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
@@ -102,6 +113,7 @@ fi
 # Split command on shell operators and check each segment
 # This catches chained commands like: true; mv state.md /tmp/foo
 MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
+MV_CP_FINALIZED_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']finalized-state\.md"
 
 # Replace shell operators with newlines, then check each segment
 # Order matters: |& before |, && before single &
@@ -215,6 +227,12 @@ while IFS= read -r SEGMENT; do
         t again
     ')
 
+    # Check for finalized-state.md as SOURCE first (more specific pattern)
+    if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_FINALIZED_SOURCE_PATTERN"; then
+        finalized_state_file_blocked_message >&2
+        exit 2
+    fi
+
     if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
         # Check for cancel signal file - allow authorized cancel operation
         if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
@@ -227,8 +245,13 @@ done <<< "$COMMAND_SEGMENTS"
 
 # Check 3: Shell wrapper bypass (sh -c, bash -c)
 # This catches bypass attempts like: sh -c 'mv state.md /tmp/foo'
-# Pattern: look for sh/bash with -c flag and state.md in the payload
+# Pattern: look for sh/bash with -c flag and state.md or finalized-state.md in the payload
 if echo "$COMMAND_LOWER" | grep -qE "(^|[[:space:]/])(sh|bash)[[:space:]]+-c[[:space:]]"; then
+    # Shell wrapper detected - check if payload contains mv/cp finalized-state.md (check first, more specific)
+    if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*finalized-state\.md"; then
+        finalized_state_file_blocked_message >&2
+        exit 2
+    fi
     # Shell wrapper detected - check if payload contains mv/cp state.md
     if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*state\.md"; then
         # Check for cancel signal file - allow authorized cancel operation

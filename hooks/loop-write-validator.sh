@@ -54,19 +54,20 @@ fi
 # ========================================
 
 IS_SUMMARY_FILE=$(is_round_file_type "$FILE_PATH_LOWER" "summary" && echo "true" || echo "false")
+IS_FINALIZE_SUMMARY=$(is_finalize_summary_path "$FILE_PATH_LOWER" && echo "true" || echo "false")
 IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || echo "false")
 
-# If not a summary file and not in .humanize/rlcr, allow normally
-if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" ]]; then
+# If not a summary file, not a finalize summary, and not in .humanize/rlcr, allow normally
+if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "false" ]]; then
     exit 0
 fi
 
-# For state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
+# For state.md, finalized-state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
 # For other files in .humanize/rlcr that aren't summaries, allow them
 FILENAME=$(basename "$FILE_PATH")
 IS_PLAN_BACKUP=$([[ "$FILENAME" == "plan.md" ]] && echo "true" || echo "false")
-if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]]; then
-    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
+if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]]; then
+    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_finalized_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
         exit 0
     fi
 fi
@@ -84,17 +85,44 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
+# Detect if we're in Finalize Phase (finalized-state.md exists)
+IS_FINALIZE_PHASE=false
+STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/state.md"
+if [[ -f "$ACTIVE_LOOP_DIR/finalized-state.md" ]]; then
+    IS_FINALIZE_PHASE=true
+    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalized-state.md"
+fi
+
 # Parse state file using shared function
-parse_state_file "$ACTIVE_LOOP_DIR/state.md"
+parse_state_file "$STATE_FILE_TO_PARSE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
-# Block State File Writes
+# Block State File Writes (state.md and finalized-state.md)
 # ========================================
+# NOTE: Check finalized-state.md FIRST because is_state_file_path also matches finalized-state.md
+
+if is_finalized_state_file_path "$FILE_PATH_LOWER"; then
+    finalized_state_file_blocked_message >&2
+    exit 2
+fi
 
 if is_state_file_path "$FILE_PATH_LOWER"; then
     state_file_blocked_message >&2
     exit 2
+fi
+
+# ========================================
+# Allow Finalize Summary File (AC-7)
+# ========================================
+# In Finalize Phase, allow writes to finalize-summary.md
+# This must be checked BEFORE the "summary files outside .humanize/rlcr" check
+
+if [[ "$IS_FINALIZE_SUMMARY" == "true" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]]; then
+    # Verify it's in the active loop directory
+    if [[ "$FILE_PATH" == "$ACTIVE_LOOP_DIR/finalize-summary.md" ]]; then
+        exit 0
+    fi
 fi
 
 # ========================================

@@ -63,15 +63,27 @@ if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
 
+# ========================================
+# Detect Loop Phase: Normal or Finalize
+# ========================================
+# Normal loop: state.md exists
+# Finalize Phase: finalized-state.md exists (after Codex COMPLETE, before final completion)
+
+IS_FINALIZE_PHASE=false
 STATE_FILE="$LOOP_DIR/state.md"
+FINALIZED_STATE_FILE="$LOOP_DIR/finalized-state.md"
+
+if [[ -f "$FINALIZED_STATE_FILE" ]]; then
+    IS_FINALIZE_PHASE=true
+    STATE_FILE="$FINALIZED_STATE_FILE"
+elif [[ ! -f "$STATE_FILE" ]]; then
+    # No state file found, allow exit
+    exit 0
+fi
 
 # ========================================
 # Parse State File (using shared function)
 # ========================================
-
-if [[ ! -f "$STATE_FILE" ]]; then
-    exit 0
-fi
 
 # Use shared parsing function from loop-common.sh
 parse_state_file "$STATE_FILE"
@@ -507,7 +519,12 @@ fi
 # Check Summary File Exists
 # ========================================
 
-SUMMARY_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
+# In Finalize Phase, expect finalize-summary.md instead of round-N-summary.md
+if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
+    SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
+else
+    SUMMARY_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
+fi
 
 if [[ ! -f "$SUMMARY_FILE" ]]; then
     # Summary file doesn't exist - Claude didn't write it
@@ -519,9 +536,15 @@ Please write your work summary to: {{SUMMARY_FILE}}"
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/work-summary-missing.md" "$FALLBACK" \
         "SUMMARY_FILE=$SUMMARY_FILE")
 
+    if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
+        SYSTEM_MSG="Loop: Finalize Phase - summary file missing"
+    else
+        SYSTEM_MSG="Loop: Summary file missing for round $CURRENT_ROUND"
+    fi
+
     jq -n \
         --arg reason "$REASON" \
-        --arg msg "Loop: Summary file missing for round $CURRENT_ROUND" \
+        --arg msg "$SYSTEM_MSG" \
         '{
             "decision": "block",
             "reason": $reason,
@@ -531,12 +554,13 @@ Please write your work summary to: {{SUMMARY_FILE}}"
 fi
 
 # ========================================
-# Check Goal Tracker Initialization (Round 0 only)
+# Check Goal Tracker Initialization (Round 0 only, skip in Finalize Phase)
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
-if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
+# Skip this check in Finalize Phase - goal tracker was already initialized before COMPLETE
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     # Check if goal-tracker.md still contains placeholder text
     # Extract each section and check for generic placeholder pattern within that section
     # This avoids coupling to specific placeholder wording and prevents false positives
@@ -606,14 +630,29 @@ Please fill in the Goal Tracker ({{GOAL_TRACKER_FILE}}):
 fi
 
 # ========================================
-# Check Max Iterations
+# Check Max Iterations (skip in Finalize Phase - already post-COMPLETE)
 # ========================================
 
 NEXT_ROUND=$((CURRENT_ROUND + 1))
 
-if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
+# Skip max iterations check in Finalize Phase since we already received COMPLETE
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
+    exit 0
+fi
+
+# ========================================
+# Finalize Phase Completion (skip Codex review)
+# ========================================
+# If we're in Finalize Phase and all checks have passed, complete the loop
+# No Codex review is performed - this is the final step after Codex already confirmed COMPLETE
+
+if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
+    echo "Finalize Phase complete. All checks passed. Loop finished!" >&2
+    # Rename finalized-state.md to complete-state.md
+    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
+    echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
     exit 0
 fi
 
@@ -919,14 +958,65 @@ REVIEW_CONTENT=$(cat "$REVIEW_RESULT_FILE")
 LAST_LINE=$(echo "$REVIEW_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# Handle COMPLETE - loop finished successfully
+# Handle COMPLETE - enter Finalize Phase (unless at max iterations)
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
-    if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
-        echo "Codex review passed. All goals achieved. Loop complete!" >&2
-    else
-        echo "Codex review passed. Loop complete!" >&2
+    # REQ-5: Max Iterations Edge Case
+    # If current round equals max_iterations, skip Finalize Phase and terminate as MAXITER
+    if [[ $CURRENT_ROUND -ge $MAX_ITERATIONS ]]; then
+        echo "Codex review passed but at max iterations ($MAX_ITERATIONS). Terminating as MAXITER." >&2
+        end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
+        exit 0
     fi
-    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_COMPLETE"
+
+    # REQ-1: Enter Finalize Phase
+    # Rename state.md to finalized-state.md and block exit with Finalize prompt
+    if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
+        echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
+    else
+        echo "Codex review passed. Entering Finalize Phase..." >&2
+    fi
+
+    # Rename state file to indicate Finalize Phase
+    mv "$STATE_FILE" "$LOOP_DIR/finalized-state.md"
+    echo "State file renamed to: $LOOP_DIR/finalized-state.md" >&2
+
+    # Build Finalize Phase prompt
+    FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
+    FINALIZE_PROMPT_FALLBACK="# Finalize Phase
+
+Codex review has passed. The implementation is complete.
+
+You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Focus
+Focus on the code changes made during this RLCR session.
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+    FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
+        "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
+
+    SYSTEM_MSG="Loop: Finalize Phase - Simplify and refactor code before completion"
+
+    jq -n \
+        --arg reason "$FINALIZE_PROMPT" \
+        --arg msg "$SYSTEM_MSG" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
     exit 0
 fi
 
