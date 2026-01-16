@@ -2,7 +2,6 @@
 temp
 
 # Humanize state directories (used by start-rlcr-loop)
-# Matches .humanize/ (current) and .humanize-loop.local/ (legacy)
 .humanize*
 
 # Python cache

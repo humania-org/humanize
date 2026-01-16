@@ -147,7 +147,6 @@ is_state_file_path() {
 }
 
 # Check if a path is inside .humanize/rlcr directory
-# Note: Legacy .humanize-loop.local paths are NOT treated as loop directories
 is_in_humanize_loop_dir() {
     local path="$1"
     echo "$path" | grep -q '\.humanize/rlcr/'
