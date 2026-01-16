@@ -60,8 +60,10 @@ for suite in "${TEST_SUITES[@]}"; do
     set -e
 
     # Extract pass/fail counts from output (look for "Passed: N" pattern)
-    passed=$(echo "$output" | grep -oE 'Passed:[[:space:]]*\[[0-9;m]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
-    failed=$(echo "$output" | grep -oE 'Failed:[[:space:]]*\[[0-9;m]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
+    # Strip ANSI escape codes first, then extract the number
+    # ANSI escape codes are ESC[...m where ESC is \x1b or \033
+    passed=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'Passed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
+    failed=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'Failed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
 
     # Default to 0 if extraction failed
     passed=${passed:-0}
