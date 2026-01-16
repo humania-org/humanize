@@ -124,10 +124,11 @@ while IFS= read -r SEGMENT; do
 
     # Strip leading redirections before pattern matching
     # This handles cases like: 2>/tmp/x mv, 2> /tmp/x mv, >/tmp/x mv, 2>&1 mv, &>/tmp/x mv
+    # Also handles append redirections: >> /tmp/x mv, 2>> /tmp/x mv
     # Must handle:
     # - \x01 (from &>) followed by optional space and target path
     # - \x02 (from >&, 2>&1) with NO target - just strip placeholder
-    # - Standard redirections [0-9]*[><] followed by optional space and target path
+    # - Standard redirections [0-9]*[><]+ (including >> and <<) followed by optional space and target
     SEGMENT_CLEANED=$(echo "$SEGMENT" | sed '
         :again
         s/^[[:space:]]*\x01[[:space:]]*[^[:space:]]*[[:space:]]*//
@@ -138,7 +139,7 @@ while IFS= read -r SEGMENT; do
         t again
     ' | sed '
         :again
-        s/^[[:space:]]*[0-9]*[><][[:space:]]*[^[:space:]]*[[:space:]]*//
+        s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*[^[:space:]]*[[:space:]]*//
         t again
     ')
 
