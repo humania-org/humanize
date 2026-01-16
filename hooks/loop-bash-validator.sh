@@ -134,7 +134,8 @@ fi
 # ========================================
 
 if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
-    if ! echo "$COMMAND_LOWER" | grep -qE "round-[12]-todos\.md"; then
+    ACTIVE_LOOP_DIRNAME=$(basename "$ACTIVE_LOOP_DIR")
+    if ! echo "$COMMAND_LOWER" | grep -qE "\.humanize/rlcr/${ACTIVE_LOOP_DIRNAME}/round-[12]-todos\.md"; then
         todos_blocked_message "Bash" >&2
         exit 2
     fi

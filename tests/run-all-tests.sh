@@ -41,6 +41,7 @@ TEST_SUITES=(
     "test-plan-file-hooks.sh"
     "test-error-scenarios.sh"
     "test-ansi-parsing.sh"
+    "test-allowlist-validators.sh"
 )
 
 for suite in "${TEST_SUITES[@]}"; do
@@ -60,10 +61,7 @@ for suite in "${TEST_SUITES[@]}"; do
     exit_code=$?
     set -e
 
-    # Extract pass/fail counts from output (look for "Passed: N" pattern)
-    # Strip ANSI escape codes first, then extract the number
-    # Use $'\033' (ANSI-C quoting) for portability across GNU and BSD sed
-    # Note: \x1b is GNU sed specific; $'\033' works in bash on both Linux and macOS
+    # Strip ANSI escape codes and extract pass/fail counts
     esc=$'\033'
     output_stripped=$(echo "$output" | sed "s/${esc}\\[[0-9;]*m//g")
     passed=$(echo "$output_stripped" | grep -oE 'Passed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
