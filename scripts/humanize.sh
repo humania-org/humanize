@@ -707,6 +707,16 @@ _humanize_monitor_codex() {
                 [[ "$monitor_running" != "true" ]] && break
                 tail -c +$((last_size + 1)) "$current_file" 2>/dev/null
                 last_size="$file_size"
+            elif [[ "$file_size" -eq 0 ]] || [[ "$file_size" -lt "$last_size" ]]; then
+                # File truncated or rotated (R1.3: detect size becomes 0 unexpectedly)
+                # Treat as deletion signal - re-enter outer selection logic
+                tput cup $status_bar_height 0
+                tput ed
+                printf "\n==> Log file truncated/rotated, searching for new log...\n"
+                current_file=""
+                last_size=0
+                last_no_log_status=""
+                break
             fi
             [[ "$monitor_running" != "true" ]] && break
 

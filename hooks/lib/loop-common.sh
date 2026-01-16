@@ -422,16 +422,19 @@ is_in_humanize_loop_dir() {
 # Usage: git_adds_humanize "$command_lower"
 # Returns 0 if the command would add .humanize files, 1 otherwise
 #
+# IMPORTANT: This function receives LOWERCASED input from the validator.
+# Git flags like -A become -a after lowercasing, so we match both.
+#
 # Blocks:
 # - git add .humanize or git add .humanize/
 # - git add .humanize/* or git add .humanize/**
 # - git add -f .humanize* (force add)
 # - git add -f . or git add --force . (force add all - bypasses gitignore)
-# - git add -f -A or git add --force --all
+# - git add -f -A or git add --force --all (force add all)
 # - git add -fA or similar combined flags
+# - git add -A or git add --all (when .humanize exists)
+# - git add . or git add * (when .humanize exists and not gitignored)
 #
-# Note: Regular git add . and git add -A are allowed because .gitignore protects .humanize
-# Only force-add variants are blocked since they bypass gitignore protection
 git_adds_humanize() {
     local cmd="$1"
 
@@ -440,35 +443,57 @@ git_adds_humanize() {
         return 1
     fi
 
-    # Check for direct .humanize reference (blocked regardless of force flag)
+    # Check for direct .humanize reference (blocked regardless of other flags)
     if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]].*\.humanize'; then
         return 0
     fi
 
-    # Check for force add with broad scope (. or * or -A/--all)
-    # These bypass gitignore and would include .humanize
-    # Pattern: git add with -f or --force flag, and . or * or -A or --all
-    # Note: flags can appear in various orders: git add -f ., git add . -f, git add -fA, etc.
-
-    # Check for -f or --force flag (including combined flags like -fA, -Af)
+    # Check for -f or --force flag (including combined flags like -fa, -af)
+    # Note: input is lowercased, so -F becomes -f
     local has_force=false
     if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?--force([[:space:]]|$)'; then
         has_force=true
-    elif echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)'; then
+    elif echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?-[a-z]*f[a-z]*([[:space:]]|$)'; then
         has_force=true
     fi
 
+    # Check for -A/--all flag (including combined flags like -fa, -af)
+    # Note: input is lowercased, so -A becomes -a
+    local has_all=false
+    if echo "$cmd" | grep -qE '(^|[[:space:]])--all([[:space:]]|$)'; then
+        has_all=true
+    elif echo "$cmd" | grep -qE '(^|[[:space:]])-[a-z]*a[a-z]*([[:space:]]|$)'; then
+        has_all=true
+    fi
+
+    # Check for broad scope targets: . or * alone
+    local has_broad_scope=false
+    if echo "$cmd" | grep -qE '(^|[[:space:]])(\.|\*)([[:space:]]|$)'; then
+        has_broad_scope=true
+    fi
+
+    # Force add with any broad scope (force bypasses gitignore entirely)
     if [[ "$has_force" == "true" ]]; then
-        # Force flag present - check for broad scope targets
-        # . or * alone
-        if echo "$cmd" | grep -qE '(^|[[:space:]])(\.|\*)([[:space:]]|$)'; then
+        if [[ "$has_all" == "true" ]] || [[ "$has_broad_scope" == "true" ]]; then
             return 0
         fi
-        # -A or --all (standalone or combined like -fA, -Af)
-        if echo "$cmd" | grep -qE '(^|[[:space:]])--all([[:space:]]|$)'; then
-            return 0
-        fi
-        if echo "$cmd" | grep -qE '(^|[[:space:]])-[a-zA-Z]*A[a-zA-Z]*([[:space:]]|$)'; then
+    fi
+
+    # Check if .humanize exists - needed for non-force blocking
+    if [[ ! -d ".humanize" ]]; then
+        return 1
+    fi
+
+    # git add -A/--all when .humanize exists (AC-2.3)
+    # Always block because -A adds all changes including untracked files
+    if [[ "$has_all" == "true" ]]; then
+        return 0
+    fi
+
+    # git add . or git add * when .humanize exists and not gitignored
+    # Only block if .humanize is NOT protected by gitignore
+    if [[ "$has_broad_scope" == "true" ]]; then
+        if ! git check-ignore -q .humanize 2>/dev/null; then
             return 0
         fi
     fi
@@ -482,7 +507,6 @@ git_add_humanize_blocked_message() {
     local fallback="# Git Add Blocked: .humanize Protection
 
 The \`.humanize/\` directory contains local loop state that should NOT be committed.
-This directory is already listed in .gitignore.
 
 Your command was blocked because it would add .humanize files to version control.
 
@@ -496,11 +520,13 @@ Use specific file paths instead of broad patterns:
 
 ## Blocked Commands
 
-These commands would include .humanize files:
+These commands are blocked when .humanize exists:
 
-    git add .humanize
-    git add -f .           # force bypasses gitignore
-    git add --force -A     # force bypasses gitignore"
+    git add .humanize      # direct reference
+    git add -A             # adds all including .humanize
+    git add --all          # adds all including .humanize
+    git add .              # may include .humanize if not gitignored
+    git add -f .           # force bypasses gitignore"
 
     load_and_render_safe "$TEMPLATE_DIR" "block/git-add-humanize.md" "$fallback"
 }
