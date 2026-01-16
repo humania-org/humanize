@@ -58,6 +58,7 @@ fi
 # Find the most recent active loop directory
 # Only checks the newest directory - older directories are ignored even if they have state.md
 # This prevents "zombie" loops from being revived after abnormal exits
+# Detects both state.md (normal loop) and finalized-state.md (Finalize Phase in progress)
 # Outputs the directory path to stdout, or empty string if none found
 find_active_loop() {
     local loop_base_dir="$1"
@@ -71,7 +72,8 @@ find_active_loop() {
     local newest_dir
     newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
 
-    if [[ -n "$newest_dir" && -f "${newest_dir}state.md" ]]; then
+    # Check for active loop indicators: state.md (normal) or finalized-state.md (Finalize Phase)
+    if [[ -n "$newest_dir" && ( -f "${newest_dir}state.md" || -f "${newest_dir}finalized-state.md" ) ]]; then
         echo "${newest_dir%/}"
     else
         echo ""
@@ -214,6 +216,15 @@ You cannot modify state.md. This file is managed by the loop system."
     load_and_render_safe "$TEMPLATE_DIR" "block/state-file-modification.md" "$fallback"
 }
 
+# Standard message for blocking finalized-state file modifications
+finalized_state_file_blocked_message() {
+    local fallback="# Finalized State File Modification Blocked
+
+You cannot modify finalized-state.md. This file is managed by the loop system during the Finalize Phase."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/finalized-state-file-modification.md" "$fallback"
+}
+
 # Standard message for blocking summary file modifications via Bash
 # Usage: summary_bash_blocked_message "$correct_summary_path"
 summary_bash_blocked_message() {
@@ -246,6 +257,18 @@ is_goal_tracker_path() {
 is_state_file_path() {
     local path_lower="$1"
     echo "$path_lower" | grep -qE 'state\.md$'
+}
+
+# Check if a path (lowercase) targets finalized-state.md
+is_finalized_state_file_path() {
+    local path_lower="$1"
+    echo "$path_lower" | grep -qE 'finalized-state\.md$'
+}
+
+# Check if a path (lowercase) targets finalize-summary.md
+is_finalize_summary_path() {
+    local path_lower="$1"
+    echo "$path_lower" | grep -qE 'finalize-summary\.md$'
 }
 
 # Check if a path is inside .humanize/rlcr directory

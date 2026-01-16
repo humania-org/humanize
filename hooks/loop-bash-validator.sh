@@ -72,9 +72,15 @@ fi
 # Block State File Modifications (All Rounds)
 # ========================================
 # State file is managed by the loop system, not Claude
+# This includes both state.md and finalized-state.md
 
 if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
     state_file_blocked_message >&2
+    exit 2
+fi
+
+if command_modifies_file "$COMMAND_LOWER" "finalized-state\.md"; then
+    finalized_state_file_blocked_message >&2
     exit 2
 fi
 
