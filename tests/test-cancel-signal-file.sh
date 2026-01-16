@@ -1144,10 +1144,70 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 49: No active loop (no state.md)
+# NEGATIVE TEST 49: ANSI-C quoting redirection target blocked (>> $'/tmp/x y' mv)
 # ========================================
 
-echo "NEGATIVE TEST 49: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 49: >> \$'/tmp/x y' mv state.md blocked (ANSI-C quoting)"
+setup_test_loop "negative-49"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND=">> \$'/tmp/x y' mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "ANSI-C quoting redirection target blocked"
+else
+    fail "ANSI-C quoting redirection target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 50: ANSI-C quoting &> redirection target blocked (&> $'/tmp/x y' mv)
+# ========================================
+
+echo "NEGATIVE TEST 50: &> \$'/tmp/x y' mv state.md blocked (ANSI-C quoting &>)"
+setup_test_loop "negative-50"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="&> \$'/tmp/x y' mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "ANSI-C quoting &> redirection target blocked"
+else
+    fail "ANSI-C quoting &> redirection target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 51: ANSI-C quoting &>> redirection target blocked (&>> $'/tmp/x y' mv)
+# ========================================
+
+echo "NEGATIVE TEST 51: &>> \$'/tmp/x y' mv state.md blocked (ANSI-C quoting &>>)"
+setup_test_loop "negative-51"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="&>> \$'/tmp/x y' mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "ANSI-C quoting &>> redirection target blocked"
+else
+    fail "ANSI-C quoting &>> redirection target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 52: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 52: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

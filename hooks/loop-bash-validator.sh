@@ -128,14 +128,15 @@ while IFS= read -r SEGMENT; do
     # This handles cases like: 2>/tmp/x mv, 2> /tmp/x mv, >/tmp/x mv, 2>&1 mv, &>/tmp/x mv
     # Also handles append redirections: >> /tmp/x mv, 2>> /tmp/x mv, &>> /tmp/x mv
     # Also handles quoted targets: >> "/tmp/x y" mv, >> '/tmp/x y' mv
+    # Also handles ANSI-C quoting: >> $'/tmp/x y' mv, >> $"/tmp/x y" mv
     # Also handles escaped-space targets: >> /tmp/x\ y mv
     # Must handle:
-    # - \x01 (from &>) followed by optional space and target path (quoted, escaped, or unquoted)
+    # - \x01 (from &>) followed by optional space and target path (quoted, ANSI-C, escaped, or unquoted)
     # - \x02 (from >&, 2>&1) with NO target - just strip placeholder
-    # - \x03 (from &>>) followed by optional space and target path (quoted, escaped, or unquoted)
+    # - \x03 (from &>>) followed by optional space and target path (quoted, ANSI-C, escaped, or unquoted)
     # - Standard redirections [0-9]*[><]+ followed by optional space and target
-    # Order: double-quoted, single-quoted, escaped-unquoted, plain-unquoted (most specific first)
-    # Note: Escaped pattern uses sed -E for extended regex to match backslash-escaped chars
+    # Order: double-quoted, single-quoted, ANSI-C $'...', locale $"...", escaped-unquoted, plain-unquoted
+    # Note: Escaped/ANSI-C patterns use sed -E for extended regex
     SEGMENT_CLEANED=$(echo "$SEGMENT" | sed '
         :again
         s/^[[:space:]]*\x01[[:space:]]*"[^"]*"[[:space:]]*//
@@ -143,6 +144,14 @@ while IFS= read -r SEGMENT; do
     ' | sed '
         :again
         s/^[[:space:]]*\x01[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
         t again
     ' | sed -E '
         :again
@@ -164,6 +173,14 @@ while IFS= read -r SEGMENT; do
         :again
         s/^[[:space:]]*\x03[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
         t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
+        t again
     ' | sed -E '
         :again
         s/^[[:space:]]*\x03[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
@@ -179,6 +196,14 @@ while IFS= read -r SEGMENT; do
     ' | sed '
         :again
         s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
         t again
     ' | sed -E '
         :again
