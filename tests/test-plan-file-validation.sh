@@ -630,6 +630,32 @@ else
     fail "Valid plan acceptance" "no insufficient content error" "$RESULT"
 fi
 
+# Test 9.10.1: Accept plan with single-line HTML comments and valid content
+# Regression test: single-line HTML comments should NOT trigger multi-line comment mode
+echo "Test 9.10.1: Accept plan with single-line HTML comments + valid content"
+cat > plans/single-line-html-comment-plan.md << 'EOF'
+<!-- This is a single-line HTML comment -->
+This plan has real content
+
+Goal
+The goal is to test single-line comment handling.
+
+Requirements
+- Requirement 1
+- Requirement 2
+- Requirement 3
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/single-line-html-comment-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should not fail due to content validation - single-line comments should be skipped properly
+if ! echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Plan with single-line HTML comments + valid content accepted"
+else
+    fail "Single-line HTML comment handling" "no insufficient content error" "$RESULT"
+fi
+
 echo ""
 echo "=== Test: CLI Options ==="
 echo ""

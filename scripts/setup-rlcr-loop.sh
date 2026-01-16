@@ -377,12 +377,7 @@ fi
 CONTENT_LINES=0
 IN_COMMENT=false
 while IFS= read -r line || [[ -n "$line" ]]; do
-    # Check for multi-line HTML comment start (<!-- without closing -->)
-    if [[ "$line" =~ ^[[:space:]]*\<!--.*[^\-]$ ]] || [[ "$line" =~ ^[[:space:]]*\<!--[[:space:]]*$ ]]; then
-        IN_COMMENT=true
-        continue
-    fi
-    # Check for multi-line comment end
+    # If inside multi-line comment, check for end marker
     if [[ "$IN_COMMENT" == "true" ]]; then
         if [[ "$line" =~ --\>[[:space:]]*$ ]]; then
             IN_COMMENT=false
@@ -393,8 +388,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" =~ ^[[:space:]]*$ ]]; then
         continue
     fi
-    # Skip single-line HTML comments
+    # Skip single-line HTML comments (must check BEFORE multi-line start)
+    # Single-line: <!-- ... --> on same line
     if [[ "$line" =~ ^[[:space:]]*\<!--.*--\>[[:space:]]*$ ]]; then
+        continue
+    fi
+    # Check for multi-line HTML comment start (<!-- without closing --> on same line)
+    # Only trigger if the line contains <!-- but NOT -->
+    if [[ "$line" =~ ^[[:space:]]*\<!-- ]] && ! [[ "$line" =~ --\> ]]; then
+        IN_COMMENT=true
         continue
     fi
     # Skip shell/YAML style comments (lines starting with #)

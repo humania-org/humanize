@@ -85,8 +85,9 @@ done
 # Branch Consistency Check
 # ========================================
 
-CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
-GIT_EXIT_CODE=$?
+# Use || GIT_EXIT_CODE=$? to prevent set -e from aborting on non-zero exit
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null) || GIT_EXIT_CODE=$?
+GIT_EXIT_CODE=${GIT_EXIT_CODE:-0}
 if [[ $GIT_EXIT_CODE -ne 0 || -z "$CURRENT_BRANCH" ]]; then
     cat << EOF
 {
@@ -114,9 +115,10 @@ FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
 if [[ "$PLAN_TRACKED" == "true" ]]; then
     # Must be tracked and clean
-    # Check if git commands succeed - fail closed on timeout/error
-    run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null
-    LS_FILES_EXIT=$?
+    # Use || LS_FILES_EXIT=$? to prevent set -e from aborting on non-zero exit
+    # ls-files --error-unmatch returns: 0 (tracked), 1 (not tracked), 124 (timeout)
+    run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null || LS_FILES_EXIT=$?
+    LS_FILES_EXIT=${LS_FILES_EXIT:-0}
     if [[ $LS_FILES_EXIT -eq 124 ]]; then
         # Timeout - fail closed
         cat << EOF
@@ -129,8 +131,9 @@ EOF
     fi
     PLAN_IS_TRACKED=$([[ $LS_FILES_EXIT -eq 0 ]] && echo "true" || echo "false")
 
-    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null)
-    STATUS_EXIT=$?
+    # Use || STATUS_EXIT=$? to prevent set -e from aborting on non-zero exit
+    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null) || STATUS_EXIT=$?
+    STATUS_EXIT=${STATUS_EXIT:-0}
     if [[ $STATUS_EXIT -eq 124 ]]; then
         # Timeout - fail closed
         cat << EOF
