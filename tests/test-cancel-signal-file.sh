@@ -1204,10 +1204,31 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 52: No active loop (no state.md)
+# NEGATIVE TEST 52: Unrelated state.md path blocked even with signal
 # ========================================
 
-echo "NEGATIVE TEST 52: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 52: mv /tmp/state.md /tmp/cancel-state.md blocked (wrong directory)"
+setup_test_loop "negative-52"
+touch "$LOOP_DIR/.cancel-requested"
+# Try to move a state.md outside the active loop dir - should be blocked
+COMMAND="mv /tmp/state.md /tmp/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Unrelated state.md path blocked even with signal"
+else
+    fail "unrelated state.md path blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 53: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 53: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

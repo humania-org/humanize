@@ -323,15 +323,27 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # First arg must end with state.md (and contain it as a proper filename)
-    local src="${words[0]}"
-    if ! echo "$src" | grep -qE '(^|/)state\.md$'; then
+    # Normalize paths by removing /./  and collapsing // to /
+    # This allows paths like /path/to/./state.md to match /path/to/state.md
+    local normalize_path
+    normalize_path() {
+        echo "$1" | sed 's|/\./|/|g; s|//|/|g'
+    }
+
+    # First arg must be exactly ${active_loop_dir}/state.md (after normalization)
+    # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
+    local src
+    src=$(normalize_path "${words[0]}")
+    local expected_src="${loop_dir_lower}state.md"
+    if [[ "$src" != "$expected_src" ]]; then
         return 1
     fi
 
-    # Second arg must end with cancel-state.md
-    local dest="${words[1]}"
-    if ! echo "$dest" | grep -qE '(^|/)cancel-state\.md$'; then
+    # Second arg must be exactly ${active_loop_dir}/cancel-state.md (after normalization)
+    local dest
+    dest=$(normalize_path "${words[1]}")
+    local expected_dest="${loop_dir_lower}cancel-state.md"
+    if [[ "$dest" != "$expected_dest" ]]; then
         return 1
     fi
 
