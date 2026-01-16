@@ -60,16 +60,16 @@ Critical blockers: [list if any]
 
 To implement the original plan at @{{PLAN_FILE}}, we have completed **{{COMPLETED_ITERATIONS}} iterations** (Round 0 to Round {{CURRENT_ROUND}}).
 
-The project's `.humanize-loop.local/{{LOOP_TIMESTAMP}}/` directory contains the history of each round's iteration:
+The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the history of each round's iteration:
 - Round input prompts: `round-N-prompt.md`
 - Round output summaries: `round-N-summary.md`
 - Round review prompts: `round-N-review-prompt.md`
 - Round review results: `round-N-review-result.md`
 
 **How to Access Historical Files**: Read the historical review results and summaries using file paths like:
-- `@.humanize-loop.local/{{LOOP_TIMESTAMP}}/round-{{PREV_ROUND}}-review-result.md` (previous round)
-- `@.humanize-loop.local/{{LOOP_TIMESTAMP}}/round-{{PREV_PREV_ROUND}}-review-result.md` (2 rounds ago)
-- `@.humanize-loop.local/{{LOOP_TIMESTAMP}}/round-{{PREV_ROUND}}-summary.md` (previous summary)
+- `@.humanize/rlcr/{{LOOP_TIMESTAMP}}/round-{{PREV_ROUND}}-review-result.md` (previous round)
+- `@.humanize/rlcr/{{LOOP_TIMESTAMP}}/round-{{PREV_PREV_ROUND}}-review-result.md` (2 rounds ago)
+- `@.humanize/rlcr/{{LOOP_TIMESTAMP}}/round-{{PREV_ROUND}}-summary.md` (previous summary)
 
 **Your Task**: Review the historical review results, especially the **last 5 rounds** of development progress and review outcomes, to determine if the development has stalled.
 

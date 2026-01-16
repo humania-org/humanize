@@ -1,8 +1,8 @@
 # Scratchpad
 temp
 
-# Humanize loop state directory (used by start-rlcr-loop)
-.humanize-loop.local/
+# Humanize state directories (used by start-rlcr-loop)
+.humanize*
 
 # Python cache
 __pycache__/

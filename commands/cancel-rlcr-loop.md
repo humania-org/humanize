@@ -1,6 +1,6 @@
 ---
 description: "Cancel active RLCR loop"
-allowed-tools: ["Bash(ls -1d .humanize-loop.local/*/)", "Bash(mv .humanize-loop.local/*/state.md .humanize-loop.local/*/cancel-state.md)", "Bash(cat .humanize-loop.local/*/state.md)", "Read"]
+allowed-tools: ["Bash(ls -1d .humanize/rlcr/*/)", "Bash(mv .humanize/rlcr/*/state.md .humanize/rlcr/*/cancel-state.md)", "Bash(cat .humanize/rlcr/*/state.md)", "Read"]
 hide-from-slash-command-tool: "true"
 ---
 
@@ -11,7 +11,7 @@ To cancel the active loop:
 1. Find the current loop directory (newest timestamp):
 
 ```bash
-LOOP_DIR=$(ls -1d .humanize-loop.local/*/ 2>/dev/null | sort -r | head -1)
+LOOP_DIR=$(ls -1d .humanize/rlcr/*/ 2>/dev/null | sort -r | head -1)
 echo "Loop dir: ${LOOP_DIR:-NONE}"
 ```
 

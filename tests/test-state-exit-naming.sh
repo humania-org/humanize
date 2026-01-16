@@ -45,7 +45,7 @@ echo "init" > init.txt
 git add init.txt
 git commit -q -m "Initial"
 
-LOOP_DIR="$TEST_DIR/.humanize-loop.local/2024-01-01_12-00-00"
+LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"
 
 # Create completed state (should not be detected as active)
@@ -64,7 +64,7 @@ export CLAUDE_PROJECT_DIR="$TEST_DIR"
 # Source the loop-common.sh to get find_active_loop
 source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -z "$ACTIVE_LOOP" ]]; then
     pass "complete-state.md not detected as active loop"
 else
@@ -83,7 +83,7 @@ start_branch: main
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -n "$ACTIVE_LOOP" ]]; then
     pass "state.md detected as active loop"
 else
@@ -100,7 +100,7 @@ max_iterations: 42
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -z "$ACTIVE_LOOP" ]]; then
     pass "cancel-state.md not detected as active loop"
 else
@@ -115,7 +115,7 @@ current_round: 2
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -z "$ACTIVE_LOOP" ]]; then
     pass "unexpected-state.md not detected as active loop"
 else
@@ -131,7 +131,7 @@ max_iterations: 42
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -z "$ACTIVE_LOOP" ]]; then
     pass "maxiter-state.md not detected as active loop"
 else
@@ -147,7 +147,7 @@ max_iterations: 42
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -z "$ACTIVE_LOOP" ]]; then
     pass "stop-state.md not detected as active loop"
 else
@@ -156,7 +156,7 @@ fi
 
 # Test 7: Newer directory with state.md takes precedence
 echo "Test 7: Newer directory with state.md takes precedence"
-NEWER_LOOP_DIR="$TEST_DIR/.humanize-loop.local/2024-01-02_12-00-00"
+NEWER_LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-02_12-00-00"
 mkdir -p "$NEWER_LOOP_DIR"
 cat > "$NEWER_LOOP_DIR/state.md" << 'EOF'
 ---
@@ -168,7 +168,7 @@ start_branch: main
 ---
 EOF
 
-ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize-loop.local")
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ "$ACTIVE_LOOP" == "$NEWER_LOOP_DIR" ]]; then
     pass "Newer directory with state.md takes precedence"
 else
@@ -181,7 +181,7 @@ echo ""
 
 # Test 8: end_loop rejects invalid reason
 echo "Test 8: end_loop rejects invalid reason"
-END_LOOP_TEST_DIR="$TEST_DIR/.humanize-loop.local/2024-01-03_12-00-00"
+END_LOOP_TEST_DIR="$TEST_DIR/.humanize/rlcr/2024-01-03_12-00-00"
 mkdir -p "$END_LOOP_TEST_DIR"
 cat > "$END_LOOP_TEST_DIR/state.md" << 'EOF'
 ---
@@ -236,6 +236,54 @@ if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "State file not found"; th
     pass "end_loop handles missing state file"
 else
     fail "end_loop missing state file" "exit 1 with not found warning" "exit $EXIT_CODE: $RESULT"
+fi
+
+echo ""
+echo "=== Test: Path Detection (New vs Legacy) ==="
+echo ""
+
+# Test 11: is_in_humanize_loop_dir correctly identifies NEW path
+echo "Test 11: is_in_humanize_loop_dir detects .humanize/rlcr path"
+NEW_PATH="/some/project/.humanize/rlcr/2024-01-01_12-00-00/state.md"
+if is_in_humanize_loop_dir "$NEW_PATH"; then
+    pass "is_in_humanize_loop_dir detects .humanize/rlcr path"
+else
+    fail "is_in_humanize_loop_dir new path" "returns true" "returns false"
+fi
+
+# Test 12: is_in_humanize_loop_dir does NOT match legacy path (NEGATIVE TEST)
+echo "Test 12: is_in_humanize_loop_dir does NOT detect legacy .humanize-loop.local path"
+LEGACY_PATH="/some/project/.humanize-loop.local/2024-01-01_12-00-00/state.md"
+if is_in_humanize_loop_dir "$LEGACY_PATH"; then
+    fail "is_in_humanize_loop_dir legacy path" "returns false (not a loop dir)" "returns true"
+else
+    pass "is_in_humanize_loop_dir does NOT detect legacy .humanize-loop.local path"
+fi
+
+# Test 13: The code only looks in .humanize/rlcr, not legacy paths
+# This test verifies that even with a legacy directory present, the main search
+# path is .humanize/rlcr, so legacy directories won't accidentally be used
+echo "Test 13: Legacy directory not searched when using new base path"
+# Create legacy directory with a state file
+LEGACY_LOOP_DIR="$TEST_DIR/.humanize-loop.local/2024-01-01_12-00-00"
+mkdir -p "$LEGACY_LOOP_DIR"
+cat > "$LEGACY_LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+# Remove the new path state.md so only legacy exists
+rm -f "$TEST_DIR/.humanize/rlcr/"*/state.md 2>/dev/null || true
+# Search in the NEW base path - should find nothing because we removed state.md
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
+if [[ -z "$ACTIVE_LOOP" ]]; then
+    pass "Legacy directory not searched when using new base path"
+else
+    fail "Legacy dir separation" "no active loop in new path" "$ACTIVE_LOOP"
 fi
 
 echo ""
