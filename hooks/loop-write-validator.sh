@@ -62,12 +62,12 @@ if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]
     exit 0
 fi
 
-# For state.md, finalized-state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
+# For state.md, finalize-state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
 # For other files in .humanize/rlcr that aren't summaries, allow them
 FILENAME=$(basename "$FILE_PATH")
 IS_PLAN_BACKUP=$([[ "$FILENAME" == "plan.md" ]] && echo "true" || echo "false")
 if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]]; then
-    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_finalized_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
+    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_finalize_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
         exit 0
     fi
 fi
@@ -85,12 +85,12 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-# Detect if we're in Finalize Phase (finalized-state.md exists)
+# Detect if we're in Finalize Phase (finalize-state.md exists)
 IS_FINALIZE_PHASE=false
 STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/state.md"
-if [[ -f "$ACTIVE_LOOP_DIR/finalized-state.md" ]]; then
+if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
     IS_FINALIZE_PHASE=true
-    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalized-state.md"
+    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalize-state.md"
 fi
 
 # Parse state file using shared function
@@ -98,12 +98,12 @@ parse_state_file "$STATE_FILE_TO_PARSE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
-# Block State File Writes (state.md and finalized-state.md)
+# Block State File Writes (state.md and finalize-state.md)
 # ========================================
-# NOTE: Check finalized-state.md FIRST because is_state_file_path also matches finalized-state.md
+# NOTE: Check finalize-state.md FIRST because is_state_file_path also matches finalize-state.md
 
-if is_finalized_state_file_path "$FILE_PATH_LOWER"; then
-    finalized_state_file_blocked_message >&2
+if is_finalize_state_file_path "$FILE_PATH_LOWER"; then
+    finalize_state_file_blocked_message >&2
     exit 2
 fi
 
