@@ -85,7 +85,17 @@ done
 # Branch Consistency Check
 # ========================================
 
-CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+GIT_EXIT_CODE=$?
+if [[ $GIT_EXIT_CODE -ne 0 || -z "$CURRENT_BRANCH" ]]; then
+    cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation failed or timed out.\\n\\nCannot verify branch consistency. Please check git status and try again."
+}
+EOF
+    exit 0
+fi
 if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
     cat << EOF
 {
@@ -104,8 +114,33 @@ FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
 if [[ "$PLAN_TRACKED" == "true" ]]; then
     # Must be tracked and clean
-    PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
-    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+    # Check if git commands succeed - fail closed on timeout/error
+    run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null
+    LS_FILES_EXIT=$?
+    if [[ $LS_FILES_EXIT -eq 124 ]]; then
+        # Timeout - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation timed out while checking plan file tracking status.\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
+    fi
+    PLAN_IS_TRACKED=$([[ $LS_FILES_EXIT -eq 0 ]] && echo "true" || echo "false")
+
+    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null)
+    STATUS_EXIT=$?
+    if [[ $STATUS_EXIT -eq 124 ]]; then
+        # Timeout - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation timed out while checking plan file status.\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
+    fi
 
     if [[ "$PLAN_IS_TRACKED" != "true" ]]; then
         cat << EOF
@@ -128,7 +163,22 @@ EOF
     fi
 else
     # Must be gitignored (not tracked)
-    PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+    # Check if git command succeeds - fail closed on timeout
+    # ls-files --error-unmatch returns 1 for untracked files (expected behavior)
+    # We need to distinguish between: 0 (tracked), 1 (not tracked), 124 (timeout)
+    run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null || LS_FILES_EXIT=$?
+    LS_FILES_EXIT=${LS_FILES_EXIT:-0}
+    if [[ $LS_FILES_EXIT -eq 124 ]]; then
+        # Timeout - fail closed
+        cat << EOF
+{
+  "decision": "block",
+  "reason": "Git operation timed out while checking plan file tracking status.\\n\\nPlease check git status and try again."
+}
+EOF
+        exit 0
+    fi
+    PLAN_IS_TRACKED=$([[ $LS_FILES_EXIT -eq 0 ]] && echo "true" || echo "false")
 
     if [[ "$PLAN_IS_TRACKED" == "true" ]]; then
         cat << EOF

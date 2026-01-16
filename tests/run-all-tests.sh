@@ -37,6 +37,9 @@ TEST_SUITES=(
     "test-plan-file-validation.sh"
     "test-template-references.sh"
     "test-state-exit-naming.sh"
+    "test-templates-comprehensive.sh"
+    "test-plan-file-hooks.sh"
+    "test-error-scenarios.sh"
 )
 
 for suite in "${TEST_SUITES[@]}"; do

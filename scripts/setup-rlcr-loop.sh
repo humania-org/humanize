@@ -308,8 +308,25 @@ fi
 # Plan File Tracking Status Validation
 # ========================================
 
-PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
-PLAN_IS_TRACKED=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null && echo "true" || echo "false")
+# Check git status - fail closed on timeout
+# Use || true to capture exit code without triggering set -e
+PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null) || STATUS_EXIT=$?
+STATUS_EXIT=${STATUS_EXIT:-0}
+if [[ $STATUS_EXIT -eq 124 ]]; then
+    echo "Error: Git operation timed out while checking plan file status" >&2
+    exit 1
+fi
+
+# Check if tracked - fail closed on timeout
+# ls-files --error-unmatch returns 1 for untracked files (expected behavior)
+# We need to distinguish between: 0 (tracked), 1 (not tracked), 124 (timeout)
+run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-files --error-unmatch "$PLAN_FILE" &>/dev/null || LS_FILES_EXIT=$?
+LS_FILES_EXIT=${LS_FILES_EXIT:-0}
+if [[ $LS_FILES_EXIT -eq 124 ]]; then
+    echo "Error: Git operation timed out while checking plan file tracking status" >&2
+    exit 1
+fi
+PLAN_IS_TRACKED=$([[ $LS_FILES_EXIT -eq 0 ]] && echo "true" || echo "false")
 
 if [[ "$TRACK_PLAN_FILE" == "true" ]]; then
     # Must be tracked and clean
