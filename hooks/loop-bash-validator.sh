@@ -105,11 +105,13 @@ MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:spac
 
 # Replace shell operators with newlines, then check each segment
 # Order matters: |& before |, && before single &
-# For &: protect redirections (&>, >&, N>&M) with placeholders, then split on remaining &
+# For &: protect redirections (&>>, &>, >&, N>&M) with placeholders, then split on remaining &
 # Placeholders use control chars unlikely to appear in commands
+# Note: &>> must be replaced before &> to avoid leaving a stray >
 COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed '
     s/|&/\n/g
     s/&&/\n/g
+    s/&>>/\x03/g
     s/&>/\x01/g
     s/[0-9]*>&[0-9]*/\x02/g
     s/>&/\x02/g
@@ -124,13 +126,16 @@ while IFS= read -r SEGMENT; do
 
     # Strip leading redirections before pattern matching
     # This handles cases like: 2>/tmp/x mv, 2> /tmp/x mv, >/tmp/x mv, 2>&1 mv, &>/tmp/x mv
-    # Also handles append redirections: >> /tmp/x mv, 2>> /tmp/x mv
+    # Also handles append redirections: >> /tmp/x mv, 2>> /tmp/x mv, &>> /tmp/x mv
     # Also handles quoted targets: >> "/tmp/x y" mv, >> '/tmp/x y' mv
+    # Also handles escaped-space targets: >> /tmp/x\ y mv
     # Must handle:
-    # - \x01 (from &>) followed by optional space and target path (quoted or unquoted)
+    # - \x01 (from &>) followed by optional space and target path (quoted, escaped, or unquoted)
     # - \x02 (from >&, 2>&1) with NO target - just strip placeholder
-    # - Standard redirections [0-9]*[><]+ followed by optional space and target (quoted or unquoted)
-    # Order: double-quoted, single-quoted, unquoted (most specific first)
+    # - \x03 (from &>>) followed by optional space and target path (quoted, escaped, or unquoted)
+    # - Standard redirections [0-9]*[><]+ followed by optional space and target
+    # Order: double-quoted, single-quoted, escaped-unquoted, plain-unquoted (most specific first)
+    # Note: Escaped pattern uses sed -E for extended regex to match backslash-escaped chars
     SEGMENT_CLEANED=$(echo "$SEGMENT" | sed '
         :again
         s/^[[:space:]]*\x01[[:space:]]*"[^"]*"[[:space:]]*//
@@ -138,6 +143,10 @@ while IFS= read -r SEGMENT; do
     ' | sed '
         :again
         s/^[[:space:]]*\x01[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
         t again
     ' | sed '
         :again
@@ -149,11 +158,31 @@ while IFS= read -r SEGMENT; do
         t again
     ' | sed '
         :again
+        s/^[[:space:]]*\x03[[:space:]]*"[^"]*"[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*[^[:space:]]*[[:space:]]*//
+        t again
+    ' | sed '
+        :again
         s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*"[^"]*"[[:space:]]*//
         t again
     ' | sed '
         :again
         s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
         t again
     ' | sed '
         :again

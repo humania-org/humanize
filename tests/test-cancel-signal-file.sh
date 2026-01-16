@@ -1084,10 +1084,70 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 46: No active loop (no state.md)
+# NEGATIVE TEST 46: &>> spaced target blocked (&>> /tmp/x mv)
 # ========================================
 
-echo "NEGATIVE TEST 46: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 46: &>> /tmp/x mv state.md blocked (&>> spaced target)"
+setup_test_loop "negative-46"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="&>> /tmp/x mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "&>> spaced target blocked"
+else
+    fail "&>> spaced target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 47: Escaped-space redirection target blocked (>> /tmp/x\ y mv)
+# ========================================
+
+echo "NEGATIVE TEST 47: >> /tmp/x\\ y mv state.md blocked (escaped-space target)"
+setup_test_loop "negative-47"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND=">> /tmp/x\\ y mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Escaped-space redirection target blocked"
+else
+    fail "escaped-space redirection target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 48: &>> with escaped-space target blocked (&>> /tmp/x\ y mv)
+# ========================================
+
+echo "NEGATIVE TEST 48: &>> /tmp/x\\ y mv state.md blocked (&>> escaped-space target)"
+setup_test_loop "negative-48"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="&>> /tmp/x\\ y mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "&>> escaped-space target blocked"
+else
+    fail "&>> escaped-space target blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 49: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 49: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"
