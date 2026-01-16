@@ -134,8 +134,10 @@ fi
 # ========================================
 
 if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
-    ACTIVE_LOOP_DIRNAME=$(basename "$ACTIVE_LOOP_DIR")
-    if ! echo "$COMMAND_LOWER" | grep -qE "\.humanize/rlcr/${ACTIVE_LOOP_DIRNAME}/round-[12]-todos\.md"; then
+    # Require full path to active loop dir to prevent same-basename bypass from different roots
+    ACTIVE_LOOP_DIR_LOWER=$(to_lower "$ACTIVE_LOOP_DIR")
+    ACTIVE_LOOP_DIR_ESCAPED=$(echo "$ACTIVE_LOOP_DIR_LOWER" | sed 's/[\\.*^$[(){}+?|]/\\&/g')
+    if ! echo "$COMMAND_LOWER" | grep -qE "${ACTIVE_LOOP_DIR_ESCAPED}/round-[12]-todos\.md"; then
         todos_blocked_message "Bash" >&2
         exit 2
     fi

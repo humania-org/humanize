@@ -365,6 +365,21 @@ else
     fail "Bash validator old loop round-1-todos.md" "exit 2 with todos error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+# Test 25: Bash validator blocks same-basename different-root (security test)
+echo "Test 25: Bash validator blocks same-basename different-root"
+ACTIVE_LOOP_BASENAME=$(basename "$LOOP_DIR")
+DIFFERENT_ROOT="/tmp/.humanize/rlcr/${ACTIVE_LOOP_BASENAME}"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > '$DIFFERENT_ROOT'/round-1-todos.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "todos"; then
+    pass "Bash validator blocks same-basename different-root"
+else
+    fail "Bash validator same-basename different-root" "exit 2 with todos error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo ""
 echo "========================================="
 echo "Test Results"
