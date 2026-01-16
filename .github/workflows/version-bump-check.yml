@@ -20,37 +20,57 @@ jobs:
           # Get the base branch (main)
           git fetch origin main:refs/remotes/origin/main
 
-          # Function to compare versions (X.Y.Z format)
-          # Returns: 0 if pr > main (valid), 1 if pr <= main (invalid)
-          compare_versions() {
+          # Function to validate version bump (X.Y.Z format)
+          # Valid bumps:
+          #   - X.Y.Z -> X.Y.(Z+1)   patch bump
+          #   - X.Y.Z -> X.(Y+1).0   minor bump
+          #   - X.Y.Z -> (X+1).0.0   major bump
+          # Returns: 0 if valid bump, 1 if invalid
+          # Sets global BUMP_ERROR with error message on failure
+          validate_version_bump() {
             local main_ver="$1"
             local pr_ver="$2"
+            BUMP_ERROR=""
 
             # Split versions into components
             local main_x main_y main_z pr_x pr_y pr_z
             IFS='.' read -r main_x main_y main_z <<< "$main_ver"
             IFS='.' read -r pr_x pr_y pr_z <<< "$pr_ver"
 
-            # Compare X first
-            if [ "$pr_x" -gt "$main_x" ]; then
+            # Case 1: Major bump (X+1).0.0
+            if [ "$pr_x" -eq $((main_x + 1)) ] && [ "$pr_y" -eq 0 ] && [ "$pr_z" -eq 0 ]; then
               return 0
-            elif [ "$pr_x" -lt "$main_x" ]; then
-              return 1
             fi
 
-            # X is equal, compare Y
-            if [ "$pr_y" -gt "$main_y" ]; then
+            # Case 2: Minor bump X.(Y+1).0
+            if [ "$pr_x" -eq "$main_x" ] && [ "$pr_y" -eq $((main_y + 1)) ] && [ "$pr_z" -eq 0 ]; then
               return 0
-            elif [ "$pr_y" -lt "$main_y" ]; then
-              return 1
             fi
 
-            # X and Y are equal, compare Z
-            if [ "$pr_z" -gt "$main_z" ]; then
+            # Case 3: Patch bump X.Y.(Z+1)
+            if [ "$pr_x" -eq "$main_x" ] && [ "$pr_y" -eq "$main_y" ] && [ "$pr_z" -eq $((main_z + 1)) ]; then
               return 0
+            fi
+
+            # Invalid bump - determine error message
+            if [ "$pr_x" -lt "$main_x" ] || \
+               ([ "$pr_x" -eq "$main_x" ] && [ "$pr_y" -lt "$main_y" ]) || \
+               ([ "$pr_x" -eq "$main_x" ] && [ "$pr_y" -eq "$main_y" ] && [ "$pr_z" -le "$main_z" ]); then
+              BUMP_ERROR="Version must be incremented, not decreased or unchanged"
+            elif [ "$pr_x" -gt $((main_x + 1)) ]; then
+              BUMP_ERROR="Major version can only increase by 1 (expected $((main_x + 1)).0.0)"
+            elif [ "$pr_x" -eq $((main_x + 1)) ]; then
+              BUMP_ERROR="Major bump requires Y=0 and Z=0 (expected $((main_x + 1)).0.0)"
+            elif [ "$pr_y" -gt $((main_y + 1)) ]; then
+              BUMP_ERROR="Minor version can only increase by 1 (expected $main_x.$((main_y + 1)).0)"
+            elif [ "$pr_y" -eq $((main_y + 1)) ]; then
+              BUMP_ERROR="Minor bump requires Z=0 (expected $main_x.$((main_y + 1)).0)"
+            elif [ "$pr_z" -gt $((main_z + 1)) ]; then
+              BUMP_ERROR="Patch version can only increase by 1 (expected $main_x.$main_y.$((main_z + 1)))"
             else
-              return 1
+              BUMP_ERROR="Invalid version bump pattern"
             fi
+            return 1
           }
 
           # Files to check
@@ -91,14 +111,10 @@ jobs:
               continue
             fi
 
-            if compare_versions "$main_version" "$pr_version"; then
-              echo "  OK: Version has been incremented"
+            if validate_version_bump "$main_version" "$pr_version"; then
+              echo "  OK: Valid version bump"
             else
-              if [ "$main_version" = "$pr_version" ]; then
-                echo "  ERROR: Version has NOT been changed!"
-              else
-                echo "  ERROR: Version has been DECREMENTED (regression not allowed)!"
-              fi
+              echo "  ERROR: $BUMP_ERROR"
               exit_code=1
             fi
           done
@@ -106,17 +122,21 @@ jobs:
           echo ""
           if [ $exit_code -ne 0 ]; then
             echo "========================================"
-            echo "FAILED: One or more version numbers have not been properly incremented."
-            echo "Please INCREMENT the version in ALL of these files:"
+            echo "FAILED: Version bump validation failed."
+            echo ""
+            echo "Valid version bump patterns (exactly +1):"
+            echo "  - Patch: X.Y.Z -> X.Y.(Z+1)"
+            echo "  - Minor: X.Y.Z -> X.(Y+1).0"
+            echo "  - Major: X.Y.Z -> (X+1).0.0"
+            echo ""
+            echo "Please update version in ALL of these files:"
             echo "  - .claude-plugin/plugin.json"
             echo "  - .claude-plugin/marketplace.json"
             echo "  - README.md (Current Version line)"
-            echo ""
-            echo "Version must be higher than main branch (X.Y.Z priority: X > Y > Z)"
             echo "========================================"
           else
             echo "========================================"
-            echo "PASSED: All version numbers have been properly incremented."
+            echo "PASSED: All version bumps are valid (+1 increment)."
             echo "========================================"
           fi
 
