@@ -357,10 +357,93 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 13: No active loop (no state.md)
+# POSITIVE TEST 3: mv with single-quoted paths allowed
+# ========================================
+# Test that paths with quotes work correctly
+# Note: We use single quotes here since double quotes break JSON parsing in the test harness
+
+echo "POSITIVE TEST 3: mv with single-quoted paths allowed with signal"
+setup_test_loop "positive-3"
+touch "$LOOP_DIR/.cancel-requested"
+# Use single quotes around paths to test quoted path handling
+COMMAND="mv '${LOOP_DIR}/state.md' '${LOOP_DIR}/cancel-state.md'"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "mv with single-quoted paths allowed with signal file"
+else
+    fail "mv with quoted paths" "exit 0" "exit $EXIT_CODE: $OUTPUT"
+fi
+
+# ========================================
+# NEGATIVE TEST 13: mv with -- option blocked (state.md as source)
 # ========================================
 
-echo "NEGATIVE TEST 13: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 13: mv -- state.md /tmp/foo blocked (options before source)"
+setup_test_loop "negative-13"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv -- ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv -- state.md /tmp/foo blocked"
+else
+    fail "mv -- state.md bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 14: cp -f state.md blocked (options before source)
+# ========================================
+
+echo "NEGATIVE TEST 14: cp -f state.md /backup blocked (options before source)"
+setup_test_loop "negative-14"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="cp -f ${LOOP_DIR}/state.md /tmp/backup.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "cp -f state.md blocked"
+else
+    fail "cp -f state.md bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 15: mv with 3 args blocked (extra argument)
+# ========================================
+
+echo "NEGATIVE TEST 15: mv state.md /tmp cancel-state.md blocked (3 args)"
+setup_test_loop "negative-15"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md /tmp ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv with 3 args (extra argument) blocked"
+else
+    fail "mv 3 args blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 16: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 16: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"
@@ -421,6 +504,30 @@ if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
     fail "helper wrong cmd" "returns 1" "returns 0"
 else
     pass "is_cancel_authorized returns false with wrong command"
+fi
+
+echo "HELPER TEST 4: is_cancel_authorized returns false with 3 arguments"
+setup_test_loop "helper-4"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md /tmp ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper 3 args" "returns 1" "returns 0"
+else
+    pass "is_cancel_authorized returns false with 3 arguments (extra arg)"
+fi
+
+echo "HELPER TEST 5: is_cancel_authorized allows quoted paths with signal"
+setup_test_loop "helper-5"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND_LOWER="mv \"${LOOP_DIR}/state.md\" \"${LOOP_DIR}/cancel-state.md\""
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "is_cancel_authorized allows quoted paths"
+else
+    fail "helper quoted paths" "returns 0" "returns 1"
 fi
 
 # ========================================

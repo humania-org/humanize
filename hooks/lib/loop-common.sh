@@ -253,10 +253,11 @@ is_state_file_path() {
 # Returns: 0 if cancel is authorized and command matches, 1 otherwise
 #
 # Security notes:
-# - Rejects commands containing shell injection characters BEFORE regex matching
-# - Regex is anchored to prevent command injection
-# - Pattern ends with $ to ensure no trailing commands
-# - Only allows mv with state.md to cancel-state.md pattern
+# - Allows ${VAR} variable expansion (safe - just path substitution)
+# - Rejects $(cmd) command substitution and backticks (dangerous)
+# - Rejects shell operators for command chaining (; && || |)
+# - Rejects extra arguments between source and destination
+# - Pattern anchored to prevent trailing commands
 is_cancel_authorized() {
     local active_loop_dir="$1"
     local command_lower="$2"
@@ -268,28 +269,46 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # SECURITY: Reject commands containing shell injection vectors
-    # - $( or ${ : command/variable substitution
-    # - ` : backtick command substitution
-    # - newline : multi-line command injection
-    # These are checked BEFORE the mv pattern to fail-closed on any injection attempt
-    if echo "$command_lower" | grep -qE '\$\(|\$\{|`'; then
+    # SECURITY: Reject command substitution (but allow variable expansion like ${VAR})
+    # - $( : command substitution (dangerous)
+    # - ` : backtick command substitution (dangerous)
+    # Note: ${ is OK - it's variable expansion, not command execution
+    if echo "$command_lower" | grep -qE '\$\(|`'; then
         return 1
     fi
-    # Check for newlines (cannot be in grep pattern, check separately)
+
+    # Reject newlines (multi-command injection)
     if [[ "$command_lower" == *$'\n'* ]]; then
         return 1
     fi
 
-    # Command must be ONLY mv state.md to cancel-state.md (anchored to prevent injection)
-    # Pattern: mv <path>/state.md <path>/cancel-state.md
-    # The $ anchor ensures no additional commands (;, &&, ||, |) can be appended
-    # Character class excludes: ; & | (shell operators) and now also ( ) ` $ (substitution chars)
-    if echo "$command_lower" | grep -qE "^mv[[:space:]]+[^;&|\(\)\`\$]+state\.md[[:space:]]+[^;&|\(\)\`\$]+cancel-state\.md[[:space:]]*$"; then
-        return 0
+    # Reject shell operators for command chaining
+    if echo "$command_lower" | grep -qE ';|&&|\|\||\|'; then
+        return 1
     fi
 
-    return 1
+    # Must start with mv
+    if ! echo "$command_lower" | grep -qE '^mv[[:space:]]'; then
+        return 1
+    fi
+
+    # Must contain state.md (preceded by space, /, or quote - not part of another filename)
+    if ! echo "$command_lower" | grep -qE '([[:space:]/\"'"'"']|^)state\.md'; then
+        return 1
+    fi
+
+    # Must end with cancel-state.md (possibly followed by quote and/or whitespace)
+    if ! echo "$command_lower" | grep -qE 'cancel-state\.md[\"'"'"'[:space:]]*$'; then
+        return 1
+    fi
+
+    # Reject extra arguments between state.md and cancel-state.md
+    # Pattern: state.md followed by optional quote, then space, then something that's not cancel-state.md
+    if echo "$command_lower" | grep -qE 'state\.md[\"'"'"']*[[:space:]]+[^[:space:]\"'"'"']+[[:space:]]+.*cancel-state\.md'; then
+        return 1
+    fi
+
+    return 0
 }
 
 # Check if a path is inside .humanize/rlcr directory
