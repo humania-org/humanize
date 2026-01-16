@@ -75,6 +75,19 @@ if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
 fi
 
 # ========================================
+# Block Plan Backup Modifications (All Rounds)
+# ========================================
+# Plan backup is read-only - protects plan integrity during loop
+# Use command_modifies_file helper for consistent pattern matching
+
+if command_modifies_file "$COMMAND_LOWER" "\.humanize-loop\.local(/[^/]+)?/plan\.md"; then
+    FALLBACK="Writing to plan.md backup is not allowed during RLCR loop."
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
+    echo "$REASON" >&2
+    exit 2
+fi
+
+# ========================================
 # Block Goal Tracker Modifications (All Rounds)
 # ========================================
 # Round 0: prompt to use Write/Edit

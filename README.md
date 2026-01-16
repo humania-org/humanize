@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.1.1**
+**Current Version: 1.1.2**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -113,19 +113,20 @@ This provides a real-time dashboard showing:
 
 **The loop is fully interruptible** - you can exit Claude Code at any time and resume later:
 
-- **Loop state**: Controlled solely by the presence of `.humanize-loop.local/*/state.md`
+- **Loop state**: Controlled solely by the presence of `state.md` in the current loop directory (newest timestamp in `.humanize-loop.local/`)
 - **Resume**: Simply restart Claude Code in the same directory - the loop continues automatically
-- **Cancel**: Remove the state file to stop the loop permanently
+- **Cancel**: Rename `state.md` to `cancel-state.md` to stop the loop permanently
 
 ```bash
-# Cancel the active loop
+# Cancel the active loop (recommended)
 /humanize:cancel-rlcr-loop
 
-# Or manually remove state file
-rm .humanize-loop.local/*/state.md
+# Or manually rename state file (find newest loop directory first)
+LOOP_DIR=$(ls -1d .humanize-loop.local/*/ | sort -r | head -1)
+mv "${LOOP_DIR}state.md" "${LOOP_DIR}cancel-state.md"
 ```
 
-The loop directory with all summaries and review results is preserved for reference.
+The loop directory with all summaries, review results, and state information is preserved for reference.
 
 ## Goal Tracker System
 
@@ -243,12 +244,20 @@ humanize/
 When loop is active, creates: `.humanize-loop.local/<TIMESTAMP>/`
 
 **Files Created**:
-- `state.md` - Current round, config (YAML frontmatter)
+- `state.md` - Current round, config (YAML frontmatter). Presence indicates active loop.
+- `plan.md` - Backup copy of the plan file (for integrity verification)
 - `goal-tracker.md` - Immutable (goals/AC) + Mutable (active tasks, deferred, etc.)
 - `round-N-prompt.md` - Instructions FROM Codex TO Claude
 - `round-N-summary.md` - Work summary written BY Claude
 - `round-N-review-prompt.md` - Prompt sent to Codex
 - `round-N-review-result.md` - Codex's review output
+
+**Exit State Files** (state.md renamed on loop end):
+- `complete-state.md` - Loop completed successfully (Codex confirmed all goals met)
+- `cancel-state.md` - User cancelled via `/humanize:cancel-rlcr-loop`
+- `maxiter-state.md` - Reached maximum iteration limit
+- `stop-state.md` - Codex triggered circuit breaker
+- `unexpected-state.md` - Schema/integrity issues or abnormal termination
 
 **Cache Directory** (not in project):
 - `$HOME/.cache/humanize/<sanitized-project-path>/<timestamp>/`

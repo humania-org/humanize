@@ -59,6 +59,163 @@ fi
 STATE_FILE="$LOOP_DIR/state.md"
 
 # ========================================
+# Parse State File (all frontmatter fields)
+# ========================================
+
+if [[ ! -f "$STATE_FILE" ]]; then
+    exit 0
+fi
+
+FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+
+# Fields for integrity checks (may be empty for old state files)
+# Note: Values are unquoted since v1.1.2+ validates paths don't contain special chars
+# Legacy quote-stripping kept for backward compatibility with older state files
+PLAN_TRACKED=$(echo "$FRONTMATTER" | grep '^plan_tracked:' | sed 's/plan_tracked: *//' | tr -d ' ' || true)
+START_BRANCH=$(echo "$FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch: *//; s/^"//; s/"$//' || true)
+PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//; s/^"//; s/"$//' || true)
+
+# Fields for loop iteration control
+CURRENT_ROUND=$(echo "$FRONTMATTER" | grep '^current_round:' | sed 's/current_round: *//' | tr -d ' ' || true)
+MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//' | tr -d ' ' || true)
+PUSH_EVERY_ROUND=$(echo "$FRONTMATTER" | grep '^push_every_round:' | sed 's/push_every_round: *//' | tr -d ' ' || true)
+
+# Fields for Codex configuration
+CODEX_MODEL=$(echo "$FRONTMATTER" | grep '^codex_model:' | sed 's/codex_model: *//' | tr -d ' ' || true)
+CODEX_EFFORT=$(echo "$FRONTMATTER" | grep '^codex_effort:' | sed 's/codex_effort: *//' | tr -d ' ' || true)
+STATE_CODEX_TIMEOUT=$(echo "$FRONTMATTER" | grep '^codex_timeout:' | sed 's/codex_timeout: *//' | tr -d ' ' || true)
+
+# Apply defaults
+CURRENT_ROUND="${CURRENT_ROUND:-0}"
+MAX_ITERATIONS="${MAX_ITERATIONS:-10}"
+PUSH_EVERY_ROUND="${PUSH_EVERY_ROUND:-false}"
+CODEX_MODEL="${CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
+CODEX_EFFORT="${CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
+CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
+
+# Validate numeric fields early
+if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
+    echo "Warning: State file corrupted (current_round), stopping loop" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    exit 0
+fi
+
+if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+    MAX_ITERATIONS=42
+fi
+
+# ========================================
+# Quick-check 0: Schema Validation (v1.1.2+ fields)
+# ========================================
+# If schema is outdated, terminate loop as unexpected
+
+if [[ -z "$PLAN_TRACKED" || -z "$START_BRANCH" ]]; then
+    REASON="RLCR loop state file is missing required fields (plan_tracked or start_branch).
+
+This indicates the loop was started with an older version of humanize.
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.1.2+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
+# Quick-check 0.5: Branch Consistency
+# ========================================
+
+CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
+    REASON="Git branch changed during RLCR loop.
+
+Started on: $START_BRANCH
+Current: $CURRENT_BRANCH
+
+Branch switching is not allowed. Switch back to $START_BRANCH or cancel the loop."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - branch changed" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
+# Quick-check 0.6: Plan File Integrity
+# ========================================
+
+BACKUP_PLAN="$LOOP_DIR/plan.md"
+FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
+
+# Check backup exists
+if [[ ! -f "$BACKUP_PLAN" ]]; then
+    REASON="Plan file backup not found in loop directory.
+
+Please copy the plan file to the loop directory:
+  cp \"$FULL_PLAN_PATH\" \"$BACKUP_PLAN\"
+
+This backup is required for plan integrity verification."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan backup missing" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# Check original plan file still matches backup
+if [[ ! -f "$FULL_PLAN_PATH" ]]; then
+    REASON="Project plan file has been deleted.
+
+Original: $PLAN_FILE
+Backup available at: $BACKUP_PLAN
+
+You can restore from backup if needed. Plan file modifications are not allowed during RLCR loop."
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file deleted" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# Check plan file integrity
+# For tracked files: check both git status (uncommitted) AND content diff (committed changes)
+# For gitignored files: check content diff only
+if [[ "$PLAN_TRACKED" == "true" ]]; then
+    # Tracked file: first check git status for uncommitted changes
+    PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+    if [[ -n "$PLAN_GIT_STATUS" ]]; then
+        REASON="Plan file has uncommitted modifications.
+
+File: $PLAN_FILE
+Status: $PLAN_GIT_STATUS
+
+This RLCR loop was started with --track-plan-file. Plan file modifications are not allowed during the loop."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file modified (uncommitted)" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+fi
+
+# Always verify content matches backup (catches committed changes for tracked files)
+if ! diff -q "$FULL_PLAN_PATH" "$BACKUP_PLAN" &>/dev/null; then
+    FALLBACK="# Plan File Modified
+
+The plan file \`$PLAN_FILE\` has been modified since the RLCR loop started.
+
+**Modifying plan files is forbidden during an active RLCR loop.**
+
+If you need to change the plan:
+1. Cancel the current loop: \`/humanize:cancel-rlcr-loop\`
+2. Update the plan file
+3. Start a new loop: \`/humanize:start-rlcr-loop $PLAN_FILE\`
+
+Backup available at: \`$BACKUP_PLAN\`"
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-file-modified.md" "$FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "BACKUP_PATH=$BACKUP_PLAN")
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file modified" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
 # Quick Check: Are All Todos Completed?
 # ========================================
 # Before running expensive Codex review, check if Claude still has
@@ -79,6 +236,7 @@ if [[ -f "$TODO_CHECKER" ]]; then
         FALLBACK="# Incomplete Todos
 
 Complete these tasks before exiting:
+
 {{INCOMPLETE_LIST}}"
         REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/incomplete-todos.md" "$FALLBACK" \
             "INCOMPLETE_LIST=$INCOMPLETE_LIST")
@@ -157,6 +315,7 @@ EOF
         FALLBACK="# Large Files Detected
 
 Files exceeding {{MAX_LINES}} lines:
+
 {{LARGE_FILES}}
 
 Split these into smaller modules before continuing."
@@ -242,8 +401,6 @@ Please commit all changes before exiting.
     # ========================================
     # Check Unpushed Commits (only when push_every_round is true)
     # ========================================
-    # Read push_every_round from state file
-    PUSH_EVERY_ROUND=$(grep -E "^push_every_round:" "$STATE_FILE" 2>/dev/null | sed 's/push_every_round: *//' || echo "false")
 
     if [[ "$PUSH_EVERY_ROUND" == "true" ]]; then
         # Check if local branch is ahead of remote (unpushed commits)
@@ -272,44 +429,6 @@ Please push before exiting."
             exit 0
         fi
     fi
-fi
-
-# ========================================
-# Parse State File
-# ========================================
-
-if [[ ! -f "$STATE_FILE" ]]; then
-    exit 0
-fi
-
-# Extract frontmatter values
-FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
-
-CURRENT_ROUND=$(echo "$FRONTMATTER" | grep '^current_round:' | sed 's/current_round: *//' | tr -d ' ')
-MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//' | tr -d ' ')
-CODEX_MODEL=$(echo "$FRONTMATTER" | grep '^codex_model:' | sed 's/codex_model: *//' | tr -d ' ')
-CODEX_EFFORT=$(echo "$FRONTMATTER" | grep '^codex_effort:' | sed 's/codex_effort: *//' | tr -d ' ')
-STATE_CODEX_TIMEOUT=$(echo "$FRONTMATTER" | grep '^codex_timeout:' | sed 's/codex_timeout: *//' | tr -d ' ')
-PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//')
-
-# Defaults
-CURRENT_ROUND="${CURRENT_ROUND:-0}"
-MAX_ITERATIONS="${MAX_ITERATIONS:-10}"
-CODEX_MODEL="${CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
-CODEX_EFFORT="${CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
-# Timeout priority: state file > env var > default
-CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
-
-# Validate numeric fields
-if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
-    echo "Warning: State file corrupted (current_round), stopping loop" >&2
-    rm -f "$STATE_FILE"
-    exit 0
-fi
-
-# max_iterations must be a number
-if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
-    MAX_ITERATIONS=42
 fi
 
 # ========================================
@@ -409,7 +528,7 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 
 if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
-    rm -f "$STATE_FILE"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "maxiter"
     exit 0
 fi
 
@@ -722,7 +841,7 @@ if [[ "$LAST_LINE_TRIMMED" == "COMPLETE" ]]; then
     else
         echo "Codex review passed. Loop complete!" >&2
     fi
-    rm -f "$STATE_FILE"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "complete"
     exit 0
 fi
 
@@ -752,7 +871,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
-    rm -f "$STATE_FILE"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "stop"
     exit 0
 fi
 
