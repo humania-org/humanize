@@ -195,6 +195,49 @@ else
     fail "Symlink rejection" "exit 1 with symbolic link error" "$RESULT"
 fi
 
+# Test 3.5: Path resolution error handling (Fix #4)
+echo "Test 3.5: Handle path resolution errors gracefully"
+# Create a directory structure where cd might fail
+mkdir -p "$TEST_DIR/permission-test"
+cd "$TEST_DIR/permission-test"
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+echo "init" > init.txt
+git add init.txt
+git commit -q -m "Initial"
+# Create a plan directory that we'll make inaccessible
+mkdir -p plans
+cat > plans/plan.md << 'EOF'
+# Plan
+## Goal
+Test path resolution
+## Requirements
+- Requirement 1
+- Requirement 2
+EOF
+echo "plans/" >> .gitignore
+git add .gitignore
+git commit -q -m "Gitignore"
+# Make the plans directory unreadable (if we have permission to do so)
+if chmod 000 plans 2>/dev/null; then
+    set +e
+    RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/plan.md" 2>&1)
+    EXIT_CODE=$?
+    set -e
+    # Restore permissions for cleanup
+    chmod 755 plans
+    # Should fail with clear error about directory access
+    if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -qE "resolve|not found|directory"; then
+        pass "Path resolution error handled gracefully"
+    else
+        fail "Path resolution error" "clear error message" "exit $EXIT_CODE, output: $RESULT"
+    fi
+else
+    skip "Path resolution error" "cannot change permissions in test environment"
+fi
+cd "$TEST_DIR"
+
 # Test 4: Plan outside project (../ escape) should fail
 echo "Test 4: Reject path escaping project directory"
 mkdir -p "$TEST_DIR/outside"
@@ -376,6 +419,90 @@ if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "clean"; then
     pass "Modified tracked file with --track-plan-file rejected"
 else
     fail "Modified tracked file rejection" "exit 1 with clean error" "$RESULT"
+fi
+
+echo ""
+echo "=== Test: Branch Name Validation ==="
+echo ""
+
+# Test 9.5: Reject branch names with YAML-unsafe characters (Fix #2)
+# Note: Git itself may reject some of these characters, which is fine
+# We test that either git rejects it OR our script rejects it
+echo "Test 9.5: Reject branch with colon (YAML-unsafe)"
+cd "$TEST_DIR"
+rm -rf branch-test 2>/dev/null || true
+mkdir -p branch-test
+cd branch-test
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+echo "init" > init.txt
+git add init.txt
+git commit -q -m "Initial"
+mkdir -p plans
+cat > plans/plan.md << 'EOF'
+# Plan
+## Goal
+Test branch validation
+## Requirements
+- Requirement 1
+- Requirement 2
+EOF
+echo "plans/" >> .gitignore
+git add .gitignore
+git commit -q -m "Gitignore"
+# Try to create branch with colon (YAML-unsafe) - git may reject this
+if git checkout -q -b "feature:test" 2>/dev/null; then
+    set +e
+    RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/plan.md" 2>&1)
+    EXIT_CODE=$?
+    set -e
+    if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "YAML-unsafe"; then
+        pass "Branch with colon rejected"
+    else
+        fail "Branch with colon rejection" "exit 1 with YAML-unsafe error" "$RESULT"
+    fi
+    git checkout -q main 2>/dev/null || true
+else
+    # Git itself rejected the branch name, which is also fine
+    pass "Branch with colon rejected (by git)"
+fi
+
+# Test 9.6: Reject branch names with hash (YAML comment)
+echo "Test 9.6: Reject branch with hash (YAML comment)"
+git checkout -q main 2>/dev/null || true
+# Try to create a branch with hash - some git versions may not allow this
+if git checkout -q -b "test#comment" 2>/dev/null; then
+    set +e
+    RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/plan.md" 2>&1)
+    EXIT_CODE=$?
+    set -e
+    if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "YAML-unsafe"; then
+        pass "Branch with hash rejected"
+    else
+        fail "Branch with hash rejection" "exit 1 with YAML-unsafe error" "$RESULT"
+    fi
+    git checkout -q main 2>/dev/null || true
+else
+    pass "Branch with hash rejected (by git)"
+fi
+
+# Test 9.7: Reject branch names with quotes
+echo "Test 9.7: Reject branch with quotes (YAML-unsafe)"
+git checkout -q main 2>/dev/null || true
+if git checkout -q -b 'test"quote' 2>/dev/null; then
+    set +e
+    RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/plan.md" 2>&1)
+    EXIT_CODE=$?
+    set -e
+    if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "YAML-unsafe"; then
+        pass "Branch with quotes rejected"
+    else
+        fail "Branch with quotes rejection" "exit 1 with YAML-unsafe error" "$RESULT"
+    fi
+    git checkout -q main 2>/dev/null || true
+else
+    pass "Branch with quotes rejected (by git)"
 fi
 
 echo ""

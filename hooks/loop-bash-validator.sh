@@ -80,7 +80,7 @@ fi
 # Plan backup is read-only - protects plan integrity during loop
 # Use command_modifies_file helper for consistent pattern matching
 
-if command_modifies_file "$COMMAND_LOWER" "\.humanize-loop\.local/[^/]+/plan\.md"; then
+if command_modifies_file "$COMMAND_LOWER" "\.humanize-loop\.local(/[^/]+)?/plan\.md"; then
     FALLBACK="Writing to plan.md backup is not allowed during RLCR loop."
     REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/plan-backup-protected.md" "$FALLBACK")
     echo "$REASON" >&2

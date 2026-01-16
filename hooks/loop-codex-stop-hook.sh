@@ -110,9 +110,16 @@ fi
 # If schema is outdated, terminate loop as unexpected
 
 if [[ -z "$PLAN_TRACKED" || -z "$START_BRANCH" ]]; then
-    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
-    echo "Loop terminated: state schema outdated (missing plan_tracked or start_branch)" >&2
-    echo "Please update humanize plugin to v1.1.2+ and restart the loop." >&2
+    REASON="RLCR loop state file is missing required fields (plan_tracked or start_branch).
+
+This indicates the loop was started with an older version of humanize.
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.1.2+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
     exit 0
 fi
 
@@ -167,10 +174,25 @@ You can restore from backup if needed. Plan file modifications are not allowed d
     exit 0
 fi
 
-# For tracked plan files, rely on git status check in UserPromptSubmit hook
-# Skip diff check because git operations (checkout, rebase) may legitimately change content
-# For gitignored files, enforce exact match as defense-in-depth
-if [[ "$PLAN_TRACKED" != "true" ]]; then
+# Check plan file integrity based on tracking mode
+# For tracked files: verify git status is clean (catches race condition between hooks)
+# For gitignored files: verify content matches backup exactly
+if [[ "$PLAN_TRACKED" == "true" ]]; then
+    # Tracked file: check git status (final safety check for race condition)
+    PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+    if [[ -n "$PLAN_GIT_STATUS" ]]; then
+        REASON="Plan file has uncommitted modifications.
+
+File: $PLAN_FILE
+Status: $PLAN_GIT_STATUS
+
+This RLCR loop was started with --track-plan-file. Plan file modifications are not allowed during the loop."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - plan file modified" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+else
+    # Gitignored file: verify content matches backup exactly
     if ! diff -q "$FULL_PLAN_PATH" "$BACKUP_PLAN" &>/dev/null; then
         FALLBACK="# Plan File Modified
 

@@ -242,6 +242,20 @@ else
     fail "Bash validator blocking rm" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+# Test 8a: Bash validator blocks direct .humanize-loop.local/plan.md (no intermediate dir)
+# This tests Fix #1 for the regex bypass vulnerability
+echo "Test 8a: Block bash modifications to direct .humanize-loop.local/plan.md"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo evil > .humanize-loop.local/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Bash validator blocks direct .humanize-loop.local/plan.md"
+else
+    fail "Bash validator direct plan.md" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo ""
 echo "=== Test: Command Injection Bypass Prevention ==="
 echo ""
@@ -534,6 +548,97 @@ if echo "$RESULT" | grep -q '"decision"' && echo "$RESULT" | grep -qi "backup.*n
     pass "Stop hook blocks when plan backup is missing"
 else
     fail "Stop hook plan backup detection" "block with backup missing error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 12: Stop hook detects tracked file modifications (Fix #3 - Race condition)
+echo "Test 12: Stop hook detects tracked plan file modifications"
+cd "$TEST_DIR"
+rm -rf tracked-stop-test 2>/dev/null || true
+mkdir -p tracked-stop-test
+cd tracked-stop-test
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test"
+echo "init" > init.txt
+git add init.txt
+git commit -q -m "Initial"
+# Create tracked plan file
+cat > tracked-plan.md << 'EOF'
+# Tracked Plan
+## Goal
+Test tracked file
+## Requirements
+- Requirement 1
+EOF
+git add tracked-plan.md
+git commit -q -m "Add plan"
+# Create loop directory
+TRACKED_LOOP_DIR="$PWD/.humanize-loop.local/2024-01-01_12-00-00"
+mkdir -p "$TRACKED_LOOP_DIR"
+cp tracked-plan.md "$TRACKED_LOOP_DIR/plan.md"
+cat > "$TRACKED_LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: tracked-plan.md
+plan_tracked: true
+start_branch: main
+---
+EOF
+cat > "$TRACKED_LOOP_DIR/round-0-summary.md" << 'EOF'
+# Summary
+Work done.
+EOF
+cat > "$TRACKED_LOOP_DIR/goal-tracker.md" << 'EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test goal
+### Acceptance Criteria
+- Criterion 1
+## MUTABLE SECTION
+### Plan Version: 1 (Updated: Round 0)
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| Task 1 | AC1 | done | - |
+EOF
+# Now modify the tracked plan file (simulate race condition)
+echo "# Modified" >> tracked-plan.md
+export CLAUDE_PROJECT_DIR="$PWD"
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should detect modification via git status
+if echo "$RESULT" | grep -q '"decision"' && echo "$RESULT" | grep -qi "plan.*modif\|uncommitted"; then
+    pass "Stop hook detects tracked plan file modifications"
+else
+    fail "Stop hook tracked file detection" "block with modification error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13: Stop hook returns JSON block for outdated schema (Fix #5)
+echo "Test 13: Stop hook returns JSON block for outdated schema"
+cd "$TEST_DIR"
+setup_test_loop
+export CLAUDE_PROJECT_DIR="$TEST_DIR"
+# Create state without plan_tracked (old schema)
+cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: plans/test-plan.md
+---
+EOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should return JSON with block decision, not silently exit
+if echo "$RESULT" | grep -q '"decision".*"block"' && echo "$RESULT" | grep -qi "schema\|missing.*field\|plan_tracked"; then
+    pass "Stop hook returns JSON block for outdated schema"
+else
+    fail "Stop hook schema blocking" "JSON block response" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""

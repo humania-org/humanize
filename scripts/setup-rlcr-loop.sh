@@ -263,7 +263,14 @@ if [[ ! -f "$FULL_PLAN_PATH" ]]; then
 fi
 
 # Check file is within project (no ../ escaping)
-REAL_PLAN_PATH=$(cd "$PLAN_DIR" && pwd)/$(basename "$FULL_PLAN_PATH")
+# Resolve the real path by cd'ing to the directory and getting pwd
+# This handles symlinks in parent directories and ../ path components
+RESOLVED_PLAN_DIR=$(cd "$PLAN_DIR" 2>/dev/null && pwd) || {
+    echo "Error: Cannot resolve plan file directory: $(dirname "$PLAN_FILE")" >&2
+    echo "  This may indicate permission issues or broken symlinks in the path" >&2
+    exit 1
+}
+REAL_PLAN_PATH="$RESOLVED_PLAN_DIR/$(basename "$FULL_PLAN_PATH")"
 if [[ ! "$REAL_PLAN_PATH" = "$PROJECT_ROOT"/* ]]; then
     echo "Error: Plan file must be within project directory" >&2
     exit 1
@@ -345,6 +352,16 @@ fi
 # ========================================
 
 START_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)
+
+# Validate branch name for YAML safety (prevents injection in state.md)
+# Reject branches with YAML-unsafe characters: colon, hash, quotes, newlines
+if [[ "$START_BRANCH" == *[:\#\"\'\`]* ]] || [[ "$START_BRANCH" =~ $'\n' ]]; then
+    echo "Error: Branch name contains YAML-unsafe characters" >&2
+    echo "  Branch: $START_BRANCH" >&2
+    echo "  Characters not allowed: : # \" ' \` newline" >&2
+    echo "  Please checkout a branch with a simpler name" >&2
+    exit 1
+fi
 
 # ========================================
 # Setup State Directory
