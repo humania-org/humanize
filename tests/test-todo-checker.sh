@@ -48,28 +48,28 @@ echo ""
 echo "Test Group 1: Input Handling"
 echo ""
 
-# Test 1: Invalid JSON input should exit 0 (graceful handling)
+# Test 1: Invalid JSON input should exit 2 (parse error)
 echo "Test 1: Invalid JSON input"
 set +e
 RESULT=$(echo "not json at all" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Invalid JSON handled gracefully (exit 0)"
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Invalid JSON returns exit code 2"
 else
-    fail "Invalid JSON handling" "exit 0" "exit $EXIT_CODE"
+    fail "Invalid JSON handling" "exit 2" "exit $EXIT_CODE"
 fi
 
-# Test 2: Empty input should exit 0
+# Test 2: Empty input should exit 2 (parse error)
 echo "Test 2: Empty input"
 set +e
 RESULT=$(echo "" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Empty input handled gracefully (exit 0)"
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Empty input returns exit code 2"
 else
-    fail "Empty input handling" "exit 0" "exit $EXIT_CODE"
+    fail "Empty input handling" "exit 2" "exit $EXIT_CODE"
 fi
 
 # Test 3: Valid JSON without transcript_path should exit 0

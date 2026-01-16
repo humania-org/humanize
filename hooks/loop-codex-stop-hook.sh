@@ -33,7 +33,7 @@ HOOK_INPUT=$(cat)
 # from a previous blocked stop. We WANT to run Codex review each iteration.
 # Loop termination is controlled by:
 # - No active loop directory (no state.md) -> exit early below
-# - Codex outputs "COMPLETE" -> allow exit
+# - Codex outputs MARKER_COMPLETE -> allow exit
 # - current_round >= max_iterations -> allow exit
 
 # ========================================
@@ -47,6 +47,13 @@ LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
 
+# Source portable timeout wrapper for git operations
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
+
+# Default timeout for git operations (30 seconds)
+GIT_TIMEOUT=30
+
 # Template directory is set by loop-common.sh via template-loader.sh
 
 LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
@@ -59,57 +66,44 @@ fi
 STATE_FILE="$LOOP_DIR/state.md"
 
 # ========================================
-# Parse State File (all frontmatter fields)
+# Parse State File (using shared function)
 # ========================================
 
 if [[ ! -f "$STATE_FILE" ]]; then
     exit 0
 fi
 
-FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+# Use shared parsing function from loop-common.sh
+parse_state_file "$STATE_FILE"
 
-# Fields for integrity checks (may be empty for old state files)
-# Note: Values are unquoted since v1.1.2+ validates paths don't contain special chars
-# Legacy quote-stripping kept for backward compatibility with older state files
-PLAN_TRACKED=$(echo "$FRONTMATTER" | grep '^plan_tracked:' | sed 's/plan_tracked: *//' | tr -d ' ' || true)
-START_BRANCH=$(echo "$FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch: *//; s/^"//; s/"$//' || true)
-PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//; s/^"//; s/"$//' || true)
-
-# Fields for loop iteration control
-CURRENT_ROUND=$(echo "$FRONTMATTER" | grep '^current_round:' | sed 's/current_round: *//' | tr -d ' ' || true)
-MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//' | tr -d ' ' || true)
-PUSH_EVERY_ROUND=$(echo "$FRONTMATTER" | grep '^push_every_round:' | sed 's/push_every_round: *//' | tr -d ' ' || true)
-
-# Fields for Codex configuration
-CODEX_MODEL=$(echo "$FRONTMATTER" | grep '^codex_model:' | sed 's/codex_model: *//' | tr -d ' ' || true)
-CODEX_EFFORT=$(echo "$FRONTMATTER" | grep '^codex_effort:' | sed 's/codex_effort: *//' | tr -d ' ' || true)
-STATE_CODEX_TIMEOUT=$(echo "$FRONTMATTER" | grep '^codex_timeout:' | sed 's/codex_timeout: *//' | tr -d ' ' || true)
-
-# Apply defaults
-CURRENT_ROUND="${CURRENT_ROUND:-0}"
-MAX_ITERATIONS="${MAX_ITERATIONS:-10}"
-PUSH_EVERY_ROUND="${PUSH_EVERY_ROUND:-false}"
-CODEX_MODEL="${CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
-CODEX_EFFORT="${CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
+# Map STATE_* variables to local names for backward compatibility
+PLAN_TRACKED="$STATE_PLAN_TRACKED"
+START_BRANCH="$STATE_START_BRANCH"
+PLAN_FILE="$STATE_PLAN_FILE"
+CURRENT_ROUND="$STATE_CURRENT_ROUND"
+MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
+PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
+CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
+CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
 if [[ ! "$CODEX_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo "Error: Invalid codex_model in state file: $CODEX_MODEL" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
 if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     echo "Error: Invalid codex_effort in state file: $CODEX_EFFORT" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
 
 # Validate numeric fields early
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (current_round), stopping loop" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "unexpected"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
 
@@ -140,7 +134,7 @@ fi
 # Quick-check 0.5: Branch Consistency
 # ========================================
 
-CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
 if [[ -n "$START_BRANCH" && "$CURRENT_BRANCH" != "$START_BRANCH" ]]; then
     REASON="Git branch changed during RLCR loop.
@@ -192,7 +186,7 @@ fi
 # For gitignored files: check content diff only
 if [[ "$PLAN_TRACKED" == "true" ]]; then
     # Tracked file: first check git status for uncommitted changes
-    PLAN_GIT_STATUS=$(git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
+    PLAN_GIT_STATUS=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain "$PLAN_FILE" 2>/dev/null || echo "")
     if [[ -n "$PLAN_GIT_STATUS" ]]; then
         REASON="Plan file has uncommitted modifications.
 
@@ -275,9 +269,9 @@ fi
 GIT_STATUS_CACHED=""
 GIT_IS_REPO=false
 
-if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
+if command -v git &>/dev/null && run_with_timeout "$GIT_TIMEOUT" git rev-parse --git-dir &>/dev/null 2>&1; then
     GIT_IS_REPO=true
-    GIT_STATUS_CACHED=$(git status --porcelain 2>/dev/null || echo "")
+    GIT_STATUS_CACHED=$(run_with_timeout "$GIT_TIMEOUT" git status --porcelain 2>/dev/null || echo "")
 fi
 
 # ========================================
@@ -431,10 +425,10 @@ Please commit all changes before exiting.
 
     if [[ "$PUSH_EVERY_ROUND" == "true" ]]; then
         # Check if local branch is ahead of remote (unpushed commits)
-        GIT_AHEAD=$(git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
+        GIT_AHEAD=$(run_with_timeout "$GIT_TIMEOUT" git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
         if [[ -n "$GIT_AHEAD" ]]; then
             AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
-            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+            CURRENT_BRANCH=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
             FALLBACK="# Unpushed Commits
 
@@ -557,7 +551,7 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 
 if [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "maxiter"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
     exit 0
 fi
 
@@ -864,18 +858,18 @@ LAST_LINE=$(echo "$REVIEW_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 # Handle COMPLETE - loop finished successfully
-if [[ "$LAST_LINE_TRIMMED" == "COMPLETE" ]]; then
+if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
     if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
         echo "Codex review passed. All goals achieved. Loop complete!" >&2
     else
         echo "Codex review passed. Loop complete!" >&2
     fi
-    end_loop "$LOOP_DIR" "$STATE_FILE" "complete"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_COMPLETE"
     exit 0
 fi
 
 # Handle STOP - circuit breaker triggered
-if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
+if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
     echo "" >&2
     echo "========================================" >&2
     if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
@@ -900,7 +894,7 @@ if [[ "$LAST_LINE_TRIMMED" == "STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "stop"
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_STOP"
     exit 0
 fi
 

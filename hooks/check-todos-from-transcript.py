@@ -3,8 +3,11 @@
 Helper script to check for incomplete todos from Claude Code transcript.
 
 Reads the transcript JSONL file and finds the most recent TodoWrite tool call.
-Returns exit code 0 if all todos are completed (or no todos exist).
-Returns exit code 1 if there are incomplete todos, with details on stderr.
+
+Exit codes:
+  0 - All todos are completed (or no todos exist)
+  1 - There are incomplete todos (details on stdout)
+  2 - Parse error reading hook input JSON
 
 Usage:
     echo '{"transcript_path": "/path/to/transcript.jsonl"}' | python3 check-todos-from-transcript.py
@@ -88,9 +91,10 @@ def main():
     # Read hook input from stdin
     try:
         hook_input = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        # No valid input, assume no todos
-        sys.exit(0)
+    except json.JSONDecodeError as e:
+        # Parse error - exit with code 2
+        print(f"PARSE_ERROR: {e}", file=sys.stderr)
+        sys.exit(2)
 
     transcript_path = hook_input.get("transcript_path", "")
     if not transcript_path:

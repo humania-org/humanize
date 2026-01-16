@@ -50,7 +50,9 @@ STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
 # ========================================
 # Default behavior: commits stay local, no need to push to remote
 
-PUSH_EVERY_ROUND=$(grep -E "^push_every_round:" "$STATE_FILE" 2>/dev/null | sed 's/push_every_round: *//' || echo "false")
+# Parse state file using shared function
+parse_state_file "$STATE_FILE"
+PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
 
 if [[ "$PUSH_EVERY_ROUND" != "true" ]]; then
     # Check if command is a git push command

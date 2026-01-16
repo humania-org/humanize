@@ -30,14 +30,13 @@ fi
 
 STATE_FILE="$LOOP_DIR/state.md"
 
-# Parse state file
-# Note: Values are unquoted since v1.1.2+ validates paths don't contain special chars
-# Legacy quote-stripping kept for backward compatibility with older state files
-FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+# Parse state file using shared function
+parse_state_file "$STATE_FILE"
 
-PLAN_TRACKED=$(echo "$FRONTMATTER" | grep '^plan_tracked:' | sed 's/plan_tracked: *//' | tr -d ' ' || true)
-PLAN_FILE=$(echo "$FRONTMATTER" | grep '^plan_file:' | sed 's/plan_file: *//; s/^"//; s/"$//' || true)
-START_BRANCH=$(echo "$FRONTMATTER" | grep '^start_branch:' | sed 's/start_branch: *//; s/^"//; s/"$//' || true)
+# Map STATE_* variables to local names for backward compatibility
+PLAN_TRACKED="$STATE_PLAN_TRACKED"
+PLAN_FILE="$STATE_PLAN_FILE"
+START_BRANCH="$STATE_START_BRANCH"
 
 # ========================================
 # Schema Validation (v1.1.2+ required fields)

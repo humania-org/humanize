@@ -560,6 +560,29 @@ else
     fail "Sparse plan rejection" "exit 1 with insufficient content error" "$RESULT"
 fi
 
+# Test 9.9.1: Reject plan file with only HTML comments
+echo "Test 9.9.1: Reject plan with only HTML comments"
+cat > plans/comment-plan.md << 'EOF'
+<!-- HTML comment line 1 -->
+<!-- HTML comment line 2 -->
+
+
+<!-- HTML comment line 3 -->
+<!--
+Multi-line HTML comment
+that spans multiple lines
+-->
+EOF
+set +e
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plans/comment-plan.md" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "insufficient content"; then
+    pass "Plan with only HTML comments rejected"
+else
+    fail "HTML-comment-only plan rejection" "exit 1 with insufficient content error" "$RESULT"
+fi
+
 # Test 9.10: Accept plan with enough non-blank content
 echo "Test 9.10: Accept plan with sufficient non-blank content"
 cat > plans/good-plan.md << 'EOF'

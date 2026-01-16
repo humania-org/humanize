@@ -345,13 +345,41 @@ if [[ "$LINE_COUNT" -lt 5 ]]; then
     exit 1
 fi
 
-# Check plan has actual content (not just whitespace/blank lines)
-# Exclude blank lines and lines that are only markdown comments (<!-- -->)
-NON_BLANK_LINES=$(grep -cvE '^[[:space:]]*$' "$FULL_PLAN_PATH" 2>/dev/null || echo "0")
-if [[ "$NON_BLANK_LINES" -lt 3 ]]; then
-    echo "Error: Plan file has insufficient content (only $NON_BLANK_LINES non-blank lines)" >&2
+# Check plan has actual content (not just whitespace/blank lines/comments)
+# Exclude: blank lines and HTML comments (<!-- ... -->)
+# Note: In markdown, # starts a heading (content), not a comment
+# A "content line" is any line that is not blank and not an HTML comment
+# For multi-line HTML comments, we count lines inside them as non-content
+CONTENT_LINES=0
+IN_COMMENT=false
+while IFS= read -r line || [[ -n "$line" ]]; do
+    # Check for multi-line comment start
+    if [[ "$line" =~ ^[[:space:]]*\<!--.*[^\-]$ ]] || [[ "$line" =~ ^[[:space:]]*\<!--[[:space:]]*$ ]]; then
+        IN_COMMENT=true
+        continue
+    fi
+    # Check for multi-line comment end
+    if [[ "$IN_COMMENT" == "true" ]]; then
+        if [[ "$line" =~ --\>[[:space:]]*$ ]]; then
+            IN_COMMENT=false
+        fi
+        continue
+    fi
+    # Skip blank lines and single-line HTML comments
+    if [[ "$line" =~ ^[[:space:]]*$ ]]; then
+        continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*\<!--.*--\>[[:space:]]*$ ]]; then
+        continue
+    fi
+    # This is a content line
+    CONTENT_LINES=$((CONTENT_LINES + 1))
+done < "$FULL_PLAN_PATH"
+
+if [[ "$CONTENT_LINES" -lt 3 ]]; then
+    echo "Error: Plan file has insufficient content (only $CONTENT_LINES content lines)" >&2
     echo "" >&2
-    echo "The plan file should contain meaningful content, not just blank lines." >&2
+    echo "The plan file should contain meaningful content, not just blank lines or comments." >&2
     exit 1
 fi
 
