@@ -1,6 +1,6 @@
-# Finalized State File Modification Blocked
+# Finalize State File Modification Blocked
 
-You cannot modify `finalized-state.md`. This file is managed by the loop system during the Finalize Phase.
+You cannot modify `finalize-state.md`. This file is managed by the loop system during the Finalize Phase.
 
 The Finalize Phase is the final step before loop completion. Focus on:
 1. Running the code-simplifier agent

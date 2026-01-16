@@ -66,10 +66,10 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-# Detect if we're in Finalize Phase (finalized-state.md exists)
+# Detect if we're in Finalize Phase (finalize-state.md exists)
 STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/state.md"
-if [[ -f "$ACTIVE_LOOP_DIR/finalized-state.md" ]]; then
-    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalized-state.md"
+if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
+    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalize-state.md"
 fi
 
 # Parse state file using shared function

@@ -5,7 +5,7 @@
 # Positive Test Cases:
 # - T-POS-1: COMPLETE triggers Finalize entry
 # - T-POS-2: Finalize Phase completion flow
-# - T-POS-3: Finalized-state detected as active loop
+# - T-POS-3: Finalize-state detected as active loop
 # - T-POS-4: Finalize summary file writable
 # - T-POS-5: Normal RLCR rounds unaffected
 #
@@ -14,7 +14,7 @@
 # - T-NEG-2: Finalize still requires git clean
 # - T-NEG-3: Finalize still requires summary
 # - T-NEG-4: Finalize still requires todos complete
-# - T-NEG-5: Finalized-state file protected
+# - T-NEG-5: Finalize-state file protected
 # - T-NEG-6: Complete-state not detected as active
 # - T-NEG-7: Finalize phase does not trigger Codex
 #
@@ -171,26 +171,26 @@ echo ""
 echo "=== Helper Function Tests ==="
 echo ""
 
-# Test: is_finalized_state_file_path
-echo "Test: is_finalized_state_file_path matches finalized-state.md"
-if is_finalized_state_file_path "finalized-state.md"; then
-    pass "is_finalized_state_file_path matches finalized-state.md"
+# Test: is_finalize_state_file_path
+echo "Test: is_finalize_state_file_path matches finalize-state.md"
+if is_finalize_state_file_path "finalize-state.md"; then
+    pass "is_finalize_state_file_path matches finalize-state.md"
 else
-    fail "is_finalized_state_file_path" "true" "false"
+    fail "is_finalize_state_file_path" "true" "false"
 fi
 
-echo "Test: is_finalized_state_file_path does not match state.md"
-if is_finalized_state_file_path "state.md"; then
-    fail "is_finalized_state_file_path on state.md" "false" "true"
+echo "Test: is_finalize_state_file_path does not match state.md"
+if is_finalize_state_file_path "state.md"; then
+    fail "is_finalize_state_file_path on state.md" "false" "true"
 else
-    pass "is_finalized_state_file_path does not match state.md"
+    pass "is_finalize_state_file_path does not match state.md"
 fi
 
-echo "Test: is_finalized_state_file_path matches full path"
-if is_finalized_state_file_path "/path/to/loop/finalized-state.md"; then
-    pass "is_finalized_state_file_path matches full path"
+echo "Test: is_finalize_state_file_path matches full path"
+if is_finalize_state_file_path "/path/to/loop/finalize-state.md"; then
+    pass "is_finalize_state_file_path matches full path"
 else
-    fail "is_finalized_state_file_path full path" "true" "false"
+    fail "is_finalize_state_file_path full path" "true" "false"
 fi
 
 # Test: is_finalize_summary_path
@@ -208,30 +208,30 @@ else
     pass "is_finalize_summary_path does not match round-N-summary.md"
 fi
 
-echo "Test: finalized_state_file_blocked_message function exists"
-if type finalized_state_file_blocked_message &>/dev/null; then
-    pass "finalized_state_file_blocked_message function exists"
+echo "Test: finalize_state_file_blocked_message function exists"
+if type finalize_state_file_blocked_message &>/dev/null; then
+    pass "finalize_state_file_blocked_message function exists"
 else
-    fail "finalized_state_file_blocked_message" "function defined" "function not found"
+    fail "finalize_state_file_blocked_message" "function defined" "function not found"
 fi
 
 echo ""
-echo "=== T-POS-3: Finalized-State Detection ==="
+echo "=== T-POS-3: Finalize-State Detection ==="
 echo ""
 
 setup_test_repo
 setup_loop_dir 5
 export CLAUDE_PROJECT_DIR="$TEST_DIR"
 
-# Replace state.md with finalized-state.md
-mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+# Replace state.md with finalize-state.md
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalize-state.md"
 
-echo "T-POS-3: finalized-state.md detected as active loop"
+echo "T-POS-3: finalize-state.md detected as active loop"
 ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
 if [[ -n "$ACTIVE_LOOP" ]]; then
-    pass "finalized-state.md detected as active loop"
+    pass "finalize-state.md detected as active loop"
 else
-    fail "finalized-state.md detection" "active loop found" "no active loop"
+    fail "finalize-state.md detection" "active loop found" "no active loop"
 fi
 
 echo ""
@@ -239,7 +239,7 @@ echo "=== T-NEG-6: Complete-State Not Active ==="
 echo ""
 
 # Replace with complete-state.md
-rm -f "$LOOP_DIR/finalized-state.md"
+rm -f "$LOOP_DIR/finalize-state.md"
 cat > "$LOOP_DIR/complete-state.md" << 'EOF'
 ---
 current_round: 5
@@ -276,7 +276,7 @@ echo ""
 
 # Reset to finalize phase
 setup_loop_dir 5
-mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalize-state.md"
 
 echo "T-POS-4: Write validator allows finalize-summary.md"
 HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/finalize-summary.md"}}'
@@ -290,64 +290,64 @@ else
     fail "Write validator finalize-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "T-NEG-5: Write validator blocks finalized-state.md"
-HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/finalized-state.md"}}'
+echo "T-NEG-5: Write validator blocks finalize-state.md"
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/finalize-state.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
-    pass "Write validator blocks finalized-state.md"
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
+    pass "Write validator blocks finalize-state.md"
 else
-    fail "Write validator finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+    fail "Write validator finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "T-NEG-5b: Edit validator blocks finalized-state.md"
-HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/finalized-state.md"}}'
+echo "T-NEG-5b: Edit validator blocks finalize-state.md"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/finalize-state.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
-    pass "Edit validator blocks finalized-state.md"
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
+    pass "Edit validator blocks finalize-state.md"
 else
-    fail "Edit validator finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+    fail "Edit validator finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "T-NEG-5c: Bash validator blocks finalized-state.md modification"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > '$LOOP_DIR'/finalized-state.md"}}'
+echo "T-NEG-5c: Bash validator blocks finalize-state.md modification"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > '$LOOP_DIR'/finalize-state.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
-    pass "Bash validator blocks finalized-state.md modification"
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
+    pass "Bash validator blocks finalize-state.md modification"
 else
-    fail "Bash validator finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+    fail "Bash validator finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "T-NEG-5d: Bash validator blocks mv FROM finalized-state.md (source protection)"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "mv '$LOOP_DIR'/finalized-state.md /tmp/backup.md"}}'
+echo "T-NEG-5d: Bash validator blocks mv FROM finalize-state.md (source protection)"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "mv '$LOOP_DIR'/finalize-state.md /tmp/backup.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
-    pass "Bash validator blocks mv FROM finalized-state.md"
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
+    pass "Bash validator blocks mv FROM finalize-state.md"
 else
-    fail "Bash validator mv FROM finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+    fail "Bash validator mv FROM finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "T-NEG-5e: Bash validator blocks cp FROM finalized-state.md (source protection)"
-HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cp '$LOOP_DIR'/finalized-state.md /tmp/backup.md"}}'
+echo "T-NEG-5e: Bash validator blocks cp FROM finalize-state.md (source protection)"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "cp '$LOOP_DIR'/finalize-state.md /tmp/backup.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalized"; then
-    pass "Bash validator blocks cp FROM finalized-state.md"
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
+    pass "Bash validator blocks cp FROM finalize-state.md"
 else
-    fail "Bash validator cp FROM finalized-state.md" "exit 2 with finalized error" "exit $EXIT_CODE, output: $RESULT"
+    fail "Bash validator cp FROM finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""
@@ -357,7 +357,7 @@ echo ""
 # Setup for Stop Hook tests
 setup_test_repo
 setup_loop_dir 5
-mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalize-state.md"
 setup_mock_codex_with_tracking "All looks good.
 
 COMPLETE"
@@ -422,10 +422,10 @@ set -e
 # Should allow exit (exit 0, no block decision)
 if [[ $EXIT_CODE -eq 0 ]] && ! echo "$RESULT" | grep -q '"decision".*block'; then
     # Also verify state file renamed to complete-state.md
-    if [[ -f "$LOOP_DIR/complete-state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.md" ]]; then
+    if [[ -f "$LOOP_DIR/complete-state.md" ]] && [[ ! -f "$LOOP_DIR/finalize-state.md" ]]; then
         pass "Finalize phase completes and renames to complete-state.md"
     else
-        fail "Finalize phase completion" "finalized-state.md renamed to complete-state.md" "state files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+        fail "Finalize phase completion" "finalize-state.md renamed to complete-state.md" "state files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
     fi
 else
     fail "Finalize phase completion" "exit 0, no block" "exit $EXIT_CODE, output: $RESULT"
@@ -463,16 +463,16 @@ set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should block with Finalize phase prompt and create finalized-state.md
-if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/finalized-state.md" ]] && [[ ! -f "$LOOP_DIR/state.md" ]]; then
+# Should block with Finalize phase prompt and create finalize-state.md
+if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/finalize-state.md" ]] && [[ ! -f "$LOOP_DIR/state.md" ]]; then
     # Also check the prompt mentions code-simplifier
     if echo "$RESULT" | grep -qi "simplif"; then
-        pass "COMPLETE triggers Finalize Phase (state.md -> finalized-state.md, block with Finalize prompt)"
+        pass "COMPLETE triggers Finalize Phase (state.md -> finalize-state.md, block with Finalize prompt)"
     else
         fail "COMPLETE Finalize prompt" "prompt mentioning simplification" "output: $RESULT"
     fi
 else
-    fail "COMPLETE Finalize entry" "block with finalized-state.md" "exit $EXIT_CODE, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none'), output: $RESULT"
+    fail "COMPLETE Finalize entry" "block with finalize-state.md" "exit $EXIT_CODE, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none'), output: $RESULT"
 fi
 
 # T-NEG-1: Max iterations skips Finalize
@@ -488,11 +488,11 @@ set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should NOT create finalized-state.md, should create maxiter-state.md
-if [[ -f "$LOOP_DIR/maxiter-state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.md" ]] && [[ ! -f "$LOOP_DIR/state.md" ]]; then
+# Should NOT create finalize-state.md, should create maxiter-state.md
+if [[ -f "$LOOP_DIR/maxiter-state.md" ]] && [[ ! -f "$LOOP_DIR/finalize-state.md" ]] && [[ ! -f "$LOOP_DIR/state.md" ]]; then
     pass "Max iterations skips Finalize Phase (creates maxiter-state.md)"
 else
-    fail "Max iterations skip Finalize" "maxiter-state.md (no finalized-state.md)" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+    fail "Max iterations skip Finalize" "maxiter-state.md (no finalize-state.md)" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
 fi
 
 echo ""
@@ -503,7 +503,7 @@ echo ""
 rm -rf "$TEST_DIR/.humanize"
 setup_test_repo
 setup_loop_dir 5
-mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalize-state.md"
 setup_mock_codex_with_tracking "COMPLETE"
 
 # Create finalize-summary.md so it passes the summary check
@@ -580,9 +580,9 @@ EXIT_CODE=$?
 set -e
 # The key assertions for T-POS-5:
 # 1. Should block (not allow exit)
-# 2. state.md should still exist (not renamed to finalized-state.md or complete-state.md)
+# 2. state.md should still exist (not renamed to finalize-state.md or complete-state.md)
 # 3. Should produce feedback for next round (either in output or via round file)
-if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
+if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/state.md" ]] && [[ ! -f "$LOOP_DIR/finalize-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
     pass "Normal round blocks with feedback, keeps state.md intact (not renamed)"
 else
     fail "Normal round behavior" "block with state.md intact" "exit $EXIT_CODE, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none'), output: $RESULT"
@@ -617,26 +617,26 @@ echo ""
 echo "=== Validator Finalize Phase State Parsing Tests ==="
 echo ""
 
-# Test that validators correctly parse finalized-state.md
+# Test that validators correctly parse finalize-state.md
 rm -rf "$TEST_DIR/.humanize"
 setup_test_repo
 setup_loop_dir 5
-mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalized-state.md"
+mv "$LOOP_DIR/state.md" "$LOOP_DIR/finalize-state.md"
 
-echo "Test: Bash validator parses finalized-state.md correctly"
-# The bash validator should not error when only finalized-state.md exists
+echo "Test: Bash validator parses finalize-state.md correctly"
+# The bash validator should not error when only finalize-state.md exists
 HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "ls"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Bash validator parses finalized-state.md without errors"
+    pass "Bash validator parses finalize-state.md without errors"
 else
-    fail "Bash validator finalized-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+    fail "Bash validator finalize-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "Test: Read validator parses finalized-state.md correctly"
+echo "Test: Read validator parses finalize-state.md correctly"
 # Try to read current round summary (round 5)
 HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-summary.md"}}'
 set +e
@@ -645,13 +645,13 @@ EXIT_CODE=$?
 set -e
 # Should allow read of current round file
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Read validator parses finalized-state.md and allows current round"
+    pass "Read validator parses finalize-state.md and allows current round"
 else
-    fail "Read validator finalized-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+    fail "Read validator finalize-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-echo "Test: Plan-file validator parses finalized-state.md correctly"
-# The plan-file validator should not error when only finalized-state.md exists
+echo "Test: Plan-file validator parses finalize-state.md correctly"
+# The plan-file validator should not error when only finalize-state.md exists
 HOOK_INPUT='{"prompt": "test prompt"}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
@@ -659,9 +659,9 @@ EXIT_CODE=$?
 set -e
 # Should succeed (exit 0) when schema is valid and branch is consistent
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Plan-file validator parses finalized-state.md without errors"
+    pass "Plan-file validator parses finalize-state.md without errors"
 else
-    fail "Plan-file validator finalized-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+    fail "Plan-file validator finalize-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""

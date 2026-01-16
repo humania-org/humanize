@@ -67,15 +67,15 @@ fi
 # Detect Loop Phase: Normal or Finalize
 # ========================================
 # Normal loop: state.md exists
-# Finalize Phase: finalized-state.md exists (after Codex COMPLETE, before final completion)
+# Finalize Phase: finalize-state.md exists (after Codex COMPLETE, before final completion)
 
 IS_FINALIZE_PHASE=false
 STATE_FILE="$LOOP_DIR/state.md"
-FINALIZED_STATE_FILE="$LOOP_DIR/finalized-state.md"
+FINALIZE_STATE_FILE="$LOOP_DIR/finalize-state.md"
 
-if [[ -f "$FINALIZED_STATE_FILE" ]]; then
+if [[ -f "$FINALIZE_STATE_FILE" ]]; then
     IS_FINALIZE_PHASE=true
-    STATE_FILE="$FINALIZED_STATE_FILE"
+    STATE_FILE="$FINALIZE_STATE_FILE"
 elif [[ ! -f "$STATE_FILE" ]]; then
     # No state file found, allow exit
     exit 0
@@ -650,7 +650,7 @@ fi
 
 if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
     echo "Finalize Phase complete. All checks passed. Loop finished!" >&2
-    # Rename finalized-state.md to complete-state.md
+    # Rename finalize-state.md to complete-state.md
     mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
     echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
     exit 0
@@ -969,7 +969,7 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
     fi
 
     # REQ-1: Enter Finalize Phase
-    # Rename state.md to finalized-state.md and block exit with Finalize prompt
+    # Rename state.md to finalize-state.md and block exit with Finalize prompt
     if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
         echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
     else
@@ -977,8 +977,8 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
     fi
 
     # Rename state file to indicate Finalize Phase
-    mv "$STATE_FILE" "$LOOP_DIR/finalized-state.md"
-    echo "State file renamed to: $LOOP_DIR/finalized-state.md" >&2
+    mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
+    echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
 
     # Build Finalize Phase prompt
     FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"

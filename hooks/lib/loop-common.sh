@@ -58,7 +58,7 @@ fi
 # Find the most recent active loop directory
 # Only checks the newest directory - older directories are ignored even if they have state.md
 # This prevents "zombie" loops from being revived after abnormal exits
-# Detects both state.md (normal loop) and finalized-state.md (Finalize Phase in progress)
+# Detects both state.md (normal loop) and finalize-state.md (Finalize Phase in progress)
 # Outputs the directory path to stdout, or empty string if none found
 find_active_loop() {
     local loop_base_dir="$1"
@@ -72,8 +72,8 @@ find_active_loop() {
     local newest_dir
     newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
 
-    # Check for active loop indicators: state.md (normal) or finalized-state.md (Finalize Phase)
-    if [[ -n "$newest_dir" && ( -f "${newest_dir}state.md" || -f "${newest_dir}finalized-state.md" ) ]]; then
+    # Check for active loop indicators: state.md (normal) or finalize-state.md (Finalize Phase)
+    if [[ -n "$newest_dir" && ( -f "${newest_dir}state.md" || -f "${newest_dir}finalize-state.md" ) ]]; then
         echo "${newest_dir%/}"
     else
         echo ""
@@ -216,13 +216,13 @@ You cannot modify state.md. This file is managed by the loop system."
     load_and_render_safe "$TEMPLATE_DIR" "block/state-file-modification.md" "$fallback"
 }
 
-# Standard message for blocking finalized-state file modifications
-finalized_state_file_blocked_message() {
-    local fallback="# Finalized State File Modification Blocked
+# Standard message for blocking finalize-state file modifications
+finalize_state_file_blocked_message() {
+    local fallback="# Finalize State File Modification Blocked
 
-You cannot modify finalized-state.md. This file is managed by the loop system during the Finalize Phase."
+You cannot modify finalize-state.md. This file is managed by the loop system during the Finalize Phase."
 
-    load_and_render_safe "$TEMPLATE_DIR" "block/finalized-state-file-modification.md" "$fallback"
+    load_and_render_safe "$TEMPLATE_DIR" "block/finalize-state-file-modification.md" "$fallback"
 }
 
 # Standard message for blocking summary file modifications via Bash
@@ -259,10 +259,10 @@ is_state_file_path() {
     echo "$path_lower" | grep -qE 'state\.md$'
 }
 
-# Check if a path (lowercase) targets finalized-state.md
-is_finalized_state_file_path() {
+# Check if a path (lowercase) targets finalize-state.md
+is_finalize_state_file_path() {
     local path_lower="$1"
-    echo "$path_lower" | grep -qE 'finalized-state\.md$'
+    echo "$path_lower" | grep -qE 'finalize-state\.md$'
 }
 
 # Check if a path (lowercase) targets finalize-summary.md
@@ -279,7 +279,7 @@ is_finalize_summary_path() {
 # - Normalizes $loop_dir/${loop_dir} to actual path before validation
 # - Rejects $(cmd) command substitution and backticks
 # - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
-# - Enforces exactly two arguments: state.md source and cancel-state.md dest
+# - Enforces exactly two arguments: state.md or finalize-state.md source and cancel-state.md dest
 # - Rejects shell operators for command chaining
 is_cancel_authorized() {
     local active_loop_dir="$1"
@@ -393,11 +393,12 @@ is_cancel_authorized() {
         echo "$1" | sed 's|/\./|/|g; s|//|/|g'
     }
 
-    # First arg must be exactly ${active_loop_dir}/state.md (after normalization)
+    # First arg must be exactly ${active_loop_dir}/state.md or ${active_loop_dir}/finalize-state.md (after normalization)
     # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
     src=$(normalize_path "$src")
-    local expected_src="${loop_dir_lower}state.md"
-    if [[ "$src" != "$expected_src" ]]; then
+    local expected_src_state="${loop_dir_lower}state.md"
+    local expected_src_finalize="${loop_dir_lower}finalize-state.md"
+    if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
         return 1
     fi
 
