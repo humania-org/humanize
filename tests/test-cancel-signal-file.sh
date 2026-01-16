@@ -644,10 +644,90 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 24: No active loop (no state.md)
+# NEGATIVE TEST 24: Chained command via semicolon blocked
 # ========================================
 
-echo "NEGATIVE TEST 24: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 24: true; mv state.md blocked (chained via semicolon)"
+setup_test_loop "negative-24"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="true; mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Chained command via semicolon blocked"
+else
+    fail "chained via semicolon blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 25: Chained command via && blocked
+# ========================================
+
+echo "NEGATIVE TEST 25: true && mv state.md blocked (chained via &&)"
+setup_test_loop "negative-25"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="true && mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Chained command via && blocked"
+else
+    fail "chained via && blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 26: Chained command via || blocked
+# ========================================
+
+echo "NEGATIVE TEST 26: false || mv state.md blocked (chained via ||)"
+setup_test_loop "negative-26"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="false || mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Chained command via || blocked"
+else
+    fail "chained via || blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 27: Chained command via pipe blocked
+# ========================================
+
+echo "NEGATIVE TEST 27: echo foo | mv state.md blocked (chained via pipe)"
+setup_test_loop "negative-27"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="echo foo | mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Chained command via pipe blocked"
+else
+    fail "chained via pipe blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 28: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 28: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

@@ -94,16 +94,29 @@ fi
 # - Options like -f, -- before the source path
 # - Leading whitespace and command prefixes with options (sudo -u root, env VAR=val, command --)
 # - Quoted relative paths like: mv -- "state.md" /tmp/foo
+# - Command chaining via ;, &&, ||, | (each segment is checked independently)
 # Requires state.md to be a proper filename (preceded by space, /, or quote)
 # Note: sudo/command patterns match zero or more arguments (each: space + optional-minus + non-space chars)
-if echo "$COMMAND_LOWER" | grep -qE "^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"; then
-    # Check for cancel signal file - allow authorized cancel operation
-    if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
-        exit 0
+
+# Split command on shell operators and check each segment
+# This catches chained commands like: true; mv state.md /tmp/foo
+MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
+
+# Replace shell operators with newlines, then check each segment
+COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed 's/;/\n/g; s/&&/\n/g; s/||/\n/g; s/|/\n/g')
+while IFS= read -r SEGMENT; do
+    # Skip empty segments
+    [[ -z "$SEGMENT" ]] && continue
+
+    if echo "$SEGMENT" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
+        # Check for cancel signal file - allow authorized cancel operation
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        state_file_blocked_message >&2
+        exit 2
     fi
-    state_file_blocked_message >&2
-    exit 2
-fi
+done <<< "$COMMAND_SEGMENTS"
 
 # ========================================
 # Block Plan Backup Modifications (All Rounds)
