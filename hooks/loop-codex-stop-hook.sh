@@ -299,13 +299,30 @@ fi
 # ========================================
 # Cache git status output to avoid calling it multiple times.
 # Used by both large file check and git clean check below.
+# IMPORTANT: Fail-closed on git failures to prevent bypassing checks.
 
 GIT_STATUS_CACHED=""
 GIT_IS_REPO=false
 
 if command -v git &>/dev/null && run_with_timeout "$GIT_TIMEOUT" git rev-parse --git-dir &>/dev/null 2>&1; then
     GIT_IS_REPO=true
-    GIT_STATUS_CACHED=$(run_with_timeout "$GIT_TIMEOUT" git status --porcelain 2>/dev/null || echo "")
+    # Capture exit code to detect timeout/failure - do NOT use || echo "" which would fail-open
+    GIT_STATUS_EXIT=0
+    GIT_STATUS_CACHED=$(run_with_timeout "$GIT_TIMEOUT" git status --porcelain 2>/dev/null) || GIT_STATUS_EXIT=$?
+
+    if [[ $GIT_STATUS_EXIT -ne 0 ]]; then
+        # Git status failed or timed out - fail-closed by blocking exit
+        FALLBACK="# Git Status Failed
+
+Git status operation failed or timed out (exit code {{GIT_STATUS_EXIT}}).
+
+Cannot verify repository state. Please check git status manually and try again."
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/git-status-failed.md" "$FALLBACK" \
+            "GIT_STATUS_EXIT=$GIT_STATUS_EXIT")
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - git status failed (exit $GIT_STATUS_EXIT)" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
 fi
 
 # ========================================
