@@ -253,11 +253,11 @@ is_state_file_path() {
 # Returns: 0 if cancel is authorized and command matches, 1 otherwise
 #
 # Security notes:
-# - Allows ${VAR} variable expansion (safe - just path substitution)
-# - Rejects $(cmd) command substitution and backticks (dangerous)
-# - Rejects shell operators for command chaining (; && || |)
-# - Rejects extra arguments between source and destination
-# - Pattern anchored to prevent trailing commands
+# - Normalizes $loop_dir/${loop_dir} to actual path before validation
+# - Rejects $(cmd) command substitution and backticks
+# - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
+# - Enforces exactly two arguments: state.md source and cancel-state.md dest
+# - Rejects shell operators for command chaining
 is_cancel_authorized() {
     local active_loop_dir="$1"
     local command_lower="$2"
@@ -269,10 +269,7 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # SECURITY: Reject command substitution (but allow variable expansion like ${VAR})
-    # - $( : command substitution (dangerous)
-    # - ` : backtick command substitution (dangerous)
-    # Note: ${ is OK - it's variable expansion, not command execution
+    # SECURITY: Reject command substitution and backticks FIRST
     if echo "$command_lower" | grep -qE '\$\(|`'; then
         return 1
     fi
@@ -287,24 +284,51 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # Must start with mv
-    if ! echo "$command_lower" | grep -qE '^mv[[:space:]]'; then
+    # Normalize: Replace $loop_dir and ${loop_dir} with actual path
+    # This handles the documented cancel command format: mv "${LOOP_DIR}state.md" ...
+    local normalized="$command_lower"
+    local loop_dir_lower
+    loop_dir_lower=$(echo "$active_loop_dir" | tr '[:upper:]' '[:lower:]')
+
+    # Replace ${loop_dir} and $loop_dir patterns (case-insensitive after lowercasing)
+    normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
+    normalized="${normalized//\$loop_dir/$loop_dir_lower}"
+
+    # After normalization, reject any remaining $ (prevents hidden vars like ${IFS})
+    if echo "$normalized" | grep -qE '\$'; then
         return 1
     fi
 
-    # Must contain state.md (preceded by space, /, or quote - not part of another filename)
-    if ! echo "$command_lower" | grep -qE '([[:space:]/\"'"'"']|^)state\.md'; then
+    # Remove quotes for easier parsing
+    local unquoted
+    unquoted=$(echo "$normalized" | sed "s/[\"']//g")
+
+    # Must start with mv followed by space
+    if ! echo "$unquoted" | grep -qE '^mv[[:space:]]+'; then
         return 1
     fi
 
-    # Must end with cancel-state.md (possibly followed by quote and/or whitespace)
-    if ! echo "$command_lower" | grep -qE 'cancel-state\.md[\"'"'"'[:space:]]*$'; then
+    # Extract arguments after "mv "
+    local args
+    args=$(echo "$unquoted" | sed 's/^mv[[:space:]]*//')
+
+    # Split into words - must have exactly 2 arguments
+    local -a words
+    read -ra words <<< "$args"
+
+    if [[ ${#words[@]} -ne 2 ]]; then
         return 1
     fi
 
-    # Reject extra arguments between state.md and cancel-state.md
-    # Pattern: state.md followed by optional quote, then space, then something that's not cancel-state.md
-    if echo "$command_lower" | grep -qE 'state\.md[\"'"'"']*[[:space:]]+[^[:space:]\"'"'"']+[[:space:]]+.*cancel-state\.md'; then
+    # First arg must end with state.md (and contain it as a proper filename)
+    local src="${words[0]}"
+    if ! echo "$src" | grep -qE '(^|/)state\.md$'; then
+        return 1
+    fi
+
+    # Second arg must end with cancel-state.md
+    local dest="${words[1]}"
+    if ! echo "$dest" | grep -qE '(^|/)cancel-state\.md$'; then
         return 1
     fi
 

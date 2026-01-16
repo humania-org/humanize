@@ -440,10 +440,91 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 16: No active loop (no state.md)
+# POSITIVE TEST 4: Literal $LOOP_DIR-style command allowed (documented format)
+# ========================================
+# Tests the documented cancel command format with ${LOOP_DIR} variable syntax
+# The is_cancel_authorized function normalizes this to the actual path
+
+echo "POSITIVE TEST 4: Literal LOOP_DIR variable syntax allowed with signal"
+setup_test_loop "positive-4"
+touch "$LOOP_DIR/.cancel-requested"
+# Simulate the documented command format with literal ${loop_dir} (lowercased)
+# Note: We use the lowercased version since command_lower is passed to the helper
+COMMAND_LOWER='mv "${loop_dir}state.md" "${loop_dir}cancel-state.md"'
+# Replace loop_dir with the actual test loop dir for the test
+COMMAND_LOWER="${COMMAND_LOWER//\$\{loop_dir\}/$LOOP_DIR/}"
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Literal LOOP_DIR variable syntax allowed"
+else
+    fail "LOOP_DIR variable syntax" "returns 0" "returns 1"
+fi
+
+# ========================================
+# NEGATIVE TEST 16: mv -- 'state.md' blocked (quoted relative path)
+# ========================================
+# Uses single quotes since double quotes break JSON parsing in test harness
+
+echo "NEGATIVE TEST 16: mv -- quoted relative state.md blocked"
+setup_test_loop "negative-16"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv -- 'state.md' /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv -- quoted relative state.md blocked"
+else
+    fail "quoted relative state.md blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 17: Extra args before state.md blocked
 # ========================================
 
-echo "NEGATIVE TEST 16: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 17: mv /tmp/extra state.md cancel-state.md blocked (extra arg before)"
+setup_test_loop "negative-17"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv /tmp/extra.txt ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Extra arg before state.md blocked"
+else
+    fail "extra arg before state.md blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 18: Hidden variable like ${IFS} blocked
+# ========================================
+
+echo "NEGATIVE TEST 18: Hidden variable injection blocked"
+setup_test_loop "negative-18"
+touch "$LOOP_DIR/.cancel-requested"
+# Try to use ${IFS} to hide extra arguments
+COMMAND_LOWER='mv ${LOOP_DIR}/state.md${ifs}extra ${LOOP_DIR}/cancel-state.md'
+# Replace LOOP_DIR but leave ${ifs}
+COMMAND_LOWER="${COMMAND_LOWER//\$\{LOOP_DIR\}/$LOOP_DIR}"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "hidden variable blocked" "returns 1" "returns 0"
+else
+    pass "Hidden variable injection blocked"
+fi
+
+# ========================================
+# NEGATIVE TEST 19: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 19: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"
@@ -528,6 +609,31 @@ if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
     pass "is_cancel_authorized allows quoted paths"
 else
     fail "helper quoted paths" "returns 0" "returns 1"
+fi
+
+echo "HELPER TEST 6: is_cancel_authorized rejects extra args before state.md"
+setup_test_loop "helper-6"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND_LOWER="mv /tmp/extra.txt ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper extra arg before" "returns 1" "returns 0"
+else
+    pass "is_cancel_authorized rejects extra args before state.md"
+fi
+
+echo "HELPER TEST 7: is_cancel_authorized rejects hidden variables"
+setup_test_loop "helper-7"
+touch "$LOOP_DIR/.cancel-requested"
+# Command with a sneaky ${ifs} variable
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md\${ifs}extra ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper hidden var" "returns 1" "returns 0"
+else
+    pass "is_cancel_authorized rejects hidden variables"
 fi
 
 # ========================================
