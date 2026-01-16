@@ -73,8 +73,24 @@ fi
 # ========================================
 # State file is managed by the loop system, not Claude
 # Exception: Allow mv to cancel-state.md when cancel signal file exists
+#
+# Note: We check TWO patterns for mv/cp:
+# 1. command_modifies_file checks if DESTINATION contains state.md
+# 2. Additional check below catches if SOURCE contains state.md (e.g., mv state.md /tmp/foo)
 
+# Check 1: Destination contains state.md (covers writes, redirects, mv/cp TO state.md)
 if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
+    # Check for cancel signal file - allow authorized cancel operation
+    if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+        exit 0
+    fi
+    state_file_blocked_message >&2
+    exit 2
+fi
+
+# Check 2: Source of mv/cp contains state.md (covers mv/cp FROM state.md to any destination)
+# This catches bypass attempts like: mv state.md /tmp/foo.txt
+if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]]+[^[:space:]]*state\.md[[:space:]]"; then
     # Check for cancel signal file - allow authorized cancel operation
     if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
         exit 0

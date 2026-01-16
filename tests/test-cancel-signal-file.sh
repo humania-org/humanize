@@ -277,10 +277,90 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 9: No active loop (no state.md)
+# NEGATIVE TEST 9: mv state.md to non-state.md destination blocked (BYPASS FIX)
 # ========================================
 
-echo "NEGATIVE TEST 9: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 9: mv state.md to arbitrary destination blocked (even with signal)"
+setup_test_loop "negative-9"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md /tmp/arbitrary-file.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv state.md to arbitrary destination blocked"
+else
+    fail "mv state.md bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 10: Command substitution $() injection blocked
+# ========================================
+
+echo "NEGATIVE TEST 10: Command substitution via \$() blocked even with signal"
+setup_test_loop "negative-10"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md\$(rm -rf /)"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Command substitution via \$() blocked"
+else
+    fail "injection via \$() blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 11: Backtick command substitution blocked
+# ========================================
+
+echo "NEGATIVE TEST 11: Backtick command substitution blocked even with signal"
+setup_test_loop "negative-11"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md\`rm -rf /\`"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Backtick command substitution blocked"
+else
+    fail "injection via backticks blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 12: Newline-separated command injection blocked
+# ========================================
+# Note: Testing the is_cancel_authorized helper directly since JSON parsing
+# of literal newlines in command strings is not straightforward
+
+echo "NEGATIVE TEST 12: Newline-separated command injection blocked in helper"
+setup_test_loop "negative-12"
+touch "$LOOP_DIR/.cancel-requested"
+# Command with embedded newline - test helper directly
+COMMAND_WITH_NEWLINE="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md
+rm -rf /"
+COMMAND_LOWER=$(to_lower "$COMMAND_WITH_NEWLINE")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "injection via newline blocked" "returns 1" "returns 0"
+else
+    pass "Newline-separated command injection blocked"
+fi
+
+# ========================================
+# NEGATIVE TEST 13: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 13: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

@@ -253,7 +253,8 @@ is_state_file_path() {
 # Returns: 0 if cancel is authorized and command matches, 1 otherwise
 #
 # Security notes:
-# - Regex is anchored to prevent command injection (e.g., "mv ... && rm -rf /")
+# - Rejects commands containing shell injection characters BEFORE regex matching
+# - Regex is anchored to prevent command injection
 # - Pattern ends with $ to ensure no trailing commands
 # - Only allows mv with state.md to cancel-state.md pattern
 is_cancel_authorized() {
@@ -267,10 +268,24 @@ is_cancel_authorized() {
         return 1
     fi
 
+    # SECURITY: Reject commands containing shell injection vectors
+    # - $( or ${ : command/variable substitution
+    # - ` : backtick command substitution
+    # - newline : multi-line command injection
+    # These are checked BEFORE the mv pattern to fail-closed on any injection attempt
+    if echo "$command_lower" | grep -qE '\$\(|\$\{|`'; then
+        return 1
+    fi
+    # Check for newlines (cannot be in grep pattern, check separately)
+    if [[ "$command_lower" == *$'\n'* ]]; then
+        return 1
+    fi
+
     # Command must be ONLY mv state.md to cancel-state.md (anchored to prevent injection)
     # Pattern: mv <path>/state.md <path>/cancel-state.md
     # The $ anchor ensures no additional commands (;, &&, ||, |) can be appended
-    if echo "$command_lower" | grep -qE "^mv[[:space:]]+[^;&|]+state\.md[[:space:]]+[^;&|]+cancel-state\.md[[:space:]]*$"; then
+    # Character class excludes: ; & | (shell operators) and now also ( ) ` $ (substitution chars)
+    if echo "$command_lower" | grep -qE "^mv[[:space:]]+[^;&|\(\)\`\$]+state\.md[[:space:]]+[^;&|\(\)\`\$]+cancel-state\.md[[:space:]]*$"; then
         return 0
     fi
 
