@@ -1,0 +1,358 @@
+#!/bin/bash
+#
+# Tests for cancel-rlcr-loop signal file mechanism
+#
+# Tests:
+# - POSITIVE: mv state.md to cancel-state.md allowed when signal file exists
+# - NEGATIVE: mv state.md to cancel-state.md blocked without signal file
+# - NEGATIVE: Other state.md modifications blocked even with signal file
+# - NEGATIVE: Signal file in wrong directory does not authorize cancel
+#
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Test helpers
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+pass() { echo -e "${GREEN}PASS${NC}: $1"; TESTS_PASSED=$((TESTS_PASSED + 1)); }
+fail() { echo -e "${RED}FAIL${NC}: $1"; echo "  Expected: $2"; echo "  Got: $3"; TESTS_FAILED=$((TESTS_FAILED + 1)); }
+
+# Setup test environment
+TEST_DIR=$(mktemp -d)
+trap "rm -rf $TEST_DIR" EXIT
+
+# Source the common library
+source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+echo "=== Test: Cancel Signal File Mechanism ==="
+echo ""
+
+# ========================================
+# Setup: Create test loop directory with state.md
+# ========================================
+
+setup_test_loop() {
+    local test_name="$1"
+    rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
+    LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
+    mkdir -p "$LOOP_DIR"
+    cat > "$LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 3
+max_iterations: 10
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+    export CLAUDE_PROJECT_DIR="$TEST_DIR"
+}
+
+# Helper to simulate hook validation
+run_bash_validator() {
+    local command="$1"
+    local hook_input
+    hook_input=$(cat << ENDJSON
+{
+    "tool_name": "Bash",
+    "tool_input": {
+        "command": "$command"
+    }
+}
+ENDJSON
+)
+    echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1
+    return ${PIPESTATUS[1]}
+}
+
+# ========================================
+# POSITIVE TEST 1: mv allowed with signal file
+# ========================================
+
+echo "POSITIVE TEST 1: mv state.md to cancel-state.md allowed when signal file exists"
+setup_test_loop "positive-1"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "mv state.md to cancel-state.md allowed with signal file"
+else
+    fail "mv allowed with signal" "exit 0" "exit $EXIT_CODE: $OUTPUT"
+fi
+
+# ========================================
+# POSITIVE TEST 2: mv allowed with different path format
+# ========================================
+
+echo "POSITIVE TEST 2: mv allowed with relative-style path"
+setup_test_loop "positive-2"
+touch "$LOOP_DIR/.cancel-requested"
+# Use a command with ./ prefix to test slightly different path format
+COMMAND="mv ${LOOP_DIR}/./state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "mv state.md allowed with ./ path format"
+else
+    fail "mv allowed with ./ path" "exit 0" "exit $EXIT_CODE: $OUTPUT"
+fi
+
+# ========================================
+# NEGATIVE TEST 1: mv blocked without signal file
+# ========================================
+
+echo "NEGATIVE TEST 1: mv state.md to cancel-state.md blocked without signal file"
+setup_test_loop "negative-1"
+# Do NOT create signal file
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv state.md blocked without signal file"
+else
+    fail "mv blocked without signal" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 2: Other state.md modifications blocked even with signal
+# ========================================
+
+echo "NEGATIVE TEST 2: echo > state.md blocked even with signal file"
+setup_test_loop "negative-2"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="echo 'hack' > ${LOOP_DIR}/state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "echo > state.md blocked even with signal file"
+else
+    fail "echo blocked with signal" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 3: sed -i blocked even with signal
+# ========================================
+
+echo "NEGATIVE TEST 3: sed -i state.md blocked even with signal file"
+setup_test_loop "negative-3"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="sed -i 's/round: 3/round: 99/' ${LOOP_DIR}/state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "sed -i state.md blocked even with signal file"
+else
+    fail "sed blocked with signal" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 4: mv to wrong destination blocked
+# ========================================
+
+echo "NEGATIVE TEST 4: mv state.md to wrong destination blocked even with signal"
+setup_test_loop "negative-4"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/hacked-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "mv state.md to wrong destination blocked"
+else
+    fail "mv to wrong dest blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 5: Signal file in wrong directory
+# ========================================
+
+echo "NEGATIVE TEST 5: Signal file in wrong directory does not authorize"
+setup_test_loop "negative-5"
+# Create signal file in WRONG directory (parent)
+touch "$TEST_DIR/.humanize/rlcr/.cancel-requested"
+# NOT in the active loop dir
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Signal file in wrong directory does not authorize"
+else
+    fail "wrong dir signal blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 6: rm state.md blocked even with signal
+# ========================================
+
+echo "NEGATIVE TEST 6: rm state.md blocked even with signal file"
+setup_test_loop "negative-6"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="rm ${LOOP_DIR}/state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "rm state.md blocked even with signal file"
+else
+    fail "rm blocked with signal" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 7: Command injection attempt blocked
+# ========================================
+
+echo "NEGATIVE TEST 7: Command injection via && blocked even with signal"
+setup_test_loop "negative-7"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md && rm -rf /"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Command injection via && blocked"
+else
+    fail "injection via && blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 8: Command injection via ; blocked
+# ========================================
+
+echo "NEGATIVE TEST 8: Command injection via semicolon blocked even with signal"
+setup_test_loop "negative-8"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md; echo hacked"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Command injection via semicolon blocked"
+else
+    fail "injection via semicolon blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 9: No active loop (no state.md)
+# ========================================
+
+echo "NEGATIVE TEST 9: Validator allows commands when no active loop"
+rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
+LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
+mkdir -p "$LOOP_DIR"
+# No state.md created - loop is not active
+COMMAND="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Commands allowed when no active loop (no state.md)"
+else
+    fail "no active loop allows" "exit 0" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# Test is_cancel_authorized helper function
+# ========================================
+
+echo ""
+echo "=== Test: is_cancel_authorized Helper Function ==="
+echo ""
+
+# Test helper directly
+echo "HELPER TEST 1: is_cancel_authorized returns true with signal and correct command"
+setup_test_loop "helper-1"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "is_cancel_authorized returns true with signal and correct command"
+else
+    fail "helper true case" "returns 0" "returns 1"
+fi
+
+echo "HELPER TEST 2: is_cancel_authorized returns false without signal file"
+setup_test_loop "helper-2"
+# No signal file
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper no signal" "returns 1" "returns 0"
+else
+    pass "is_cancel_authorized returns false without signal file"
+fi
+
+echo "HELPER TEST 3: is_cancel_authorized returns false with wrong command"
+setup_test_loop "helper-3"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND_LOWER="rm ${LOOP_DIR}/state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper wrong cmd" "returns 1" "returns 0"
+else
+    pass "is_cancel_authorized returns false with wrong command"
+fi
+
+# ========================================
+# Summary
+# ========================================
+
+echo ""
+echo "========================================="
+echo "Test Results"
+echo "========================================="
+echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
+echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
+echo ""
+
+exit $TESTS_FAILED

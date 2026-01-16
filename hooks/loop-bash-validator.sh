@@ -72,8 +72,13 @@ fi
 # Block State File Modifications (All Rounds)
 # ========================================
 # State file is managed by the loop system, not Claude
+# Exception: Allow mv to cancel-state.md when cancel signal file exists
 
 if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
+    # Check for cancel signal file - allow authorized cancel operation
+    if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+        exit 0
+    fi
     state_file_blocked_message >&2
     exit 2
 fi

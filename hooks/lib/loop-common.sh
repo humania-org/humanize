@@ -248,6 +248,35 @@ is_state_file_path() {
     echo "$path_lower" | grep -qE 'state\.md$'
 }
 
+# Check if cancel operation is authorized via signal file
+# Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
+# Returns: 0 if cancel is authorized and command matches, 1 otherwise
+#
+# Security notes:
+# - Regex is anchored to prevent command injection (e.g., "mv ... && rm -rf /")
+# - Pattern ends with $ to ensure no trailing commands
+# - Only allows mv with state.md to cancel-state.md pattern
+is_cancel_authorized() {
+    local active_loop_dir="$1"
+    local command_lower="$2"
+
+    local cancel_signal="$active_loop_dir/.cancel-requested"
+
+    # Signal file must exist
+    if [[ ! -f "$cancel_signal" ]]; then
+        return 1
+    fi
+
+    # Command must be ONLY mv state.md to cancel-state.md (anchored to prevent injection)
+    # Pattern: mv <path>/state.md <path>/cancel-state.md
+    # The $ anchor ensures no additional commands (;, &&, ||, |) can be appended
+    if echo "$command_lower" | grep -qE "^mv[[:space:]]+[^;&|]+state\.md[[:space:]]+[^;&|]+cancel-state\.md[[:space:]]*$"; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Check if a path is inside .humanize/rlcr directory
 is_in_humanize_loop_dir() {
     local path="$1"
