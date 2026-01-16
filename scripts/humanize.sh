@@ -28,9 +28,17 @@ _humanize_monitor_codex() {
             echo ""
             return
         fi
+        # Check if directory has any entries (prevents zsh "no matches found" on empty dir)
+        # Using ls instead of glob to avoid zsh errors
+        local ls_output
+        ls_output=$(ls -A "$loop_dir" 2>/dev/null)
+        if [[ -z "$ls_output" ]]; then
+            echo ""
+            return
+        fi
         # Iterate over directories (bash/zsh compatible)
         for session_dir in "$loop_dir"/*; do
-            # Skip if glob didn't match anything
+            # Skip if glob didn't match anything (shouldn't happen after ls check, but be safe)
             [[ ! -e "$session_dir" ]] && continue
             # Only process directories
             [[ ! -d "$session_dir" ]] && continue
@@ -64,6 +72,13 @@ _humanize_monitor_codex() {
             echo ""
             return
         fi
+        # Check if directory has any entries (prevents zsh "no matches found" on empty dir)
+        local ls_output
+        ls_output=$(ls -A "$loop_dir" 2>/dev/null)
+        if [[ -z "$ls_output" ]]; then
+            echo ""
+            return
+        fi
 
         # First, find valid session timestamps from local .humanize/rlcr
         for session_dir in "$loop_dir"/*; do
@@ -82,9 +97,15 @@ _humanize_monitor_codex() {
             if [[ ! -d "$cache_dir" ]]; then
                 continue
             fi
+            # Check if cache_dir has any matching log files (prevents zsh "no matches found")
+            local cache_ls_output
+            cache_ls_output=$(ls "$cache_dir"/round-*-codex-run.log 2>/dev/null)
+            if [[ -z "$cache_ls_output" ]]; then
+                continue
+            fi
 
             for log_file in "$cache_dir"/round-*-codex-run.log; do
-                # Skip if glob didn't match anything
+                # Skip if glob didn't match anything (shouldn't happen after ls check)
                 [[ ! -e "$log_file" ]] && continue
 
                 if [[ -f "$log_file" ]]; then
@@ -495,24 +516,16 @@ _humanize_monitor_codex() {
     }
 
     # Graceful stop when loop directory is deleted
+    # Per R1.2: calls _cleanup() to restore terminal state
     _graceful_stop() {
         local reason="$1"
-        # Prevent multiple cleanup calls
+        # Prevent multiple cleanup calls (checked again in _cleanup but check here too)
         [[ "$cleanup_done" == "true" ]] && return
-        cleanup_done=true
-        monitor_running=false
 
-        # Reset traps to prevent re-triggering
-        trap - INT TERM
+        # Call _cleanup to do the actual cleanup work (per plan requirement)
+        _cleanup
 
-        # Kill background processes
-        if [[ -n "$tail_pid" ]] && kill -0 $tail_pid 2>/dev/null; then
-            kill $tail_pid 2>/dev/null
-            wait $tail_pid 2>/dev/null
-        fi
-
-        _restore_terminal
-        echo ""
+        # Print the specific graceful stop message after cleanup
         echo "Monitoring stopped: $reason"
         echo "The RLCR loop may have been cancelled or the directory was deleted."
     }
@@ -707,9 +720,10 @@ _humanize_monitor_codex() {
                 [[ "$monitor_running" != "true" ]] && break
                 tail -c +$((last_size + 1)) "$current_file" 2>/dev/null
                 last_size="$file_size"
-            elif [[ "$file_size" -eq 0 ]] || [[ "$file_size" -lt "$last_size" ]]; then
+            elif [[ "$last_size" -gt 0 ]] && [[ "$file_size" -lt "$last_size" ]]; then
                 # File truncated or rotated (R1.3: detect size becomes 0 unexpectedly)
-                # Treat as deletion signal - re-enter outer selection logic
+                # Only trigger when file previously had content (last_size > 0)
+                # This prevents treating new empty files as truncated
                 tput cup $status_bar_height 0
                 tput ed
                 printf "\n==> Log file truncated/rotated, searching for new log...\n"

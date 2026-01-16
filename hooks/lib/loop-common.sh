@@ -425,6 +425,11 @@ is_in_humanize_loop_dir() {
 # IMPORTANT: This function receives LOWERCASED input from the validator.
 # Git flags like -A become -a after lowercasing, so we match both.
 #
+# Handles:
+# - git -C <dir> add (git options before add subcommand)
+# - Chained commands: cd repo && git add .humanize
+# - Shell operators: ;, &&, ||, |
+#
 # Blocks:
 # - git add .humanize or git add .humanize/
 # - git add .humanize/* or git add .humanize/**
@@ -438,65 +443,89 @@ is_in_humanize_loop_dir() {
 git_adds_humanize() {
     local cmd="$1"
 
-    # Only check git add commands
-    if ! echo "$cmd" | grep -qE '^[[:space:]]*git[[:space:]]+add[[:space:]]'; then
-        return 1
-    fi
+    # Split command on shell operators and check each segment
+    # This handles chained commands like: cd repo && git add .humanize
+    local segments
+    segments=$(echo "$cmd" | sed '
+        s/&&/\n/g
+        s/||/\n/g
+        s/|/\n/g
+        s/;/\n/g
+    ')
 
-    # Check for direct .humanize reference (blocked regardless of other flags)
-    if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]].*\.humanize'; then
-        return 0
-    fi
+    while IFS= read -r segment; do
+        [[ -z "$segment" ]] && continue
 
-    # Check for -f or --force flag (including combined flags like -fa, -af)
-    # Note: input is lowercased, so -F becomes -f
-    local has_force=false
-    if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?--force([[:space:]]|$)'; then
-        has_force=true
-    elif echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?-[a-z]*f[a-z]*([[:space:]]|$)'; then
-        has_force=true
-    fi
+        # Check if this segment contains a git add command
+        # Pattern: git (with optional flags/options) followed by add
+        # Handles:
+        # - git add
+        # - git -C dir add (short option with separate arg)
+        # - git --git-dir=x add (long option with = arg)
+        # - git -c key=value add (short option with = arg)
+        # The pattern allows any non-add tokens between git and add
+        if ! echo "$segment" | grep -qE '(^|[[:space:]])git[[:space:]]+([^[:space:]]+[[:space:]]+)*add([[:space:]]|$)'; then
+            continue
+        fi
 
-    # Check for -A/--all flag (including combined flags like -fa, -af)
-    # Note: input is lowercased, so -A becomes -a
-    local has_all=false
-    if echo "$cmd" | grep -qE '(^|[[:space:]])--all([[:space:]]|$)'; then
-        has_all=true
-    elif echo "$cmd" | grep -qE '(^|[[:space:]])-[a-z]*a[a-z]*([[:space:]]|$)'; then
-        has_all=true
-    fi
+        # Extract the part after "add" for analysis
+        local add_args
+        add_args=$(echo "$segment" | sed -n 's/.*[[:space:]]add[[:space:]]*//p')
 
-    # Check for broad scope targets: . or * alone
-    local has_broad_scope=false
-    if echo "$cmd" | grep -qE '(^|[[:space:]])(\.|\*)([[:space:]]|$)'; then
-        has_broad_scope=true
-    fi
-
-    # Force add with any broad scope (force bypasses gitignore entirely)
-    if [[ "$has_force" == "true" ]]; then
-        if [[ "$has_all" == "true" ]] || [[ "$has_broad_scope" == "true" ]]; then
+        # Check for direct .humanize reference (blocked regardless of other flags)
+        if echo "$add_args" | grep -qE '(^|[[:space:]])\.humanize'; then
             return 0
         fi
-    fi
 
-    # Check if .humanize exists - needed for non-force blocking
-    if [[ ! -d ".humanize" ]]; then
-        return 1
-    fi
+        # Check for -f or --force flag (including combined flags like -fa, -af)
+        local has_force=false
+        if echo "$add_args" | grep -qE '(^|[[:space:]])--force([[:space:]]|$)'; then
+            has_force=true
+        elif echo "$add_args" | grep -qE '(^|[[:space:]])-[a-z]*f[a-z]*([[:space:]]|$)'; then
+            has_force=true
+        fi
 
-    # git add -A/--all when .humanize exists (AC-2.3)
-    # Always block because -A adds all changes including untracked files
-    if [[ "$has_all" == "true" ]]; then
-        return 0
-    fi
+        # Check for -A/--all flag (including combined flags like -fa, -af)
+        # Note: input is lowercased, so -A becomes -a
+        local has_all=false
+        if echo "$add_args" | grep -qE '(^|[[:space:]])--all([[:space:]]|$)'; then
+            has_all=true
+        elif echo "$add_args" | grep -qE '(^|[[:space:]])-[a-z]*a[a-z]*([[:space:]]|$)'; then
+            has_all=true
+        fi
 
-    # git add . or git add * when .humanize exists and not gitignored
-    # Only block if .humanize is NOT protected by gitignore
-    if [[ "$has_broad_scope" == "true" ]]; then
-        if ! git check-ignore -q .humanize 2>/dev/null; then
+        # Check for broad scope targets: . or * alone
+        local has_broad_scope=false
+        if echo "$add_args" | grep -qE '(^|[[:space:]])(\.|\*)([[:space:]]|$)'; then
+            has_broad_scope=true
+        fi
+
+        # Force add with any broad scope (force bypasses gitignore entirely)
+        if [[ "$has_force" == "true" ]]; then
+            if [[ "$has_all" == "true" ]] || [[ "$has_broad_scope" == "true" ]]; then
+                return 0
+            fi
+        fi
+
+        # Check if .humanize exists - needed for non-force blocking
+        if [[ ! -d ".humanize" ]]; then
+            continue
+        fi
+
+        # git add -A/--all when .humanize exists (AC-2.3)
+        # Always block because -A adds all changes including untracked files
+        if [[ "$has_all" == "true" ]]; then
             return 0
         fi
-    fi
+
+        # git add . or git add * when .humanize exists and not gitignored
+        # Only block if .humanize is NOT protected by gitignore
+        if [[ "$has_broad_scope" == "true" ]]; then
+            if ! git check-ignore -q .humanize 2>/dev/null; then
+                return 0
+            fi
+        fi
+    done <<< "$segments"
 
     return 1
 }
