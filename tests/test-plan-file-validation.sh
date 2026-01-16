@@ -16,6 +16,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Unset CLAUDE_PROJECT_DIR so setup-rlcr-loop.sh uses pwd (the temp test repo)
+# instead of the actual repo root where this test is running
+unset CLAUDE_PROJECT_DIR
+
 # Test helpers
 GREEN='\033[0;32m'
 RED='\033[0;31m'
