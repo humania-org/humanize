@@ -731,6 +731,50 @@ else
 fi
 
 echo ""
+echo "=== Test: Legacy Path Handling (NEGATIVE TESTS) ==="
+echo ""
+
+# Test 15: Bash validator ALLOWS writes to legacy .humanize-loop.local (it's not a loop dir anymore)
+echo "Test 15: Bash validator allows writes to legacy .humanize-loop.local"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > .humanize-loop.local/2024-01-01/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should exit 0 (allowed) because legacy path is no longer treated as a loop directory
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Bash validator allows writes to legacy .humanize-loop.local"
+else
+    fail "Bash validator legacy path" "exit 0 (allowed)" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 16: Write validator ALLOWS writes to legacy .humanize-loop.local plan.md
+echo "Test 16: Write validator allows writes to legacy .humanize-loop.local plan.md"
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize-loop.local/2024-01-01/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write validator allows writes to legacy .humanize-loop.local plan.md"
+else
+    fail "Write validator legacy path" "exit 0 (allowed)" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 17: Edit validator ALLOWS edits to legacy .humanize-loop.local plan.md
+echo "Test 17: Edit validator allows edits to legacy .humanize-loop.local plan.md"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$TEST_DIR'/.humanize-loop.local/2024-01-01/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit validator allows edits to legacy .humanize-loop.local plan.md"
+else
+    fail "Edit validator legacy path" "exit 0 (allowed)" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+echo ""
 echo "========================================="
 echo "Test Results"
 echo "========================================="

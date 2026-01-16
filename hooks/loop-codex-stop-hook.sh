@@ -354,17 +354,17 @@ if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         # Check for special cases in untracked files
         UNTRACKED=$(echo "$GIT_STATUS" | grep '^??' || true)
 
-        # Check if .humanize or .humanize-loop.local is untracked
-        if echo "$UNTRACKED" | grep -qE '\.(humanize|humanize-loop\.local)'; then
+        # Check if .humanize* directories are untracked (includes .humanize/ and any legacy .humanize-* dirs)
+        if echo "$UNTRACKED" | grep -q '\.humanize'; then
             HUMANIZE_LOCAL_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-humanize-local.md" 2>/dev/null)
             if [[ -z "$HUMANIZE_LOCAL_NOTE" ]]; then
-                HUMANIZE_LOCAL_NOTE="Note: .humanize/ directory is intentionally untracked."
+                HUMANIZE_LOCAL_NOTE="Note: .humanize* directories are intentionally untracked."
             fi
             SPECIAL_NOTES="$SPECIAL_NOTES$HUMANIZE_LOCAL_NOTE"
         fi
 
         # Check for other untracked files (potential artifacts)
-        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -vE '\.(humanize|humanize-loop\.local)' || true)
+        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize' || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
             UNTRACKED_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-untracked.md" 2>/dev/null)
             if [[ -z "$UNTRACKED_NOTE" ]]; then

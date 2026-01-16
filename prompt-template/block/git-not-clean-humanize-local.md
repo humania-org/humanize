@@ -6,5 +6,3 @@ Please add it to .gitignore:
 echo '.humanize*' >> .gitignore
 git add .gitignore
 ```
-
-Note: If you have a legacy `.humanize-loop.local/` directory, the `.humanize*` pattern will also exclude it.

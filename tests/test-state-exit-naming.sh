@@ -239,6 +239,54 @@ else
 fi
 
 echo ""
+echo "=== Test: Path Detection (New vs Legacy) ==="
+echo ""
+
+# Test 11: is_in_humanize_loop_dir correctly identifies NEW path
+echo "Test 11: is_in_humanize_loop_dir detects .humanize/rlcr path"
+NEW_PATH="/some/project/.humanize/rlcr/2024-01-01_12-00-00/state.md"
+if is_in_humanize_loop_dir "$NEW_PATH"; then
+    pass "is_in_humanize_loop_dir detects .humanize/rlcr path"
+else
+    fail "is_in_humanize_loop_dir new path" "returns true" "returns false"
+fi
+
+# Test 12: is_in_humanize_loop_dir does NOT match legacy path (NEGATIVE TEST)
+echo "Test 12: is_in_humanize_loop_dir does NOT detect legacy .humanize-loop.local path"
+LEGACY_PATH="/some/project/.humanize-loop.local/2024-01-01_12-00-00/state.md"
+if is_in_humanize_loop_dir "$LEGACY_PATH"; then
+    fail "is_in_humanize_loop_dir legacy path" "returns false (not a loop dir)" "returns true"
+else
+    pass "is_in_humanize_loop_dir does NOT detect legacy .humanize-loop.local path"
+fi
+
+# Test 13: The code only looks in .humanize/rlcr, not legacy paths
+# This test verifies that even with a legacy directory present, the main search
+# path is .humanize/rlcr, so legacy directories won't accidentally be used
+echo "Test 13: Legacy directory not searched when using new base path"
+# Create legacy directory with a state file
+LEGACY_LOOP_DIR="$TEST_DIR/.humanize-loop.local/2024-01-01_12-00-00"
+mkdir -p "$LEGACY_LOOP_DIR"
+cat > "$LEGACY_LOOP_DIR/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+# Remove the new path state.md so only legacy exists
+rm -f "$TEST_DIR/.humanize/rlcr/"*/state.md 2>/dev/null || true
+# Search in the NEW base path - should find nothing because we removed state.md
+ACTIVE_LOOP=$(find_active_loop "$TEST_DIR/.humanize/rlcr")
+if [[ -z "$ACTIVE_LOOP" ]]; then
+    pass "Legacy directory not searched when using new base path"
+else
+    fail "Legacy dir separation" "no active loop in new path" "$ACTIVE_LOOP"
+fi
+
+echo ""
 echo "========================================="
 echo "Test Results"
 echo "========================================="
