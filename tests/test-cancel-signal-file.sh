@@ -744,11 +744,51 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 29: Pipe+stderr |& bypass blocked
+# NEGATIVE TEST 29: Background & without trailing space (true& mv)
 # ========================================
 
-echo "NEGATIVE TEST 29: echo foo |& mv state.md blocked (pipe+stderr)"
+echo "NEGATIVE TEST 29: true& mv state.md blocked (no trailing space after &)"
 setup_test_loop "negative-29"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="true& mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Background & without trailing space blocked"
+else
+    fail "true& mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 30: Background & without leading space (true &mv)
+# ========================================
+
+echo "NEGATIVE TEST 30: true &mv state.md blocked (no leading space before &)"
+setup_test_loop "negative-30"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="true &mv ${LOOP_DIR}/state.md /tmp/foo.txt"
+
+set +e
+OUTPUT=$(run_bash_validator "$COMMAND")
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Background & without leading space blocked"
+else
+    fail "true &mv bypass blocked" "exit 2" "exit $EXIT_CODE"
+fi
+
+# ========================================
+# NEGATIVE TEST 31: Pipe+stderr |& bypass blocked
+# ========================================
+
+echo "NEGATIVE TEST 31: echo foo |& mv state.md blocked (pipe+stderr)"
+setup_test_loop "negative-31"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="echo foo |& mv ${LOOP_DIR}/state.md /tmp/foo.txt"
 
@@ -764,11 +804,11 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 30: sh -c wrapper bypass blocked
+# NEGATIVE TEST 32: sh -c wrapper bypass blocked
 # ========================================
 
-echo "NEGATIVE TEST 30: sh -c wrapper bypass blocked"
-setup_test_loop "negative-30"
+echo "NEGATIVE TEST 32: sh -c wrapper bypass blocked"
+setup_test_loop "negative-32"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="sh -c 'mv ${LOOP_DIR}/state.md /tmp/foo.txt'"
 
@@ -784,11 +824,11 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 31: bash -c wrapper bypass blocked
+# NEGATIVE TEST 33: bash -c wrapper bypass blocked
 # ========================================
 
-echo "NEGATIVE TEST 31: bash -c wrapper bypass blocked"
-setup_test_loop "negative-31"
+echo "NEGATIVE TEST 33: bash -c wrapper bypass blocked"
+setup_test_loop "negative-33"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="bash -c 'mv ${LOOP_DIR}/state.md /tmp/foo.txt'"
 
@@ -804,10 +844,10 @@ else
 fi
 
 # ========================================
-# NEGATIVE TEST 32: No active loop (no state.md)
+# NEGATIVE TEST 34: No active loop (no state.md)
 # ========================================
 
-echo "NEGATIVE TEST 32: Validator allows commands when no active loop"
+echo "NEGATIVE TEST 34: Validator allows commands when no active loop"
 rm -rf "$TEST_DIR/.humanize" 2>/dev/null || true
 LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
 mkdir -p "$LOOP_DIR"

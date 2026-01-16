@@ -104,9 +104,20 @@ fi
 MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
 
 # Replace shell operators with newlines, then check each segment
-# Order matters: |& before |, && before &
-# For &: only split on space-surrounded & (background operator), not redirections like 2>&1
-COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed 's/|&/\n/g; s/&&/\n/g; s/||/\n/g; s/|/\n/g; s/;/\n/g; s/ & /\n/g; s/ &$/\n/g')
+# Order matters: |& before |, && before single &
+# For &: protect redirections (&>, >&, N>&M) with placeholders, then split on remaining &
+# Placeholders use control chars unlikely to appear in commands
+COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed '
+    s/|&/\n/g
+    s/&&/\n/g
+    s/&>/\x01/g
+    s/[0-9]*>&[0-9]*/\x02/g
+    s/>&/\x02/g
+    s/&/\n/g
+    s/||/\n/g
+    s/|/\n/g
+    s/;/\n/g
+')
 while IFS= read -r SEGMENT; do
     # Skip empty segments
     [[ -z "$SEGMENT" ]] && continue
