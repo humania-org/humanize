@@ -34,8 +34,13 @@ FILE_PATH_LOWER=$(to_lower "$FILE_PATH")
 # ========================================
 
 if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
-    todos_blocked_message "Read" >&2
-    exit 2
+    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
+    LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
+    if [[ -z "$LOOP_DIR" ]] || ! is_allowlisted_file "$FILE_PATH" "$LOOP_DIR"; then
+        todos_blocked_message "Read" >&2
+        exit 2
+    fi
 fi
 
 # ========================================
@@ -53,9 +58,9 @@ IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || ec
 # Find Active Loop and Current Round
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
+PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
+ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR")}"
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
@@ -102,7 +107,7 @@ fi
 # Validate Round Number
 # ========================================
 
-if [[ "$CLAUDE_ROUND" != "$CURRENT_ROUND" ]]; then
+if [[ "$CLAUDE_ROUND" != "$CURRENT_ROUND" ]] && ! is_allowlisted_file "$FILE_PATH" "$ACTIVE_LOOP_DIR"; then
     FALLBACK="# Wrong Round File
 
 You tried to read round-{{CLAUDE_ROUND}}-{{FILE_TYPE}}.md but current round is **{{CURRENT_ROUND}}**.

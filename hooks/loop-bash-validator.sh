@@ -134,8 +134,10 @@ fi
 # ========================================
 
 if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
-    todos_blocked_message "Bash" >&2
-    exit 2
+    if ! echo "$COMMAND_LOWER" | grep -qE "round-[12]-todos\.md"; then
+        todos_blocked_message "Bash" >&2
+        exit 2
+    fi
 fi
 
 exit 0

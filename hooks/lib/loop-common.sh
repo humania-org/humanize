@@ -162,6 +162,29 @@ extract_round_number() {
     echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\)\.md$/\1/p'
 }
 
+# Check if a file is in the allowlist for the active loop
+# Usage: is_allowlisted_file "$file_path" "$active_loop_dir"
+# Returns: 0 if allowlisted, 1 otherwise
+is_allowlisted_file() {
+    local file_path="$1"
+    local active_loop_dir="$2"
+
+    local allowlist=(
+        "round-1-todos.md"
+        "round-2-todos.md"
+        "round-0-summary.md"
+        "round-1-summary.md"
+    )
+
+    for allowed in "${allowlist[@]}"; do
+        if [[ "$file_path" == "$active_loop_dir/$allowed" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # Standard message for blocking todos file access
 # Usage: todos_blocked_message "Read|Write|Bash"
 todos_blocked_message() {
