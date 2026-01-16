@@ -558,7 +558,6 @@ set -e
 # 1. Should block (not allow exit)
 # 2. state.md should still exist (not renamed to finalized-state.md or complete-state.md)
 # 3. Should produce feedback for next round (either in output or via round file)
-# Note: Review result file may or may not exist depending on cache dir setup, so we focus on the core assertions
 if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/state.md" ]] && [[ ! -f "$LOOP_DIR/finalized-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
     pass "Normal round blocks with feedback, keeps state.md intact (not renamed)"
 else
@@ -571,6 +570,23 @@ if [[ "$STATE_CURRENT_ROUND" == "4" ]]; then
     pass "Normal round increments current_round to 4"
 else
     fail "Normal round increment" "current_round: 4" "current_round: $STATE_CURRENT_ROUND"
+fi
+
+# T-POS-5c: Verify review result file was created (proves Codex review was invoked)
+echo "T-POS-5c: Codex review result file created"
+if [[ -f "$LOOP_DIR/round-3-review-result.md" ]]; then
+    pass "Codex review result file round-3-review-result.md created"
+else
+    fail "Codex review result file" "round-3-review-result.md exists" "file not found in $LOOP_DIR"
+fi
+
+# T-POS-5d: Verify review feedback content is included in block output
+# The mock Codex outputs "Issue 1: Fix the bug" - this should appear in the reason
+echo "T-POS-5d: Block output contains Codex review feedback"
+if echo "$RESULT" | grep -q "Issue 1"; then
+    pass "Block output contains Codex review feedback"
+else
+    fail "Review feedback in output" "output contains 'Issue 1' from Codex review" "output does not contain expected feedback"
 fi
 
 echo ""
