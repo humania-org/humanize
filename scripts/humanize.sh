@@ -11,7 +11,7 @@ _humanize_monitor_codex() {
     local current_file=""
     local current_session_dir=""
     local check_interval=2  # seconds between checking for new files
-    local status_bar_height=10  # number of lines for status bar (goal tracker + git status)
+    local status_bar_height=11  # number of lines for status bar (includes loop status line)
 
     # Check if .humanize/rlcr exists
     if [[ ! -d "$loop_dir" ]]; then
@@ -93,6 +93,46 @@ _humanize_monitor_codex() {
         done
 
         echo "$latest"
+    }
+
+    # Find the state file for a session directory
+    # Returns: state_file_path|loop_status
+    # - If state.md exists: returns "state.md|active"
+    # - If <STOP_REASON>-state.md exists: returns "<file>|<stop_reason>"
+    # - If no state file found: returns "|unknown"
+    _find_state_file() {
+        local session_dir="$1"
+        if [[ -z "$session_dir" || ! -d "$session_dir" ]]; then
+            echo "|unknown"
+            return
+        fi
+
+        # Priority 1: state.md indicates active loop
+        if [[ -f "$session_dir/state.md" ]]; then
+            echo "$session_dir/state.md|active"
+            return
+        fi
+
+        # Priority 2: Look for <STOP_REASON>-state.md files
+        # Common stop reasons: completed, failed, cancelled, timeout, error
+        local state_file=""
+        local stop_reason=""
+        for f in "$session_dir"/*-state.md; do
+            [[ ! -e "$f" ]] && continue
+            if [[ -f "$f" ]]; then
+                state_file="$f"
+                # Extract stop reason from filename (e.g., "completed-state.md" -> "completed")
+                local basename=$(basename "$f")
+                stop_reason="${basename%-state.md}"
+                break
+            fi
+        done
+
+        if [[ -n "$state_file" ]]; then
+            echo "$state_file|$stop_reason"
+        else
+            echo "|unknown"
+        fi
     }
 
     # Parse state.md and return values
@@ -266,11 +306,18 @@ _humanize_monitor_codex() {
 
         local session_dir="$1"
         local log_file="$2"
-        local state_file="$session_dir/state.md"
+        local loop_status="$3"  # "active", "completed", "failed", etc.
         local goal_tracker_file="$session_dir/goal-tracker.md"
         local term_width=$(tput cols)
 
-        # Parse state.md
+        # Find and parse state file (state.md or *-state.md)
+        local -a state_file_parts
+        _split_to_array state_file_parts "$(_find_state_file "$session_dir")"
+        local state_file="${state_file_parts[0]}"
+        # Use passed loop_status if provided, otherwise use detected status
+        [[ -z "$loop_status" ]] && loop_status="${state_file_parts[1]}"
+
+        # Parse state file
         local -a state_parts
         _split_to_array state_parts "$(_parse_state_md "$state_file")"
         local current_round="${state_parts[0]}"
@@ -334,7 +381,7 @@ _humanize_monitor_codex() {
 
         # Clear status bar area (10 lines)
         tput cup 0 0
-        for _ in {1..10}; do printf "%-${term_width}s\n" ""; done
+        for _ in {1..11}; do printf "%-${term_width}s\n" ""; done
 
         # Draw header and session info
         tput cup 0 0
@@ -342,6 +389,18 @@ _humanize_monitor_codex() {
         printf "${bg}${bold}%-${term_width}s${reset}\n" " Humanize Loop Monitor"
         printf "${cyan}Session:${reset}  ${session_basename}    ${cyan}Started:${reset} ${start_display}\n"
         printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Model:${reset} ${codex_model} (${codex_effort})\n"
+
+        # Loop status line with color based on status
+        local status_color="${green}"
+        case "$loop_status" in
+            active) status_color="${green}" ;;
+            completed) status_color="${cyan}" ;;
+            failed|error|timeout) status_color="${red}" ;;
+            cancelled) status_color="${yellow}" ;;
+            unknown) status_color="${dim}" ;;
+            *) status_color="${yellow}" ;;
+        esac
+        printf "${magenta}Status:${reset}   ${status_color}${loop_status}${reset}\n"
 
         # Progress line (color based on completion status)
         local ac_color="${green}"
@@ -427,19 +486,22 @@ _humanize_monitor_codex() {
     # Set up signal handlers (bash/zsh compatible)
     trap '_cleanup' INT TERM
 
-    # Find initial file
-    current_file=$(_find_latest_codex_log)
+    # Find initial session and log file
     current_session_dir=$(_find_latest_session)
+    current_file=$(_find_latest_codex_log)
 
-    if [[ -z "$current_file" ]]; then
-        echo "No codex-run.log files found. Waiting for first log..."
-        while [[ -z "$current_file" ]] && [[ "$monitor_running" == "true" ]]; do
-            sleep "$check_interval"
-            current_file=$(_find_latest_codex_log)
-            current_session_dir=$(_find_latest_session)
-        done
-        [[ "$monitor_running" != "true" ]] && { trap - INT TERM; return 0; }
+    # Check if we have a valid session directory
+    if [[ -z "$current_session_dir" ]]; then
+        echo "No session directories found in $loop_dir"
+        echo "Start an RLCR loop first with /humanize:start-rlcr-loop"
+        return 1
     fi
+
+    # Get loop status from state file
+    local -a state_file_info
+    _split_to_array state_file_info "$(_find_state_file "$current_session_dir")"
+    local current_state_file="${state_file_info[0]}"
+    local current_loop_status="${state_file_info[1]}"
 
     # Setup terminal
     _setup_terminal
@@ -452,16 +514,66 @@ _humanize_monitor_codex() {
     # Track last read position for incremental reading
     local last_size=0
     local file_size=0
+    local no_log_message_shown=false
 
     # Main monitoring loop
     while [[ "$monitor_running" == "true" ]]; do
+        # Update loop status
+        _split_to_array state_file_info "$(_find_state_file "$current_session_dir")"
+        current_state_file="${state_file_info[0]}"
+        current_loop_status="${state_file_info[1]}"
+
         # Draw status bar (check flag before expensive operation)
         [[ "$monitor_running" != "true" ]] && break
-        _draw_status_bar "$current_session_dir" "$current_file"
+        _draw_status_bar "$current_session_dir" "${current_file:-N/A}" "$current_loop_status"
         [[ "$monitor_running" != "true" ]] && break
 
         # Move cursor to scroll region
         tput cup $status_bar_height 0
+
+        # Handle case when no log file exists
+        if [[ -z "$current_file" ]]; then
+            if [[ "$no_log_message_shown" != "true" ]]; then
+                tput ed  # Clear scroll region
+                if [[ "$current_loop_status" == "active" ]]; then
+                    printf "\nWaiting for log file...\n"
+                    printf "Status bar will update as session progresses.\n"
+                else
+                    printf "\nNo log file available for this session.\n"
+                    printf "Loop status: %s\n" "$current_loop_status"
+                fi
+                no_log_message_shown=true
+            fi
+
+            # Poll for new log files
+            while [[ "$monitor_running" == "true" ]]; do
+                sleep 0.5
+                [[ "$monitor_running" != "true" ]] && break
+
+                # Update loop status and redraw status bar
+                _split_to_array state_file_info "$(_find_state_file "$current_session_dir")"
+                current_loop_status="${state_file_info[1]}"
+                _draw_status_bar "$current_session_dir" "N/A" "$current_loop_status"
+                [[ "$monitor_running" != "true" ]] && break
+
+                # Check for new log files
+                local latest=$(_find_latest_codex_log)
+                local latest_session=$(_find_latest_session)
+                [[ "$monitor_running" != "true" ]] && break
+
+                if [[ -n "$latest" ]]; then
+                    current_file="$latest"
+                    current_session_dir="$latest_session"
+                    no_log_message_shown=false
+                    tput cup $status_bar_height 0
+                    tput ed
+                    printf "\n==> Log file found: %s\n\n" "$current_file"
+                    last_size=0
+                    break
+                fi
+            done
+            continue
+        fi
 
         # Get initial file size
         last_size=$(_get_file_size "$current_file")
@@ -475,9 +587,13 @@ _humanize_monitor_codex() {
             sleep 0.5  # Check more frequently for smoother output
             [[ "$monitor_running" != "true" ]] && break
 
+            # Update loop status
+            _split_to_array state_file_info "$(_find_state_file "$current_session_dir")"
+            current_loop_status="${state_file_info[1]}"
+
             # Update status bar (check flag before expensive operation)
             [[ "$monitor_running" != "true" ]] && break
-            _draw_status_bar "$current_session_dir" "$current_file"
+            _draw_status_bar "$current_session_dir" "$current_file" "$current_loop_status"
             [[ "$monitor_running" != "true" ]] && break
 
             # Check for new content in current file
