@@ -40,6 +40,7 @@ TEST_SUITES=(
     "test-templates-comprehensive.sh"
     "test-plan-file-hooks.sh"
     "test-error-scenarios.sh"
+    "test-ansi-parsing.sh"
 )
 
 for suite in "${TEST_SUITES[@]}"; do
@@ -61,13 +62,12 @@ for suite in "${TEST_SUITES[@]}"; do
 
     # Extract pass/fail counts from output (look for "Passed: N" pattern)
     # Strip ANSI escape codes first, then extract the number
-    # ANSI escape codes are ESC[...m where ESC is \x1b or \033
-    passed=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'Passed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
-    failed=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'Failed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
-
-    # Default to 0 if extraction failed
-    passed=${passed:-0}
-    failed=${failed:-0}
+    # Use $'\033' (ANSI-C quoting) for portability across GNU and BSD sed
+    # Note: \x1b is GNU sed specific; $'\033' works in bash on both Linux and macOS
+    esc=$'\033'
+    output_stripped=$(echo "$output" | sed "s/${esc}\\[[0-9;]*m//g")
+    passed=$(echo "$output_stripped" | grep -oE 'Passed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
+    failed=$(echo "$output_stripped" | grep -oE 'Failed:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || echo "0")
 
     TOTAL_PASSED=$((TOTAL_PASSED + passed))
     TOTAL_FAILED=$((TOTAL_FAILED + failed))
