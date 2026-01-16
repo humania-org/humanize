@@ -521,26 +521,34 @@ GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
 if [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     # Check if goal-tracker.md still contains placeholder text
-    GOAL_TRACKER_CONTENT=$(cat "$GOAL_TRACKER_FILE")
+    # Extract each section and check for generic placeholder pattern within that section
+    # This avoids coupling to specific placeholder wording and prevents false positives
+    # from stray mentions of placeholder text elsewhere in the file
 
     HAS_GOAL_PLACEHOLDER=false
     HAS_AC_PLACEHOLDER=false
     HAS_TASKS_PLACEHOLDER=false
 
-    # Use section-specific placeholder patterns to avoid overlap
-    # Each pattern matches the unique text for that section only
-    # Ultimate Goal: "[To be extracted from plan by Claude in Round 0]"
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be extracted from plan'; then
+    # Extract Ultimate Goal section (### Ultimate Goal to next heading)
+    # Use awk to extract lines between start and end patterns, excluding end pattern
+    GOAL_SECTION=$(awk '/^### Ultimate Goal/{found=1; next} /^##/{found=0} found' "$GOAL_TRACKER_FILE" 2>/dev/null)
+    # Check for generic placeholder pattern "[To be " within this section
+    if echo "$GOAL_SECTION" | grep -qE '\[To be [a-z]'; then
         HAS_GOAL_PLACEHOLDER=true
     fi
 
-    # Acceptance Criteria: "[To be defined by Claude in Round 0 based on the plan]"
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be defined by Claude'; then
+    # Extract Acceptance Criteria section (### Acceptance Criteria to next heading)
+    AC_SECTION=$(awk '/^### Acceptance Criteria/{found=1; next} /^##/{found=0} found' "$GOAL_TRACKER_FILE" 2>/dev/null)
+    # Check for generic placeholder pattern "[To be " within this section
+    if echo "$AC_SECTION" | grep -qE '\[To be [a-z]'; then
         HAS_AC_PLACEHOLDER=true
     fi
 
-    # Active Tasks: "[To be populated by Claude based on plan]"
-    if echo "$GOAL_TRACKER_CONTENT" | grep -qF '[To be populated by Claude'; then
+    # Extract Active Tasks section (#### Active Tasks to next heading or EOF)
+    # Active Tasks is a level-4 heading, so match any ## or higher
+    TASKS_SECTION=$(awk '/^#### Active Tasks/{found=1; next} /^##/{found=0} found' "$GOAL_TRACKER_FILE" 2>/dev/null)
+    # Check for generic placeholder pattern "[To be " within this section
+    if echo "$TASKS_SECTION" | grep -qE '\[To be [a-z]'; then
         HAS_TASKS_PLACEHOLDER=true
     fi
 

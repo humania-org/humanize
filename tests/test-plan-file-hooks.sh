@@ -796,13 +796,14 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should report Ultimate Goal but NOT Acceptance Criteria or Active Tasks
-if echo "$RESULT" | grep -q "Ultimate Goal" && \
-   ! echo "$RESULT" | grep -q "Acceptance Criteria.*placeholder" && \
-   ! echo "$RESULT" | grep -q "Active Tasks.*placeholder"; then
+# Should report Ultimate Goal missing-item line but NOT AC or Active Tasks missing-item lines
+# The exact format is: **<Section>**: Still contains placeholder text
+if echo "$RESULT" | grep -qF '**Ultimate Goal**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Acceptance Criteria**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Active Tasks**: Still contains placeholder text'; then
     pass "Stop hook only reports Ultimate Goal placeholder"
 else
-    fail "Section-specific Ultimate Goal" "only Ultimate Goal reported" "output: $RESULT"
+    fail "Section-specific Ultimate Goal" "only **Ultimate Goal**: Still contains placeholder text" "output: $RESULT"
 fi
 
 # Test 14.2: Stop hook only reports Acceptance Criteria placeholder when only that is missing
@@ -864,13 +865,14 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should report Acceptance Criteria but NOT Ultimate Goal or Active Tasks
-if echo "$RESULT" | grep -q "Acceptance Criteria" && \
-   ! echo "$RESULT" | grep -q "Ultimate Goal.*placeholder" && \
-   ! echo "$RESULT" | grep -q "Active Tasks.*placeholder"; then
+# Should report Acceptance Criteria missing-item line but NOT Goal or Active Tasks missing-item lines
+# The exact format is: **<Section>**: Still contains placeholder text
+if echo "$RESULT" | grep -qF '**Acceptance Criteria**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Ultimate Goal**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Active Tasks**: Still contains placeholder text'; then
     pass "Stop hook only reports Acceptance Criteria placeholder"
 else
-    fail "Section-specific Acceptance Criteria" "only Acceptance Criteria reported" "output: $RESULT"
+    fail "Section-specific Acceptance Criteria" "only **Acceptance Criteria**: Still contains placeholder text" "output: $RESULT"
 fi
 
 # Test 14.3: Stop hook only reports Active Tasks placeholder when only that is missing
@@ -930,13 +932,14 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should report Active Tasks but NOT Ultimate Goal or Acceptance Criteria
-if echo "$RESULT" | grep -q "Active Tasks" && \
-   ! echo "$RESULT" | grep -q "Ultimate Goal.*placeholder" && \
-   ! echo "$RESULT" | grep -q "Acceptance Criteria.*placeholder"; then
+# Should report Active Tasks missing-item line but NOT Goal or AC missing-item lines
+# The exact format is: **<Section>**: Still contains placeholder text
+if echo "$RESULT" | grep -qF '**Active Tasks**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Ultimate Goal**: Still contains placeholder text' && \
+   ! echo "$RESULT" | grep -qF '**Acceptance Criteria**: Still contains placeholder text'; then
     pass "Stop hook only reports Active Tasks placeholder"
 else
-    fail "Section-specific Active Tasks" "only Active Tasks reported" "output: $RESULT"
+    fail "Section-specific Active Tasks" "only **Active Tasks**: Still contains placeholder text" "output: $RESULT"
 fi
 
 # Test 14.4: Stop hook reports all three when all placeholders present
@@ -996,13 +999,14 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should report all three placeholders
-if echo "$RESULT" | grep -q "Ultimate Goal" && \
-   echo "$RESULT" | grep -q "Acceptance Criteria" && \
-   echo "$RESULT" | grep -q "Active Tasks"; then
+# Should report all three missing-item lines
+# The exact format is: **<Section>**: Still contains placeholder text
+if echo "$RESULT" | grep -qF '**Ultimate Goal**: Still contains placeholder text' && \
+   echo "$RESULT" | grep -qF '**Acceptance Criteria**: Still contains placeholder text' && \
+   echo "$RESULT" | grep -qF '**Active Tasks**: Still contains placeholder text'; then
     pass "Stop hook reports all three placeholders when all missing"
 else
-    fail "All placeholders reported" "all three reported" "output: $RESULT"
+    fail "All placeholders reported" "all three **<Section>**: Still contains placeholder text lines" "output: $RESULT"
 fi
 
 echo ""
