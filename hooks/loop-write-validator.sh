@@ -100,14 +100,15 @@ CURRENT_ROUND="$STATE_CURRENT_ROUND"
 # ========================================
 # Block State File Writes (state.md and finalized-state.md)
 # ========================================
-
-if is_state_file_path "$FILE_PATH_LOWER"; then
-    state_file_blocked_message >&2
-    exit 2
-fi
+# NOTE: Check finalized-state.md FIRST because is_state_file_path also matches finalized-state.md
 
 if is_finalized_state_file_path "$FILE_PATH_LOWER"; then
     finalized_state_file_blocked_message >&2
+    exit 2
+fi
+
+if is_state_file_path "$FILE_PATH_LOWER"; then
+    state_file_blocked_message >&2
     exit 2
 fi
 

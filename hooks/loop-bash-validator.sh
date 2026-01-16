@@ -42,7 +42,11 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
+# Detect if we're in Finalize Phase (finalized-state.md exists)
 STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
+if [[ -f "$ACTIVE_LOOP_DIR/finalized-state.md" ]]; then
+    STATE_FILE="$ACTIVE_LOOP_DIR/finalized-state.md"
+fi
 
 # Parse state file using shared function to get current round
 parse_state_file "$STATE_FILE"
@@ -73,14 +77,15 @@ fi
 # ========================================
 # State file is managed by the loop system, not Claude
 # This includes both state.md and finalized-state.md
-
-if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
-    state_file_blocked_message >&2
-    exit 2
-fi
+# NOTE: Check finalized-state.md FIRST because state\.md pattern also matches finalized-state.md
 
 if command_modifies_file "$COMMAND_LOWER" "finalized-state\.md"; then
     finalized_state_file_blocked_message >&2
+    exit 2
+fi
+
+if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
+    state_file_blocked_message >&2
     exit 2
 fi
 
