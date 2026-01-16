@@ -650,6 +650,20 @@ else
     fail "Read validator finalized-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+echo "Test: Plan-file validator parses finalized-state.md correctly"
+# The plan-file validator should not error when only finalized-state.md exists
+HOOK_INPUT='{"prompt": "test prompt"}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should succeed (exit 0) when schema is valid and branch is consistent
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Plan-file validator parses finalized-state.md without errors"
+else
+    fail "Plan-file validator finalized-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo ""
 echo "========================================="
 echo "Test Results"
