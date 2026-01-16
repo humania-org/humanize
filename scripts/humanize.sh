@@ -572,10 +572,16 @@ _humanize_monitor_codex() {
                     last_no_log_status="$current_loop_status"
                 fi
 
-                # Check for new log files
+                # Check for new log files and session directories
                 local latest=$(_find_latest_codex_log)
                 local latest_session=$(_find_latest_session)
                 [[ "$monitor_running" != "true" ]] && break
+
+                # Update session dir immediately when a newer one exists (even without log)
+                if [[ -n "$latest_session" && "$latest_session" != "$current_session_dir" ]]; then
+                    current_session_dir="$latest_session"
+                    last_no_log_status=""  # Reset to re-render status for new session
+                fi
 
                 if [[ -n "$latest" ]]; then
                     current_file="$latest"
@@ -622,16 +628,38 @@ _humanize_monitor_codex() {
             fi
             [[ "$monitor_running" != "true" ]] && break
 
-            # Check for newer log files
+            # Check for newer log files and session directories
             local latest=$(_find_latest_codex_log)
             [[ "$monitor_running" != "true" ]] && break
             local latest_session=$(_find_latest_session)
             [[ "$monitor_running" != "true" ]] && break
 
-            if [[ "$latest" != "$current_file" && -n "$latest" ]]; then
-                # New file found
-                current_file="$latest"
+            # Check if a newer session exists (even without log file)
+            if [[ -n "$latest_session" && "$latest_session" != "$current_session_dir" ]]; then
+                # New session found - switch to it
                 current_session_dir="$latest_session"
+
+                # Clear scroll region and notify
+                tput cup $status_bar_height 0
+                tput ed
+                printf "\n==> Switching to newer session: %s\n" "$(basename "$latest_session")"
+
+                if [[ -n "$latest" ]]; then
+                    # New session has a log file
+                    current_file="$latest"
+                    printf "==> Log: %s\n\n" "$current_file"
+                else
+                    # New session has no log file yet - let outer loop handle it
+                    current_file=""
+                    printf "==> Waiting for log file...\n\n"
+                fi
+
+                # Reset for new session
+                last_size=0
+                break
+            elif [[ "$latest" != "$current_file" && -n "$latest" ]]; then
+                # Same session, but new log file (e.g., new round)
+                current_file="$latest"
 
                 # Clear scroll region and notify
                 tput cup $status_bar_height 0
