@@ -271,6 +271,146 @@ is_finalize_summary_path() {
     echo "$path_lower" | grep -qE 'finalize-summary\.md$'
 }
 
+# Check if cancel operation is authorized via signal file
+# Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
+# Returns: 0 if cancel is authorized and command matches, 1 otherwise
+#
+# Security notes:
+# - Normalizes $loop_dir/${loop_dir} to actual path before validation
+# - Rejects $(cmd) command substitution and backticks
+# - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
+# - Enforces exactly two arguments: state.md source and cancel-state.md dest
+# - Rejects shell operators for command chaining
+is_cancel_authorized() {
+    local active_loop_dir="$1"
+    local command_lower="$2"
+
+    local cancel_signal="$active_loop_dir/.cancel-requested"
+
+    # Signal file must exist
+    if [[ ! -f "$cancel_signal" ]]; then
+        return 1
+    fi
+
+    # SECURITY: Reject command substitution and backticks FIRST
+    if echo "$command_lower" | grep -qE '\$\(|`'; then
+        return 1
+    fi
+
+    # Reject newlines (multi-command injection)
+    if [[ "$command_lower" == *$'\n'* ]]; then
+        return 1
+    fi
+
+    # Reject shell operators for command chaining
+    if echo "$command_lower" | grep -qE ';|&&|\|\||\|'; then
+        return 1
+    fi
+
+    # Normalize: Replace $loop_dir and ${loop_dir} with actual path
+    # This handles the documented cancel command format: mv "${LOOP_DIR}state.md" ...
+    # IMPORTANT: LOOP_DIR has a trailing slash (from `ls -1d */`), so ensure we preserve it
+    local normalized="$command_lower"
+    local loop_dir_lower
+    # Ensure trailing slash is present for proper path matching
+    loop_dir_lower="${active_loop_dir%/}/"
+    loop_dir_lower=$(echo "$loop_dir_lower" | tr '[:upper:]' '[:lower:]')
+
+    # Replace ${loop_dir} and $loop_dir patterns (case-insensitive after lowercasing)
+    normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
+    normalized="${normalized//\$loop_dir/$loop_dir_lower}"
+
+    # After normalization, reject any remaining $ (prevents hidden vars like ${IFS})
+    if echo "$normalized" | grep -qE '\$'; then
+        return 1
+    fi
+
+    # Must start with mv followed by space
+    if ! echo "$normalized" | grep -qE '^mv[[:space:]]+'; then
+        return 1
+    fi
+
+    # Extract arguments after "mv " - need to handle quoted args with spaces
+    local args
+    args=$(echo "$normalized" | sed 's/^mv[[:space:]]*//')
+
+    # Parse two arguments, respecting quotes
+    # Pattern matches: "quoted arg" or 'quoted arg' or unquoted-arg
+    # Use sed to extract first and second arguments
+    local src dest
+
+    # Try to match: "arg1" "arg2" or 'arg1' 'arg2' or "arg1" 'arg2' etc.
+    # First, check if we have quoted arguments
+    if echo "$args" | grep -qE "^[\"']"; then
+        # First arg is quoted - extract it
+        local quote_char
+        quote_char=$(echo "$args" | cut -c1)
+        if [[ "$quote_char" == '"' ]]; then
+            src=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
+            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
+        else
+            src=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
+            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
+        fi
+    else
+        # First arg is unquoted - take until whitespace
+        src=$(echo "$args" | sed 's/[[:space:]].*//')
+        args=$(echo "$args" | sed 's/^[^[:space:]]*[[:space:]]*//')
+    fi
+
+    # Now parse second argument
+    if echo "$args" | grep -qE "^[\"']"; then
+        local quote_char
+        quote_char=$(echo "$args" | cut -c1)
+        if [[ "$quote_char" == '"' ]]; then
+            dest=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
+            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
+        else
+            dest=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
+            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
+        fi
+    else
+        # Second arg is unquoted - take until whitespace or end
+        dest=$(echo "$args" | sed 's/[[:space:]].*//')
+        args=$(echo "$args" | sed 's/^[^[:space:]]*//')
+    fi
+
+    # Verify we got both arguments and nothing extra remains
+    if [[ -z "$src" ]] || [[ -z "$dest" ]]; then
+        return 1
+    fi
+
+    # Check for extra arguments (security: reject if anything remains)
+    args=$(echo "$args" | sed 's/^[[:space:]]*//')
+    if [[ -n "$args" ]]; then
+        return 1
+    fi
+
+    # Normalize paths by removing /./ and collapsing // to /
+    # This allows paths like /path/to/./state.md to match /path/to/state.md
+    local normalize_path
+    normalize_path() {
+        echo "$1" | sed 's|/\./|/|g; s|//|/|g'
+    }
+
+    # First arg must be exactly ${active_loop_dir}/state.md (after normalization)
+    # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
+    src=$(normalize_path "$src")
+    local expected_src="${loop_dir_lower}state.md"
+    if [[ "$src" != "$expected_src" ]]; then
+        return 1
+    fi
+
+    # Second arg must be exactly ${active_loop_dir}/cancel-state.md (after normalization)
+    dest=$(normalize_path "$dest")
+    local expected_dest="${loop_dir_lower}cancel-state.md"
+    if [[ "$dest" != "$expected_dest" ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # Check if a path is inside .humanize/rlcr directory
 is_in_humanize_loop_dir() {
     local path="$1"

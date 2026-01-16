@@ -12,6 +12,8 @@ on:
       - 'hooks/lib/loop-common.sh'
       - 'tests/test-plan-file-*.sh'
       - 'tests/test-state-exit-naming.sh'
+      - 'tests/test-cancel-signal-file.sh'
+      - 'commands/cancel-rlcr-loop.md'
   pull_request:
     paths:
       - 'scripts/setup-rlcr-loop.sh'
@@ -23,6 +25,8 @@ on:
       - 'hooks/lib/loop-common.sh'
       - 'tests/test-plan-file-*.sh'
       - 'tests/test-state-exit-naming.sh'
+      - 'tests/test-cancel-signal-file.sh'
+      - 'commands/cancel-rlcr-loop.md'
 
 jobs:
   test:
@@ -49,3 +53,8 @@ jobs:
         run: |
           chmod +x tests/test-state-exit-naming.sh
           ./tests/test-state-exit-naming.sh
+
+      - name: Run cancel signal file tests
+        run: |
+          chmod +x tests/test-cancel-signal-file.sh
+          ./tests/test-cancel-signal-file.sh

@@ -78,15 +78,177 @@ fi
 # State file is managed by the loop system, not Claude
 # This includes both state.md and finalized-state.md
 # NOTE: Check finalized-state.md FIRST because state\.md pattern also matches finalized-state.md
+# Exception: Allow mv to cancel-state.md when cancel signal file exists
+#
+# Note: We check TWO patterns for mv/cp:
+# 1. command_modifies_file checks if DESTINATION contains state.md
+# 2. Additional check below catches if SOURCE contains state.md (e.g., mv state.md /tmp/foo)
 
 if command_modifies_file "$COMMAND_LOWER" "finalized-state\.md"; then
     finalized_state_file_blocked_message >&2
     exit 2
 fi
 
+# Check 1: Destination contains state.md (covers writes, redirects, mv/cp TO state.md)
 if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
+    # Check for cancel signal file - allow authorized cancel operation
+    if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+        exit 0
+    fi
     state_file_blocked_message >&2
     exit 2
+fi
+
+# Check 2: Source of mv/cp contains state.md (covers mv/cp FROM state.md to any destination)
+# This catches bypass attempts like: mv state.md /tmp/foo.txt
+# Pattern handles:
+# - Options like -f, -- before the source path
+# - Leading whitespace and command prefixes with options (sudo -u root, env VAR=val, command --)
+# - Quoted relative paths like: mv -- "state.md" /tmp/foo
+# - Command chaining via ;, &&, ||, |, |&, & (each segment is checked independently)
+# - Shell wrappers: sh -c, bash -c, /bin/sh -c, /bin/bash -c
+# Requires state.md to be a proper filename (preceded by space, /, or quote)
+# Note: sudo/command patterns match zero or more arguments (each: space + optional-minus + non-space chars)
+
+# Split command on shell operators and check each segment
+# This catches chained commands like: true; mv state.md /tmp/foo
+MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
+
+# Replace shell operators with newlines, then check each segment
+# Order matters: |& before |, && before single &
+# For &: protect redirections (&>>, &>, >&, N>&M) with placeholders, then split on remaining &
+# Placeholders use control chars unlikely to appear in commands
+# Note: &>> must be replaced before &> to avoid leaving a stray >
+COMMAND_SEGMENTS=$(echo "$COMMAND_LOWER" | sed '
+    s/|&/\n/g
+    s/&&/\n/g
+    s/&>>/\x03/g
+    s/&>/\x01/g
+    s/[0-9]*>&[0-9]*/\x02/g
+    s/>&/\x02/g
+    s/&/\n/g
+    s/||/\n/g
+    s/|/\n/g
+    s/;/\n/g
+')
+while IFS= read -r SEGMENT; do
+    # Skip empty segments
+    [[ -z "$SEGMENT" ]] && continue
+
+    # Strip leading redirections before pattern matching
+    # This handles cases like: 2>/tmp/x mv, 2> /tmp/x mv, >/tmp/x mv, 2>&1 mv, &>/tmp/x mv
+    # Also handles append redirections: >> /tmp/x mv, 2>> /tmp/x mv, &>> /tmp/x mv
+    # Also handles quoted targets: >> "/tmp/x y" mv, >> '/tmp/x y' mv
+    # Also handles ANSI-C quoting: >> $'/tmp/x y' mv, >> $"/tmp/x y" mv
+    # Also handles escaped-space targets: >> /tmp/x\ y mv
+    # Must handle:
+    # - \x01 (from &>) followed by optional space and target path (quoted, ANSI-C, escaped, or unquoted)
+    # - \x02 (from >&, 2>&1) with NO target - just strip placeholder
+    # - \x03 (from &>>) followed by optional space and target path (quoted, ANSI-C, escaped, or unquoted)
+    # - Standard redirections [0-9]*[><]+ followed by optional space and target
+    # Order: double-quoted, single-quoted, ANSI-C $'...', locale $"...", escaped-unquoted, plain-unquoted
+    # Note: Escaped/ANSI-C patterns use sed -E for extended regex
+    SEGMENT_CLEANED=$(echo "$SEGMENT" | sed '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*"[^"]*"[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x01[[:space:]]*[^[:space:]]*[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x02[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*"[^"]*"[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*\x03[[:space:]]*[^[:space:]]*[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*"[^"]*"[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*'"'"'[^'"'"']*'"'"'[[:space:]]*//
+        t again
+    ' | sed -E "
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*\\$'([^'\\\\]|\\\\.)*'[[:space:]]*//
+        t again
+    " | sed -E '
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*\$"([^"\\]|\\.)*"[[:space:]]*//
+        t again
+    ' | sed -E '
+        :again
+        s/^[[:space:]]*[0-9]*[><]+[[:space:]]*([^[:space:]\\]|\\.)+[[:space:]]*//
+        t again
+    ' | sed '
+        :again
+        s/^[[:space:]]*[0-9]*[><][><]*[[:space:]]*[^[:space:]]*[[:space:]]*//
+        t again
+    ')
+
+    if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_SOURCE_PATTERN"; then
+        # Check for cancel signal file - allow authorized cancel operation
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        state_file_blocked_message >&2
+        exit 2
+    fi
+done <<< "$COMMAND_SEGMENTS"
+
+# Check 3: Shell wrapper bypass (sh -c, bash -c)
+# This catches bypass attempts like: sh -c 'mv state.md /tmp/foo'
+# Pattern: look for sh/bash with -c flag and state.md in the payload
+if echo "$COMMAND_LOWER" | grep -qE "(^|[[:space:]/])(sh|bash)[[:space:]]+-c[[:space:]]"; then
+    # Shell wrapper detected - check if payload contains mv/cp state.md
+    if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*state\.md"; then
+        # Check for cancel signal file - allow authorized cancel operation
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        state_file_blocked_message >&2
+        exit 2
+    fi
 fi
 
 # ========================================
