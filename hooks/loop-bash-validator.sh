@@ -73,6 +73,17 @@ Use --push-every-round flag when starting the loop if you need to push each roun
 fi
 
 # ========================================
+# Block Git Add Commands Targeting .humanize
+# ========================================
+# Prevents force-adding .humanize files to version control
+# Note: .humanize is in .gitignore, but git add -f bypasses it
+
+if git_adds_humanize "$COMMAND_LOWER"; then
+    git_add_humanize_blocked_message >&2
+    exit 2
+fi
+
+# ========================================
 # Block State File Modifications (All Rounds)
 # ========================================
 # State file is managed by the loop system, not Claude

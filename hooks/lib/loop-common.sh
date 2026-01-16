@@ -418,6 +418,93 @@ is_in_humanize_loop_dir() {
     echo "$path" | grep -q '\.humanize/rlcr/'
 }
 
+# Check if a git add command would add .humanize files to version control
+# Usage: git_adds_humanize "$command_lower"
+# Returns 0 if the command would add .humanize files, 1 otherwise
+#
+# Blocks:
+# - git add .humanize or git add .humanize/
+# - git add .humanize/* or git add .humanize/**
+# - git add -f .humanize* (force add)
+# - git add -f . or git add --force . (force add all - bypasses gitignore)
+# - git add -f -A or git add --force --all
+# - git add -fA or similar combined flags
+#
+# Note: Regular git add . and git add -A are allowed because .gitignore protects .humanize
+# Only force-add variants are blocked since they bypass gitignore protection
+git_adds_humanize() {
+    local cmd="$1"
+
+    # Only check git add commands
+    if ! echo "$cmd" | grep -qE '^[[:space:]]*git[[:space:]]+add[[:space:]]'; then
+        return 1
+    fi
+
+    # Check for direct .humanize reference (blocked regardless of force flag)
+    if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]].*\.humanize'; then
+        return 0
+    fi
+
+    # Check for force add with broad scope (. or * or -A/--all)
+    # These bypass gitignore and would include .humanize
+    # Pattern: git add with -f or --force flag, and . or * or -A or --all
+    # Note: flags can appear in various orders: git add -f ., git add . -f, git add -fA, etc.
+
+    # Check for -f or --force flag (including combined flags like -fA, -Af)
+    local has_force=false
+    if echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?--force([[:space:]]|$)'; then
+        has_force=true
+    elif echo "$cmd" | grep -qE 'git[[:space:]]+add[[:space:]]+(.*[[:space:]])?-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)'; then
+        has_force=true
+    fi
+
+    if [[ "$has_force" == "true" ]]; then
+        # Force flag present - check for broad scope targets
+        # . or * alone
+        if echo "$cmd" | grep -qE '(^|[[:space:]])(\.|\*)([[:space:]]|$)'; then
+            return 0
+        fi
+        # -A or --all (standalone or combined like -fA, -Af)
+        if echo "$cmd" | grep -qE '(^|[[:space:]])--all([[:space:]]|$)'; then
+            return 0
+        fi
+        if echo "$cmd" | grep -qE '(^|[[:space:]])-[a-zA-Z]*A[a-zA-Z]*([[:space:]]|$)'; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Standard message for blocking git add .humanize commands
+# Usage: git_add_humanize_blocked_message
+git_add_humanize_blocked_message() {
+    local fallback="# Git Add Blocked: .humanize Protection
+
+The \`.humanize/\` directory contains local loop state that should NOT be committed.
+This directory is already listed in .gitignore.
+
+Your command was blocked because it would add .humanize files to version control.
+
+## Allowed Commands
+
+Use specific file paths instead of broad patterns:
+
+    git add <specific-file>
+    git add src/
+    git add -p  # patch mode
+
+## Blocked Commands
+
+These commands would include .humanize files:
+
+    git add .humanize
+    git add -f .           # force bypasses gitignore
+    git add --force -A     # force bypasses gitignore"
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/git-add-humanize.md" "$fallback"
+}
+
 # Check if a shell command attempts to modify a file matching the given pattern
 # Usage: command_modifies_file "$command_lower" "goal-tracker\.md"
 # Returns 0 if the command tries to modify the file, 1 otherwise
