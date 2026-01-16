@@ -110,7 +110,7 @@ fi
 # ========================================
 echo ""
 echo "Test 6: Script continues with set -euo pipefail"
-set +e
+# Run in isolated subshell - use || true to capture output even if subshell fails
 SCRIPT_OUTPUT=$(bash -c '
 set -euo pipefail
 source "'"$PROJECT_ROOT"'/hooks/lib/template-loader.sh"
@@ -123,13 +123,11 @@ if [[ -z "$REASON" ]]; then
     echo "EMPTY_REASON"
 fi
 echo "SCRIPT_COMPLETED"
-' 2>&1)
-EXIT_CODE=$?
-set -e
-if [[ "$SCRIPT_OUTPUT" == *"SCRIPT_COMPLETED"* && $EXIT_CODE -eq 0 ]]; then
+' 2>&1) || true
+if [[ "$SCRIPT_OUTPUT" == *"SCRIPT_COMPLETED"* ]]; then
     pass "Script continues without crashing under strict mode"
 else
-    fail "Strict mode handling" "SCRIPT_COMPLETED in output, exit 0" "output='$SCRIPT_OUTPUT', exit=$EXIT_CODE"
+    fail "Strict mode handling" "SCRIPT_COMPLETED in output" "output='$SCRIPT_OUTPUT'"
 fi
 
 # ========================================
