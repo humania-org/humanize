@@ -50,10 +50,18 @@ Execute the validation script with the provided arguments:
 After IO validation passes, check if the draft is relevant to this repository.
 
 1. Read the input draft file to get its content
-2. Use the Task tool with `subagent_type: "general-purpose"` and `model: "haiku"` to invoke a relevance check:
-   - Prompt the agent to explore the repository structure (README, CLAUDE.md, main files)
-   - Prompt the agent to analyze if the draft content relates to this repository
-   - The agent should return either `RELEVANT: <reason>` or `NOT_RELEVANT: <reason>`
+2. Use the Task tool to invoke the `draft-relevance-checker` agent (haiku model):
+   ```
+   Task tool parameters:
+   - subagent_type: "draft-relevance-checker"
+   - model: "haiku"
+   - prompt: Include the draft content and ask the agent to:
+     1. Explore the repository structure (README, CLAUDE.md, main files)
+     2. Analyze if the draft content relates to this repository
+     3. Return either `RELEVANT: <reason>` or `NOT_RELEVANT: <reason>`
+   ```
+
+   The `draft-relevance-checker` agent is defined in `agents/draft-relevance-checker.md` and is specifically designed for this purpose.
 
 3. **If NOT_RELEVANT**:
    - Report: "The draft content does not appear to be related to this repository."
@@ -125,26 +133,44 @@ Generate the plan.md following these rules:
 <Clear, direct description of what needs to be accomplished>
 
 ## Acceptance Criteria
-<Each criterion uses AC-X or AC-X.Y format>
+
+Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
 
 - AC-1: <First criterion>
+  - Positive Tests (expected to PASS):
+    - <Test case that should succeed when criterion is met>
+    - <Another success case>
+  - Negative Tests (expected to FAIL):
+    - <Test case that should fail/be rejected when working correctly>
+    - <Another failure/rejection case>
   - AC-1.1: <Sub-criterion if needed>
-  - AC-1.2: <Sub-criterion if needed>
+    - Positive: <...>
+    - Negative: <...>
 - AC-2: <Second criterion>
+  - Positive Tests: <...>
+  - Negative Tests: <...>
 ...
 
 ## Path Boundaries
 
-### Upper Bound (Avoid Over-engineering)
-<What should NOT be done - signs of going too far>
+Path boundaries define the acceptable range of implementation quality and choices.
 
-### Lower Bound (Minimum Acceptable)
-<What MUST be done at minimum to satisfy the goal>
+### Upper Bound (Maximum Acceptable Scope)
+<Affirmative description of the most comprehensive acceptable implementation>
+<This represents completing the goal without over-engineering>
+Example: "The implementation includes X, Y, and Z features with full test coverage"
+
+### Lower Bound (Minimum Acceptable Scope)
+<Affirmative description of the minimum viable implementation>
+<This represents the least effort that still satisfies all acceptance criteria>
+Example: "The implementation includes core feature X with basic validation"
 
 ### Allowed Choices
-<Options that are acceptable for implementation>
-- Can: <things that are allowed>
-- Cannot: <things that are not allowed>
+<Options that are acceptable for implementation decisions>
+- Can use: <technologies, approaches, patterns that are allowed>
+- Cannot use: <technologies, approaches, patterns that are prohibited>
+
+> **Note on Deterministic Designs**: If the draft specifies a highly deterministic design with no choices (e.g., "must use JSON format", "must use algorithm X"), then the path boundaries should reflect this narrow constraint. In such cases, upper and lower bounds may converge to the same point, and "Allowed Choices" should explicitly state that the choice is fixed per the draft specification.
 
 ## Feasibility Hints and Suggestions
 
@@ -185,6 +211,12 @@ Generate the plan.md following these rules:
 6. **AC Format**: All acceptance criteria must use AC-X or AC-X.Y format.
 
 7. **Clear Dependencies**: Show what depends on what, not when things happen.
+
+8. **TDD-Style Tests**: Each acceptance criterion MUST include both positive tests (expected to pass) and negative tests (expected to fail). This follows Test-Driven Development philosophy and enables deterministic verification.
+
+9. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
+
+10. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
 
 ---
 
