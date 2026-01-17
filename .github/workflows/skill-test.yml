@@ -1,0 +1,88 @@
+name: Skill Structure Tests
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'skills/**'
+      - 'commands/**'
+      - 'hooks/**'
+      - 'scripts/**'
+      - 'tests/test-skill-structure.sh'
+      - 'tests/test-hook-preservation.sh'
+      - 'tests/test-skill-invocation.sh'
+      - '.github/workflows/skill-test.yml'
+  pull_request:
+    branches: ['**']
+    paths:
+      - 'skills/**'
+      - 'commands/**'
+      - 'hooks/**'
+      - 'scripts/**'
+      - 'tests/test-skill-structure.sh'
+      - 'tests/test-hook-preservation.sh'
+      - 'tests/test-skill-invocation.sh'
+      - '.github/workflows/skill-test.yml'
+
+jobs:
+  skill-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq for JSON parsing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Run skill structure tests
+        run: |
+          echo "========================================"
+          echo "Running skill structure validation tests"
+          echo "========================================"
+          chmod +x tests/test-skill-structure.sh
+          ./tests/test-skill-structure.sh
+
+      - name: Run hook preservation tests
+        run: |
+          echo "========================================"
+          echo "Running hook preservation tests"
+          echo "========================================"
+          chmod +x tests/test-hook-preservation.sh
+          ./tests/test-hook-preservation.sh
+
+      - name: Run skill invocation tests
+        run: |
+          echo "========================================"
+          echo "Running skill invocation tests"
+          echo "========================================"
+          chmod +x tests/test-skill-invocation.sh
+          ./tests/test-skill-invocation.sh
+
+      - name: Verify hooks.json integrity
+        run: |
+          echo "========================================"
+          echo "Verifying hooks.json integrity"
+          echo "========================================"
+
+          # Validate JSON syntax
+          if jq empty hooks/hooks.json; then
+            echo "PASS: hooks.json is valid JSON"
+          else
+            echo "FAIL: hooks.json has invalid JSON syntax"
+            exit 1
+          fi
+
+          # Check required hook types exist
+          for hook_type in "UserPromptSubmit" "PreToolUse" "Stop"; do
+            if jq -e ".hooks.${hook_type}" hooks/hooks.json >/dev/null; then
+              echo "PASS: ${hook_type} hook is configured"
+            else
+              echo "FAIL: ${hook_type} hook is missing"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "hooks.json integrity verified"
