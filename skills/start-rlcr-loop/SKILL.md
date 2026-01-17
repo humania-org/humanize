@@ -1,12 +1,10 @@
 ---
-description: "Start iterative loop with Codex review"
-argument-hint: "<path/to/plan.md> [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--push-every-round]"
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"]
-hide-from-slash-command-tool: "true"
+name: start-rlcr-loop
+description: Start iterative development loop with Codex review. Use when starting a new development iteration, beginning RLCR workflow, or when the user wants to implement a plan with AI review feedback.
+model: claude-opus-4-5-20250514
+allowed-tools:
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)
 ---
-
-<!-- Command wrapper - delegates to skills/start-rlcr-loop/SKILL.md -->
-<!-- This file remains as the user interface entry point for /humanize:start-rlcr-loop -->
 
 # Start RLCR Loop
 

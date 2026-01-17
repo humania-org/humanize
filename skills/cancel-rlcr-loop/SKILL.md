@@ -1,11 +1,17 @@
 ---
-description: "Cancel active RLCR loop"
-allowed-tools: ["Bash(ls -1d .humanize/rlcr/*/)", "Bash(touch .humanize/rlcr/*/.cancel-requested)", "Bash(mv .humanize/rlcr/*/state.md .humanize/rlcr/*/cancel-state.md)", "Bash(mv .humanize/rlcr/*/finalize-state.md .humanize/rlcr/*/cancel-state.md)", "Bash(cat .humanize/rlcr/*/state.md)", "Bash(cat .humanize/rlcr/*/finalize-state.md)", "Read", "AskUserQuestion"]
-hide-from-slash-command-tool: "true"
+name: cancel-rlcr-loop
+description: Cancel active RLCR loop. Use when stopping a running development loop, cancelling Codex review iteration, or when the user wants to exit the RLCR workflow early.
+model: claude-opus-4-5-20250514
+allowed-tools:
+  - Bash(ls -1d .humanize/rlcr/*/)
+  - Bash(touch .humanize/rlcr/*/.cancel-requested)
+  - Bash(mv .humanize/rlcr/*/state.md .humanize/rlcr/*/cancel-state.md)
+  - Bash(mv .humanize/rlcr/*/finalize-state.md .humanize/rlcr/*/cancel-state.md)
+  - Bash(cat .humanize/rlcr/*/state.md)
+  - Bash(cat .humanize/rlcr/*/finalize-state.md)
+  - Read
+  - AskUserQuestion
 ---
-
-<!-- Command wrapper - delegates to skills/cancel-rlcr-loop/SKILL.md -->
-<!-- This file remains as the user interface entry point for /humanize:cancel-rlcr-loop -->
 
 # Cancel RLCR Loop
 

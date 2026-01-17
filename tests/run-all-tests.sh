@@ -48,6 +48,8 @@ TEST_SUITES=(
     "test-zsh-monitor-safety.sh"
     "test-monitor-runtime.sh"
     "test-monitor-e2e-real.sh"
+    "test-skill-structure.sh"
+    "test-hook-preservation.sh"
 )
 
 # Tests that must be run with zsh (not bash)
