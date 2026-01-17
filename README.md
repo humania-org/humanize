@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.2.3**
+**Current Version: 1.2.4**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -81,8 +81,11 @@ flowchart LR
 |---------|---------|
 | `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
 | `/cancel-rlcr-loop` | Cancel active loop |
+| `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 
 ### Command Options
+
+#### start-rlcr-loop
 
 ```
 /humanize:start-rlcr-loop <path/to/plan.md> [OPTIONS]
@@ -95,6 +98,25 @@ OPTIONS:
                          Timeout for each Codex review in seconds (default: 5400)
   --push-every-round     Require git push after each round (default: commits stay local)
   -h, --help             Show help message
+```
+
+#### gen-plan
+
+```
+/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md>
+
+OPTIONS:
+  --input   Path to the input draft file (required)
+  --output  Path to the output plan file (required)
+
+The gen-plan command transforms rough draft documents into structured implementation plans.
+
+Workflow:
+1. Validates input/output paths
+2. Checks if draft is relevant to the repository
+3. Analyzes draft for clarity, consistency, completeness, and functionality
+4. Engages user to resolve any issues found
+5. Generates a structured plan.md with AC-X acceptance criteria
 ```
 
 ## License

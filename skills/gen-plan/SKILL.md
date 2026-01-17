@@ -1,0 +1,209 @@
+---
+name: gen-plan
+description: Transform a draft document into a well-structured implementation plan. Use when converting rough ideas or feature descriptions into actionable plans with acceptance criteria.
+model: opus
+allowed-tools:
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-plan-io.sh:*)
+  - Read
+  - Glob
+  - Grep
+  - Task
+  - Write
+  - AskUserQuestion
+---
+
+# Generate Plan from Draft
+
+This skill transforms a user's draft document into a well-structured implementation plan with clear goals, acceptance criteria (AC-X format), path boundaries, and feasibility suggestions.
+
+## Workflow Overview
+
+1. **IO Validation**: Validate input and output paths
+2. **Relevance Check**: Verify draft is relevant to the repository
+3. **Draft Analysis**: Analyze draft for clarity, consistency, completeness, and functionality
+4. **Issue Resolution**: Engage user to clarify any issues found
+5. **Plan Generation**: Generate the structured plan.md
+
+---
+
+## Phase 1: IO Validation
+
+Execute the validation script with the provided arguments:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-plan-io.sh" $ARGUMENTS
+```
+
+**Handle exit codes:**
+- Exit code 0: Continue to Phase 2
+- Exit code 1: Report "Input file not found" and stop
+- Exit code 2: Report "Input file is empty" and stop
+- Exit code 3: Report "Output directory does not exist - please create it" and stop
+- Exit code 4: Report "Output file already exists - please choose another path" and stop
+- Exit code 5: Report "No write permission to output directory" and stop
+- Exit code 6: Report "Invalid arguments" and show usage, then stop
+
+---
+
+## Phase 2: Relevance Check
+
+After IO validation passes, check if the draft is relevant to this repository.
+
+1. Read the input draft file to get its content
+2. Use the Task tool with `subagent_type: "general-purpose"` and `model: "haiku"` to invoke a relevance check:
+   - Prompt the agent to explore the repository structure (README, CLAUDE.md, main files)
+   - Prompt the agent to analyze if the draft content relates to this repository
+   - The agent should return either `RELEVANT: <reason>` or `NOT_RELEVANT: <reason>`
+
+3. **If NOT_RELEVANT**:
+   - Report: "The draft content does not appear to be related to this repository."
+   - Show the reason from the relevance check
+   - Stop the command
+
+4. **If RELEVANT**: Continue to Phase 3
+
+---
+
+## Phase 3: Draft Analysis
+
+Deeply analyze the draft for potential issues. Use Explore agents to investigate the codebase.
+
+### Analysis Dimensions
+
+1. **Clarity**: Is the draft's intent and goals clearly expressed?
+   - Are objectives well-defined?
+   - Is the scope clear?
+   - Are terms and concepts unambiguous?
+
+2. **Consistency**: Does the draft contradict itself?
+   - Are requirements internally consistent?
+   - Do different sections align with each other?
+
+3. **Completeness**: Are there missing considerations?
+   - Use Explore agents to investigate parts of the codebase the draft might affect
+   - Identify dependencies, side effects, or related components not mentioned
+   - Check if the draft overlooks important edge cases
+
+4. **Functionality**: Does the design have fundamental flaws?
+   - Would the proposed approach actually work?
+   - Are there technical limitations not addressed?
+   - Could the design negatively impact existing functionality?
+
+### Exploration Strategy
+
+Use the Task tool with `subagent_type: "Explore"` to investigate:
+- Components mentioned in the draft
+- Related files and directories
+- Existing patterns and conventions
+- Dependencies and integrations
+
+---
+
+## Phase 4: Issue Resolution
+
+If any issues are found during analysis, use AskUserQuestion to clarify with the user.
+
+For each issue category that has problems, present:
+- What the issue is
+- Why it matters
+- Options for resolution (if applicable)
+
+Continue this dialogue until all significant issues are resolved or acknowledged by the user.
+
+---
+
+## Phase 5: Plan Generation
+
+Generate the plan.md following these rules:
+
+### Plan Structure
+
+```markdown
+# <Plan Title>
+
+## Goal Description
+<Clear, direct description of what needs to be accomplished>
+
+## Acceptance Criteria
+<Each criterion uses AC-X or AC-X.Y format>
+
+- AC-1: <First criterion>
+  - AC-1.1: <Sub-criterion if needed>
+  - AC-1.2: <Sub-criterion if needed>
+- AC-2: <Second criterion>
+...
+
+## Path Boundaries
+
+### Upper Bound (Avoid Over-engineering)
+<What should NOT be done - signs of going too far>
+
+### Lower Bound (Minimum Acceptable)
+<What MUST be done at minimum to satisfy the goal>
+
+### Allowed Choices
+<Options that are acceptable for implementation>
+- Can: <things that are allowed>
+- Cannot: <things that are not allowed>
+
+## Feasibility Hints and Suggestions
+
+> **Note**: This section is for reference and understanding only. These are conceptual suggestions, not prescriptive requirements.
+
+### Conceptual Approach
+<Text description, pseudocode, or diagrams showing ONE possible implementation path>
+
+### Relevant References
+<Code paths and concepts that might be useful>
+- <path/to/relevant/component> - <brief description>
+
+## Dependencies and Sequence
+
+### Milestones
+1. <Milestone 1>: <Description>
+   - Phase A: <...>
+   - Phase B: <...>
+2. <Milestone 2>: <Description>
+   - Step 1: <...>
+   - Step 2: <...>
+
+<Describe relative dependencies between components, not time estimates>
+```
+
+### Generation Rules
+
+1. **Language**: Write in English only. No emoji or CJK characters.
+
+2. **Terminology**: Use Milestone, Phase, Step, Section. Never use Day, Week, Month, Year, or time estimates.
+
+3. **No Line Numbers**: Reference code by path only (e.g., `src/utils/helpers.ts`), never by line ranges.
+
+4. **No Time Estimates**: Do not estimate duration, effort, or code line counts.
+
+5. **Conceptual Not Prescriptive**: Path boundaries and suggestions guide without mandating.
+
+6. **AC Format**: All acceptance criteria must use AC-X or AC-X.Y format.
+
+7. **Clear Dependencies**: Show what depends on what, not when things happen.
+
+---
+
+## Phase 6: Write and Complete
+
+1. Write the generated plan to the output file path
+2. Report completion with:
+   - Path to the generated plan
+   - Summary of what was included
+   - Number of acceptance criteria defined
+
+---
+
+## Error Handling
+
+If issues arise during plan generation that require user input:
+- Use AskUserQuestion to clarify
+- Document any user decisions in the plan's context
+
+If unable to generate a complete plan:
+- Explain what information is missing
+- Suggest how the user can improve their draft

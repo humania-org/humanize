@@ -1,7 +1,7 @@
 ---
 name: cancel-rlcr-loop
 description: Cancel active RLCR loop. Use when stopping a running development loop, cancelling Codex review iteration, or when the user wants to exit the RLCR workflow early.
-model: claude-opus-4-5-20250514
+model: opus
 allowed-tools:
   - Bash(ls -1d .humanize/rlcr/*/)
   - Bash(touch .humanize/rlcr/*/.cancel-requested)

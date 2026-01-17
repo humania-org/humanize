@@ -1,7 +1,7 @@
 ---
 name: start-rlcr-loop
 description: Start iterative development loop with Codex review. Use when starting a new development iteration, beginning RLCR workflow, or when the user wants to implement a plan with AI review feedback.
-model: claude-opus-4-5-20250514
+model: opus
 allowed-tools:
   - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)
 ---

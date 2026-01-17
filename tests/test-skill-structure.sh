@@ -582,9 +582,10 @@ echo ""
 echo "NT-6: Model specification - invalid model fixtures"
 
 # Helper to validate model name
+# Accepts: short aliases (opus, sonnet, haiku) or full model IDs (claude-*, gpt-*, etc.)
 validate_model_name() {
     local model="$1"
-    [[ "$model" =~ ^(claude-|gpt-|o[0-9]|gemini-) ]]
+    [[ "$model" =~ ^(opus|sonnet|haiku|claude-|gpt-|o[0-9]|gemini-) ]]
 }
 
 # Create skill with invalid model
