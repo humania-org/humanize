@@ -582,10 +582,13 @@ echo ""
 echo "NT-6: Model specification - invalid model fixtures"
 
 # Helper to validate model name
-# Accepts: short aliases (opus, sonnet, haiku) or full model IDs (claude-*, gpt-*, etc.)
+# Accepts: short aliases (exact match) or full model IDs (prefix match)
 validate_model_name() {
     local model="$1"
-    [[ "$model" =~ ^(opus|sonnet|haiku|claude-|gpt-|o[0-9]|gemini-) ]]
+    # Exact match for short aliases
+    [[ "$model" =~ ^(opus|sonnet|haiku)$ ]] || \
+    # Prefix match for full model IDs
+    [[ "$model" =~ ^(claude-|gpt-|o[0-9]|gemini-) ]]
 }
 
 # Create skill with invalid model
@@ -622,6 +625,25 @@ if ! validate_model_name ""; then
     pass "NT-6b: Correctly identifies empty model name"
 else
     fail "NT-6b: Should reject empty model" "Empty model rejected" "Accepted"
+fi
+
+# Test that short aliases require exact match (not prefix)
+if ! validate_model_name "opus-v2"; then
+    pass "NT-6d: Correctly rejects opus-v2 (partial match)"
+else
+    fail "NT-6d: Should reject opus-v2" "Rejected" "Accepted"
+fi
+
+if ! validate_model_name "haiku123"; then
+    pass "NT-6e: Correctly rejects haiku123 (partial match)"
+else
+    fail "NT-6e: Should reject haiku123" "Rejected" "Accepted"
+fi
+
+if ! validate_model_name "sonnet-fast"; then
+    pass "NT-6f: Correctly rejects sonnet-fast (partial match)"
+else
+    fail "NT-6f: Should reject sonnet-fast" "Rejected" "Accepted"
 fi
 
 # Verify existing skills have valid models
