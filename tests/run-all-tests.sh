@@ -45,6 +45,13 @@ TEST_SUITES=(
     "test-finalize-phase.sh"
     "test-cancel-signal-file.sh"
     "test-humanize-escape.sh"
+    "test-zsh-monitor-safety.sh"
+    "test-monitor-runtime.sh"
+)
+
+# Tests that must be run with zsh (not bash)
+ZSH_TESTS=(
+    "test-zsh-monitor-safety.sh"
 )
 
 for suite in "${TEST_SUITES[@]}"; do
@@ -55,13 +62,37 @@ for suite in "${TEST_SUITES[@]}"; do
         continue
     fi
 
-    echo -e "${BOLD}Running: $suite${NC}"
+    # Check if this test needs to run under zsh
+    needs_zsh=false
+    for zsh_test in "${ZSH_TESTS[@]}"; do
+        if [[ "$suite" == "$zsh_test" ]]; then
+            needs_zsh=true
+            break
+        fi
+    done
+
+    if [[ "$needs_zsh" == "true" ]]; then
+        echo -e "${BOLD}Running: $suite (zsh)${NC}"
+    else
+        echo -e "${BOLD}Running: $suite${NC}"
+    fi
     echo "----------------------------------------"
 
     # Run the test suite and capture output
     set +e
-    output=$("$suite_path" 2>&1)
-    exit_code=$?
+    if [[ "$needs_zsh" == "true" ]]; then
+        # Run zsh tests with zsh interpreter
+        if command -v zsh &>/dev/null; then
+            output=$(zsh "$suite_path" 2>&1)
+            exit_code=$?
+        else
+            echo -e "${YELLOW}SKIP${NC}: $suite (zsh not available)"
+            continue
+        fi
+    else
+        output=$("$suite_path" 2>&1)
+        exit_code=$?
+    fi
     set -e
 
     # Strip ANSI escape codes and extract pass/fail counts
