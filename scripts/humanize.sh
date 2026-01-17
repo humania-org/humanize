@@ -97,31 +97,25 @@ _humanize_monitor_codex() {
             if [[ ! -d "$cache_dir" ]]; then
                 continue
             fi
-            # Check if cache_dir has any matching log files (prevents zsh "no matches found")
-            local cache_ls_output
-            cache_ls_output=$(ls "$cache_dir"/round-*-codex-run.log 2>/dev/null)
-            if [[ -z "$cache_ls_output" ]]; then
-                continue
-            fi
 
-            for log_file in "$cache_dir"/round-*-codex-run.log; do
-                # Skip if glob didn't match anything (shouldn't happen after ls check)
-                [[ ! -e "$log_file" ]] && continue
+            # Use find instead of glob to avoid zsh "no matches found" errors
+            # find is safe even when directory is empty or has no matching files
+            while IFS= read -r log_file; do
+                [[ -z "$log_file" ]] && continue
+                [[ ! -f "$log_file" ]] && continue
 
-                if [[ -f "$log_file" ]]; then
-                    local log_basename=$(basename "$log_file")
-                    local round_num="${log_basename#round-}"
-                    round_num="${round_num%%-codex-run.log}"
+                local log_basename=$(basename "$log_file")
+                local round_num="${log_basename#round-}"
+                round_num="${round_num%%-codex-run.log}"
 
-                    if [[ -z "$latest" ]] || \
-                       [[ "$session_name" > "$latest_session" ]] || \
-                       [[ "$session_name" == "$latest_session" && "$round_num" -gt "$latest_round" ]]; then
-                        latest="$log_file"
-                        latest_session="$session_name"
-                        latest_round="$round_num"
-                    fi
+                if [[ -z "$latest" ]] || \
+                   [[ "$session_name" > "$latest_session" ]] || \
+                   [[ "$session_name" == "$latest_session" && "$round_num" -gt "$latest_round" ]]; then
+                    latest="$log_file"
+                    latest_session="$session_name"
+                    latest_round="$round_num"
                 fi
-            done
+            done < <(find "$cache_dir" -maxdepth 1 -name 'round-*-codex-run.log' -type f 2>/dev/null)
         done
 
         echo "$latest"

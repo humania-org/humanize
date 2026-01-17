@@ -472,8 +472,15 @@ git_adds_humanize() {
         local add_args
         add_args=$(echo "$segment" | sed -n 's/.*[[:space:]]add[[:space:]]*//p')
 
+        # Normalize add_args: strip quotes for path matching
+        # This handles: git add ".humanize", git add '.humanize'
+        local add_args_normalized
+        add_args_normalized=$(echo "$add_args" | sed "s/[\"']//g")
+
         # Check for direct .humanize reference (blocked regardless of other flags)
-        if echo "$add_args" | grep -qE '(^|[[:space:]])\.humanize'; then
+        # Handles: .humanize, ./.humanize, path/to/.humanize, ".humanize", '.humanize'
+        # Pattern matches .humanize at start, after space, after / or ./
+        if echo "$add_args_normalized" | grep -qE '(^|[[:space:]]|/)\.humanize'; then
             return 0
         fi
 
