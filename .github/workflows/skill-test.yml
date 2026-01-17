@@ -7,8 +7,10 @@ on:
       - 'skills/**'
       - 'commands/**'
       - 'hooks/**'
+      - 'scripts/**'
       - 'tests/test-skill-structure.sh'
       - 'tests/test-hook-preservation.sh'
+      - 'tests/test-skill-invocation.sh'
       - '.github/workflows/skill-test.yml'
   pull_request:
     branches: ['**']
@@ -16,8 +18,10 @@ on:
       - 'skills/**'
       - 'commands/**'
       - 'hooks/**'
+      - 'scripts/**'
       - 'tests/test-skill-structure.sh'
       - 'tests/test-hook-preservation.sh'
+      - 'tests/test-skill-invocation.sh'
       - '.github/workflows/skill-test.yml'
 
 jobs:
@@ -47,6 +51,14 @@ jobs:
           echo "========================================"
           chmod +x tests/test-hook-preservation.sh
           ./tests/test-hook-preservation.sh
+
+      - name: Run skill invocation tests
+        run: |
+          echo "========================================"
+          echo "Running skill invocation tests"
+          echo "========================================"
+          chmod +x tests/test-skill-invocation.sh
+          ./tests/test-skill-invocation.sh
 
       - name: Verify skill files exist
         run: |

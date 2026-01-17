@@ -1,11 +1,18 @@
 ---
-description: "Cancel active RLCR loop"
+description: "Cancel active RLCR loop. This command invokes the cancel-rlcr-loop skill to stop the running development loop."
 allowed-tools: ["Bash(ls -1d .humanize/rlcr/*/)", "Bash(touch .humanize/rlcr/*/.cancel-requested)", "Bash(mv .humanize/rlcr/*/state.md .humanize/rlcr/*/cancel-state.md)", "Bash(mv .humanize/rlcr/*/finalize-state.md .humanize/rlcr/*/cancel-state.md)", "Bash(cat .humanize/rlcr/*/state.md)", "Bash(cat .humanize/rlcr/*/finalize-state.md)", "Read", "AskUserQuestion"]
 hide-from-slash-command-tool: "true"
 ---
 
-<!-- Command wrapper - delegates to skills/cancel-rlcr-loop/SKILL.md -->
-<!-- This file remains as the user interface entry point for /humanize:cancel-rlcr-loop -->
+<!--
+  Command/Skill Delegation:
+  - This command is the user interface for /humanize:cancel-rlcr-loop
+  - The corresponding skill is at: skills/cancel-rlcr-loop/SKILL.md
+  - Both provide identical functionality; commands are for explicit invocation,
+    skills enable auto-discovery via the Skill tool
+  - Claude can also invoke this via: /humanize:cancel-rlcr-loop (explicit)
+    or via Skill tool auto-invocation when user intent matches description keywords
+-->
 
 # Cancel RLCR Loop
 

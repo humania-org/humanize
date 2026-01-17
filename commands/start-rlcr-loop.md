@@ -1,12 +1,19 @@
 ---
-description: "Start iterative loop with Codex review"
+description: "Start iterative loop with Codex review. This command invokes the start-rlcr-loop skill for RLCR workflow initialization."
 argument-hint: "<path/to/plan.md> [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--push-every-round]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"]
 hide-from-slash-command-tool: "true"
 ---
 
-<!-- Command wrapper - delegates to skills/start-rlcr-loop/SKILL.md -->
-<!-- This file remains as the user interface entry point for /humanize:start-rlcr-loop -->
+<!--
+  Command/Skill Delegation:
+  - This command is the user interface for /humanize:start-rlcr-loop
+  - The corresponding skill is at: skills/start-rlcr-loop/SKILL.md
+  - Both provide identical functionality; commands are for explicit invocation,
+    skills enable auto-discovery via the Skill tool
+  - Claude can also invoke this via: /humanize:start-rlcr-loop (explicit)
+    or via Skill tool auto-invocation when user intent matches description keywords
+-->
 
 # Start RLCR Loop
 

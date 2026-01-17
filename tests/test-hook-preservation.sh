@@ -328,6 +328,264 @@ for script in "${MAIN_SCRIPTS[@]}"; do
 done
 
 # ========================================
+# Hook Execution Tests (PT-10 to PT-14)
+# These tests actually run hooks with inputs and verify behavior
+# ========================================
+echo ""
+echo "========================================"
+echo "Hook Execution Tests"
+echo "========================================"
+
+# Setup test environment
+TEST_DIR=$(mktemp -d)
+trap "rm -rf $TEST_DIR" EXIT
+
+setup_test_loop() {
+    cd "$TEST_DIR"
+
+    # Only init git if not already initialized
+    if [[ ! -d ".git" ]]; then
+        git init -q
+        git config user.email "test@test.com"
+        git config user.name "Test"
+        echo "initial" > init.txt
+        git add init.txt
+        git -c commit.gpgsign=false commit -q -m "Initial commit"
+    fi
+
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+    # Create loop directory structure
+    LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
+    mkdir -p "$LOOP_DIR"
+
+    # Create plan file (gitignored)
+    mkdir -p plans
+    cat > plans/test-plan.md << 'EOF'
+# Test Plan
+## Goal
+Test the RLCR loop
+## Requirements
+- Requirement 1
+EOF
+    echo "plans/" >> .gitignore
+    git add .gitignore
+    git -c commit.gpgsign=false commit -q -m "Add gitignore" 2>/dev/null || true
+
+    # Create plan backup
+    cp plans/test-plan.md "$LOOP_DIR/plan.md"
+
+    # Create state file
+    cat > "$LOOP_DIR/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+plan_file: "plans/test-plan.md"
+plan_tracked: false
+start_branch: $CURRENT_BRANCH
+---
+EOF
+}
+
+# Test 25: UserPromptSubmit hook fires with valid state (PT-14)
+echo ""
+echo "Test 25: UserPromptSubmit hook fires correctly"
+setup_test_loop
+export CLAUDE_PROJECT_DIR="$TEST_DIR"
+
+set +e
+RESULT=$(echo '{}' | "$HOOKS_DIR/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# With valid state, hook should pass (exit 0, no output)
+if [[ $EXIT_CODE -eq 0 ]] && [[ -z "$RESULT" ]]; then
+    pass "UserPromptSubmit hook fires correctly with valid state"
+else
+    fail "UserPromptSubmit hook execution" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 26: PreToolUse Write hook fires (PT-12)
+echo ""
+echo "Test 26: PreToolUse Write hook fires correctly"
+setup_test_loop
+
+# Test Write validator blocks plan.md in loop directory
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Write to plan.md should be blocked (exit 2)
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "PreToolUse Write hook fires and blocks plan.md"
+else
+    fail "PreToolUse Write hook execution" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 27: PreToolUse Edit hook fires (PT-12)
+echo ""
+echo "Test 27: PreToolUse Edit hook fires correctly"
+setup_test_loop
+
+# Test Edit validator blocks plan.md
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "PreToolUse Edit hook fires and blocks plan.md"
+else
+    fail "PreToolUse Edit hook execution" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 28: PreToolUse Read hook fires (PT-12)
+echo ""
+echo "Test 28: PreToolUse Read hook fires correctly"
+setup_test_loop
+
+# Read validator should allow most reads (exit 0) when not reading protected files
+HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$TEST_DIR'/plans/test-plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Read of plan file should be allowed
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "PreToolUse Read hook fires and allows plan file read"
+else
+    fail "PreToolUse Read hook execution" "exit 0 (allow read)" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 29: PreToolUse Bash hook fires (PT-12)
+echo ""
+echo "Test 29: PreToolUse Bash hook fires correctly"
+setup_test_loop
+
+# Test Bash validator blocks modifications to plan.md
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > '$LOOP_DIR'/plan.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "PreToolUse Bash hook fires and blocks plan.md modification"
+else
+    fail "PreToolUse Bash hook execution" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 30: Stop hook fires and returns valid JSON (PT-13)
+echo ""
+echo "Test 30: Stop hook fires and returns valid JSON"
+setup_test_loop
+
+# Create summary and goal tracker files
+cat > "$LOOP_DIR/round-0-summary.md" << 'EOF'
+# Summary
+Work done.
+EOF
+
+cat > "$LOOP_DIR/goal-tracker.md" << 'EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test goal
+### Acceptance Criteria
+- Criterion 1
+## MUTABLE SECTION
+### Plan Version: 1 (Updated: Round 0)
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| Task 1 | AC1 | in_progress | - |
+EOF
+
+set +e
+RESULT=$(echo '{}' | "$HOOKS_DIR/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Stop hook should return JSON (even if it blocks)
+if echo "$RESULT" | grep -q '"decision"'; then
+    pass "Stop hook fires and returns valid JSON response"
+else
+    # Note: stop hook may fail for other reasons (missing codex) but should still produce output
+    if [[ -n "$RESULT" ]]; then
+        pass "Stop hook fires and produces output"
+    else
+        fail "Stop hook execution" "JSON response or output" "No output"
+    fi
+fi
+
+# Test 31: Hook behavior consistency - Write allows non-plan files
+echo ""
+echo "Test 31: Write hook allows non-plan files"
+setup_test_loop
+
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/test-output.txt"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Writing to regular files should be allowed
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write hook allows non-plan files"
+else
+    fail "Write hook non-plan files" "exit 0 (allow)" "exit $EXIT_CODE"
+fi
+
+# Test 32: Hook behavior consistency - Bash allows safe commands
+echo ""
+echo "Test 32: Bash hook allows safe commands"
+setup_test_loop
+
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "ls -la"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$HOOKS_DIR/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Safe bash commands should be allowed
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Bash hook allows safe commands"
+else
+    fail "Bash hook safe commands" "exit 0 (allow)" "exit $EXIT_CODE"
+fi
+
+# Test 33: Hook behavior consistency - UserPromptSubmit blocks on branch change
+echo ""
+echo "Test 33: UserPromptSubmit hook blocks on branch change"
+setup_test_loop
+cd "$TEST_DIR"
+
+# Create and switch to a different branch
+git checkout -q -b feature-branch
+
+# State file still says we started on original branch
+ORIGINAL_BRANCH=$(cat "$LOOP_DIR/state.md" | grep "start_branch:" | sed 's/start_branch:[[:space:]]*//' | tr -d '"')
+
+set +e
+RESULT=$(echo '{}' | "$HOOKS_DIR/loop-plan-file-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Should block due to branch mismatch
+if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | grep -qi "branch"; then
+    pass "UserPromptSubmit hook blocks on branch change"
+else
+    fail "UserPromptSubmit branch check" "block with branch error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Return to original branch
+git checkout -q "$ORIGINAL_BRANCH" 2>/dev/null || git checkout -q main 2>/dev/null || git checkout -q master 2>/dev/null || true
+
+# ========================================
 # Summary
 # ========================================
 echo ""

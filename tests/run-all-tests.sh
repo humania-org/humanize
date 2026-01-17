@@ -50,6 +50,7 @@ TEST_SUITES=(
     "test-monitor-e2e-real.sh"
     "test-skill-structure.sh"
     "test-hook-preservation.sh"
+    "test-skill-invocation.sh"
 )
 
 # Tests that must be run with zsh (not bash)
