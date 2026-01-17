@@ -110,6 +110,28 @@ assert_blocks "git add -f ./.humanize" "Block: -f with ./.humanize"
 assert_blocks "git add --force ./.humanize" "Block: --force with ./.humanize"
 assert_blocks 'git add -f ".humanize"' "Block: -f with quoted .humanize"
 
+# AC-2.2: Force flag with broad scope (blocks gitignore bypass)
+assert_blocks "git add -f ." "Block: -f . (force with current dir)"
+assert_blocks "git add --force ." "Block: --force . (force with current dir)"
+assert_blocks "git add -f *" "Block: -f * (force with wildcard)"
+assert_blocks "git add --force *" "Block: --force * (force with wildcard)"
+assert_blocks "git add -fA" "Block: -fA (combined force and all)"
+assert_blocks "git add -Af" "Block: -Af (combined all and force)"
+
+# ========================================
+# Test Group 3b: git add -A / --all (AC-2.3)
+# ========================================
+echo ""
+echo "Test Group 3b: git add -A / --all (AC-2.3)"
+echo ""
+
+assert_blocks "git add -A" "Block: -A (adds all including .humanize)"
+assert_blocks "git add --all" "Block: --all (adds all including .humanize)"
+assert_blocks "git add -A ." "Block: -A . (all in current dir)"
+assert_blocks "git add --all ." "Block: --all . (all in current dir)"
+assert_blocks "git add -A src/" "Block: -A src/ (all flag present)"
+assert_blocks "git add --all src/" "Block: --all src/ (all flag present)"
+
 # ========================================
 # Test Group 4: Chained Commands with Path Variants
 # ========================================
@@ -147,6 +169,16 @@ assert_allows "git add ./src/" "Allow: ./src/ directory"
 assert_allows "git status .humanize" "Allow: git status (not add)"
 assert_allows "git diff .humanize" "Allow: git diff (not add)"
 assert_allows "git log -- .humanize" "Allow: git log (not add)"
+
+# Patch mode is safe (interactive)
+assert_allows "git add -p" "Allow: -p (patch mode, interactive)"
+assert_allows "git add --patch" "Allow: --patch (patch mode)"
+assert_allows "git add -p src/" "Allow: -p src/ (patch mode with path)"
+
+# Files that start with .humanize but are NOT the .humanize directory
+assert_allows "git add .humanizeconfig" "Allow: .humanizeconfig (different file)"
+assert_allows "git add .humanize-backup" "Allow: .humanize-backup (different file)"
+assert_allows "git add src/.humanizerc" "Allow: src/.humanizerc (different file)"
 
 # ========================================
 # Test Group 7: Zsh Empty Directory Safety

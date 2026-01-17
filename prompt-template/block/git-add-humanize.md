@@ -1,6 +1,7 @@
 # Git Add Blocked: .humanize Protection
 
 The `.humanize/` directory contains local loop state that should NOT be committed.
+This directory is already listed in `.gitignore`.
 
 Your command was blocked because it would add .humanize files to version control.
 

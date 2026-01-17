@@ -7,6 +7,10 @@
 # Automatically switches to newer logs when they appear
 # Features a fixed status bar at the top showing session info
 _humanize_monitor_codex() {
+    # Enable 0-indexed arrays in zsh for bash compatibility
+    # This affects all _split_to_array calls within this function
+    [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+
     local loop_dir=".humanize/rlcr"
     local current_file=""
     local current_session_dir=""
@@ -311,8 +315,7 @@ _humanize_monitor_codex() {
 
     # Draw the status bar at the top
     _draw_status_bar() {
-        # Enable 0-indexed arrays in zsh for bash compatibility
-        [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+        # Note: ksharrays is set at _humanize_monitor_codex() level for zsh compatibility
 
         local session_dir="$1"
         local log_file="$2"

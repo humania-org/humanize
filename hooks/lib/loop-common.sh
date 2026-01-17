@@ -479,8 +479,9 @@ git_adds_humanize() {
 
         # Check for direct .humanize reference (blocked regardless of other flags)
         # Handles: .humanize, ./.humanize, path/to/.humanize, ".humanize", '.humanize'
-        # Pattern matches .humanize at start, after space, after / or ./
-        if echo "$add_args_normalized" | grep -qE '(^|[[:space:]]|/)\.humanize'; then
+        # Pattern matches .humanize at start, after space, after / or ./ AND followed by end, /, or space
+        # This avoids over-blocking .humanizeconfig or .humanize-backup
+        if echo "$add_args_normalized" | grep -qE '(^|[[:space:]]|/)\.humanize($|/|[[:space:]])'; then
             return 0
         fi
 
