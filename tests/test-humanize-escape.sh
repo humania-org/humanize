@@ -125,12 +125,23 @@ echo ""
 echo "Test Group 3b: git add -A / --all (AC-2.3)"
 echo ""
 
+# These tests require .humanize directory to exist for blocking to trigger
+# (git_adds_humanize only blocks -A/--all when .humanize exists)
+TEST_HUMANIZE_DIR="/tmp/test-humanize-git-add-$$"
+mkdir -p "$TEST_HUMANIZE_DIR/.humanize"
+ORIGINAL_DIR="$(pwd)"
+cd "$TEST_HUMANIZE_DIR"
+
 assert_blocks "git add -A" "Block: -A (adds all including .humanize)"
 assert_blocks "git add --all" "Block: --all (adds all including .humanize)"
 assert_blocks "git add -A ." "Block: -A . (all in current dir)"
 assert_blocks "git add --all ." "Block: --all . (all in current dir)"
 assert_blocks "git add -A src/" "Block: -A src/ (all flag present)"
 assert_blocks "git add --all src/" "Block: --all src/ (all flag present)"
+
+# Return to original directory and clean up
+cd "$ORIGINAL_DIR"
+rm -rf "$TEST_HUMANIZE_DIR"
 
 # ========================================
 # Test Group 4: Chained Commands with Path Variants
