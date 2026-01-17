@@ -720,13 +720,17 @@ _humanize_monitor_codex() {
 
             # Handle current session directory or log file deletion
             if [[ ! -d "$current_session_dir" ]] || [[ ! -f "$current_file" ]]; then
+                # Capture deletion state BEFORE reassigning variables
+                local session_was_deleted=false
+                [[ ! -d "$current_session_dir" ]] && session_was_deleted=true
+
                 if [[ -n "$latest_session" ]]; then
                     # Session or log deleted but another session exists - switch to it
                     current_session_dir="$latest_session"
                     current_file="$latest"
                     tput cup $status_bar_height 0
                     tput ed
-                    if [[ ! -d "$current_session_dir" ]]; then
+                    if [[ "$session_was_deleted" == "true" ]]; then
                         printf "\n==> Session directory deleted, switching to: %s\n" "$(basename "$latest_session")"
                     else
                         printf "\n==> Log file deleted, switching to: %s\n" "$(basename "$latest_session")"
