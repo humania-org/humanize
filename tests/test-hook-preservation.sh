@@ -278,16 +278,17 @@ else
 fi
 
 # ========================================
-# Test 22: Verify commands still reference correct scripts
+# Test 22: Verify commands delegate to skills via Skill tool
 # ========================================
 echo ""
-echo "Test 22: Commands reference correct scripts"
+echo "Test 22: Commands delegate to skills via Skill tool"
 COMMANDS_DIR="$PROJECT_ROOT/commands"
 if [[ -f "$COMMANDS_DIR/start-rlcr-loop.md" ]]; then
-    if grep -q 'setup-rlcr-loop.sh' "$COMMANDS_DIR/start-rlcr-loop.md"; then
-        pass "start-rlcr-loop.md references setup-rlcr-loop.sh"
+    # Commands should delegate to skills via allowed-tools: Skill(humanize:skill-name:*)
+    if grep -q 'Skill(humanize:start-rlcr-loop' "$COMMANDS_DIR/start-rlcr-loop.md"; then
+        pass "start-rlcr-loop.md delegates to skill via Skill tool"
     else
-        fail "start-rlcr-loop command reference" "References setup-rlcr-loop.sh" "Reference not found"
+        fail "start-rlcr-loop command delegation" "Skill(humanize:start-rlcr-loop in allowed-tools" "Not found"
     fi
 fi
 
@@ -479,9 +480,9 @@ else
     fail "PreToolUse Bash hook execution" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 30: Stop hook fires and returns valid JSON (PT-13)
+# Test 30: Stop hook fires and returns valid JSON decision schema (PT-13)
 echo ""
-echo "Test 30: Stop hook fires and returns valid JSON"
+echo "Test 30: Stop hook fires and returns valid JSON decision schema"
 setup_test_loop
 
 # Create summary and goal tracker files
@@ -510,16 +511,24 @@ RESULT=$(echo '{}' | "$HOOKS_DIR/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 
-# Stop hook should return JSON (even if it blocks)
-if echo "$RESULT" | grep -q '"decision"'; then
-    pass "Stop hook fires and returns valid JSON response"
-else
-    # Note: stop hook may fail for other reasons (missing codex) but should still produce output
-    if [[ -n "$RESULT" ]]; then
-        pass "Stop hook fires and produces output"
+# Stop hook behavior:
+# - exit 0 with no output: allow exit (no active loop or allowed to proceed)
+# - output with JSON {"decision": "block", "reason": "..."}: block exit
+# Both are valid, but if there's output it MUST be valid JSON with decision field
+if [[ -z "$RESULT" ]] && [[ $EXIT_CODE -eq 0 ]]; then
+    # No output and exit 0 means allow (valid behavior)
+    pass "Stop hook fires and allows exit (no blocking output)"
+elif echo "$RESULT" | jq -e '.decision' >/dev/null 2>&1; then
+    # Has valid JSON with decision field
+    DECISION=$(echo "$RESULT" | jq -r '.decision')
+    if [[ "$DECISION" == "block" ]] || [[ "$DECISION" == "allow" ]]; then
+        pass "Stop hook fires and returns valid JSON decision schema (decision=$DECISION)"
     else
-        fail "Stop hook execution" "JSON response or output" "No output"
+        fail "Stop hook JSON schema" "decision: block or allow" "decision: $DECISION"
     fi
+else
+    # Has output but not valid JSON with decision field - this is the failure case
+    fail "Stop hook execution" "Valid JSON with decision field or no output" "Got non-JSON output: ${RESULT:0:100}"
 fi
 
 # Test 31: Hook behavior consistency - Write allows non-plan files
@@ -558,9 +567,9 @@ else
     fail "Bash hook safe commands" "exit 0 (allow)" "exit $EXIT_CODE"
 fi
 
-# Test 33: Hook behavior consistency - UserPromptSubmit blocks on branch change
+# Test 33: Hook behavior consistency - UserPromptSubmit blocks on branch change with JSON schema
 echo ""
-echo "Test 33: UserPromptSubmit hook blocks on branch change"
+echo "Test 33: UserPromptSubmit hook blocks on branch change with JSON decision schema"
 setup_test_loop
 cd "$TEST_DIR"
 
@@ -575,11 +584,18 @@ RESULT=$(echo '{}' | "$HOOKS_DIR/loop-plan-file-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 
-# Should block due to branch mismatch
-if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | grep -qi "branch"; then
-    pass "UserPromptSubmit hook blocks on branch change"
+# Should block due to branch mismatch with proper JSON decision schema
+# Expected: {"decision": "block", "reason": "...branch..."}
+if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | jq -e '.decision == "block"' >/dev/null 2>&1; then
+    # Verify the reason mentions branch
+    REASON=$(echo "$RESULT" | jq -r '.reason // ""')
+    if echo "$REASON" | grep -qi "branch"; then
+        pass "UserPromptSubmit hook blocks on branch change with valid JSON decision schema"
+    else
+        fail "UserPromptSubmit branch check" "reason mentioning branch" "reason: ${REASON:0:100}"
+    fi
 else
-    fail "UserPromptSubmit branch check" "block with branch error" "exit $EXIT_CODE, output: $RESULT"
+    fail "UserPromptSubmit branch check" "JSON with decision:block" "exit $EXIT_CODE, output: ${RESULT:0:100}"
 fi
 
 # Return to original branch

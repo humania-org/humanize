@@ -92,60 +92,73 @@ echo "========================================"
 echo "Command-to-Skill Delegation Tests"
 echo "========================================"
 
-# Test 3: start-rlcr-loop command references skill
+# Test 3: start-rlcr-loop command delegates via Skill tool
 echo ""
-echo "Test 3: start-rlcr-loop command references skill"
+echo "Test 3: start-rlcr-loop command delegates via Skill tool"
 START_CMD="$COMMANDS_DIR/start-rlcr-loop.md"
 if [[ -f "$START_CMD" ]]; then
-    # Check for delegation reference (comment or explicit reference)
-    if grep -qi "skill" "$START_CMD"; then
-        pass "start-rlcr-loop command references skill"
+    # Check for Skill tool delegation in allowed-tools
+    if grep -q "Skill(humanize:start-rlcr-loop" "$START_CMD"; then
+        pass "start-rlcr-loop command uses Skill tool for delegation"
     else
-        fail "start-rlcr-loop command delegation" "Reference to skill" "No skill reference found"
+        fail "start-rlcr-loop Skill tool delegation" "Skill(humanize:start-rlcr-loop" "Not found in allowed-tools"
     fi
 else
     fail "start-rlcr-loop command exists" "File exists" "File not found"
 fi
 
-# Test 4: cancel-rlcr-loop command references skill
+# Test 4: cancel-rlcr-loop command delegates via Skill tool
 echo ""
-echo "Test 4: cancel-rlcr-loop command references skill"
+echo "Test 4: cancel-rlcr-loop command delegates via Skill tool"
 CANCEL_CMD="$COMMANDS_DIR/cancel-rlcr-loop.md"
 if [[ -f "$CANCEL_CMD" ]]; then
-    if grep -qi "skill" "$CANCEL_CMD"; then
-        pass "cancel-rlcr-loop command references skill"
+    # Check for Skill tool delegation in allowed-tools
+    if grep -q "Skill(humanize:cancel-rlcr-loop" "$CANCEL_CMD"; then
+        pass "cancel-rlcr-loop command uses Skill tool for delegation"
     else
-        fail "cancel-rlcr-loop command delegation" "Reference to skill" "No skill reference found"
+        fail "cancel-rlcr-loop Skill tool delegation" "Skill(humanize:cancel-rlcr-loop" "Not found in allowed-tools"
     fi
 else
     fail "cancel-rlcr-loop command exists" "File exists" "File not found"
 fi
 
-# Test 5: Skill and command have matching core functionality
+# Test 5: start-rlcr-loop command is a thin wrapper (no full instructions)
 echo ""
-echo "Test 5: start-rlcr-loop skill/command functionality match"
+echo "Test 5: start-rlcr-loop command is thin wrapper"
 if [[ -f "$START_SKILL" ]] && [[ -f "$START_CMD" ]]; then
-    # Both should reference setup-rlcr-loop.sh
-    SKILL_HAS_SCRIPT=$(grep -c "setup-rlcr-loop.sh" "$START_SKILL" || echo "0")
-    CMD_HAS_SCRIPT=$(grep -c "setup-rlcr-loop.sh" "$START_CMD" || echo "0")
-    if [[ $SKILL_HAS_SCRIPT -gt 0 ]] && [[ $CMD_HAS_SCRIPT -gt 0 ]]; then
-        pass "Both skill and command reference setup-rlcr-loop.sh"
+    # Skill should have the full instructions (setup script reference)
+    # Command should NOT have the setup script (it delegates to skill)
+    SKILL_HAS_SCRIPT=0
+    grep -q "setup-rlcr-loop.sh" "$START_SKILL" && SKILL_HAS_SCRIPT=1
+    CMD_HAS_SCRIPT=0
+    grep -q "setup-rlcr-loop.sh" "$START_CMD" && CMD_HAS_SCRIPT=1
+    # Command should be significantly smaller than skill
+    CMD_LINES=$(wc -l < "$START_CMD")
+    SKILL_LINES=$(wc -l < "$START_SKILL")
+
+    if [[ $SKILL_HAS_SCRIPT -eq 1 ]] && [[ $CMD_HAS_SCRIPT -eq 0 ]] && [[ $CMD_LINES -lt 20 ]]; then
+        pass "start-rlcr-loop command is thin wrapper (skill has script, command delegates, cmd=${CMD_LINES} lines)"
     else
-        fail "start-rlcr-loop functionality match" "Both reference setup-rlcr-loop.sh" "skill=$SKILL_HAS_SCRIPT, cmd=$CMD_HAS_SCRIPT"
+        fail "start-rlcr-loop thin wrapper" "Command delegates, skill has instructions" "cmd_has_script=$CMD_HAS_SCRIPT, cmd_lines=$CMD_LINES"
     fi
 fi
 
-# Test 6: cancel-rlcr-loop skill/command functionality match
+# Test 6: cancel-rlcr-loop command is a thin wrapper (no full instructions)
 echo ""
-echo "Test 6: cancel-rlcr-loop skill/command core instructions match"
+echo "Test 6: cancel-rlcr-loop command is thin wrapper"
 if [[ -f "$CANCEL_SKILL" ]] && [[ -f "$CANCEL_CMD" ]]; then
-    # Both should have instructions about finding loop directory
-    SKILL_HAS_LOOP=$(grep -c "\.humanize/rlcr" "$CANCEL_SKILL" || echo "0")
-    CMD_HAS_LOOP=$(grep -c "\.humanize/rlcr" "$CANCEL_CMD" || echo "0")
-    if [[ $SKILL_HAS_LOOP -gt 0 ]] && [[ $CMD_HAS_LOOP -gt 0 ]]; then
-        pass "Both skill and command reference .humanize/rlcr directory"
+    # Skill should have full cancel instructions (.humanize/rlcr references)
+    # Command should NOT have them (it delegates to skill)
+    SKILL_HAS_LOOP=0
+    grep -q "\.humanize/rlcr" "$CANCEL_SKILL" && SKILL_HAS_LOOP=1
+    CMD_HAS_LOOP=0
+    grep -q "\.humanize/rlcr" "$CANCEL_CMD" && CMD_HAS_LOOP=1
+    CMD_LINES=$(wc -l < "$CANCEL_CMD")
+
+    if [[ $SKILL_HAS_LOOP -eq 1 ]] && [[ $CMD_HAS_LOOP -eq 0 ]] && [[ $CMD_LINES -lt 20 ]]; then
+        pass "cancel-rlcr-loop command is thin wrapper (skill has instructions, command delegates, cmd=${CMD_LINES} lines)"
     else
-        fail "cancel-rlcr-loop functionality match" "Both reference .humanize/rlcr" "skill=$SKILL_HAS_LOOP, cmd=$CMD_HAS_LOOP"
+        fail "cancel-rlcr-loop thin wrapper" "Command delegates, skill has instructions" "cmd_has_loop=$CMD_HAS_LOOP, cmd_lines=$CMD_LINES"
     fi
 fi
 
@@ -189,19 +202,23 @@ if [[ -f "$CANCEL_SKILL" ]]; then
     fi
 fi
 
-# Test 9: Skill allowed-tools match command allowed-tools
+# Test 9: Command delegates via Skill tool, skill has appropriate tools
 echo ""
-echo "Test 9: start-rlcr-loop skill/command allowed-tools consistency"
+echo "Test 9: start-rlcr-loop delegation pattern correct"
 if [[ -f "$START_SKILL" ]] && [[ -f "$START_CMD" ]]; then
-    # Extract allowed-tools from both (simplified - check for same script reference)
-    SKILL_TOOLS=$(grep -A5 "^allowed-tools:" "$START_SKILL" | head -6)
+    # Command should use Skill tool for delegation
     CMD_TOOLS=$(grep "allowed-tools" "$START_CMD" | head -1)
+    # Skill should have the actual execution tools (setup script)
+    SKILL_TOOLS=$(grep -A5 "^allowed-tools:" "$START_SKILL" | head -6)
 
-    # Both should allow the setup script
-    if echo "$SKILL_TOOLS" | grep -q "setup-rlcr-loop.sh" && echo "$CMD_TOOLS" | grep -q "setup-rlcr-loop.sh"; then
-        pass "start-rlcr-loop skill/command both allow setup-rlcr-loop.sh"
+    # Command delegates via Skill, skill has actual tools
+    CMD_HAS_SKILL_TOOL=$(echo "$CMD_TOOLS" | grep -c "Skill(" || echo "0")
+    SKILL_HAS_BASH=$(echo "$SKILL_TOOLS" | grep -c "Bash\|setup-rlcr-loop.sh" || echo "0")
+
+    if [[ $CMD_HAS_SKILL_TOOL -gt 0 ]] && [[ $SKILL_HAS_BASH -gt 0 ]]; then
+        pass "start-rlcr-loop: command uses Skill tool, skill has execution tools"
     else
-        fail "start-rlcr-loop allowed-tools consistency" "Both allow setup script" "Mismatch detected"
+        fail "start-rlcr-loop delegation pattern" "Command uses Skill, skill has Bash" "cmd_skill=$CMD_HAS_SKILL_TOOL, skill_bash=$SKILL_HAS_BASH"
     fi
 fi
 

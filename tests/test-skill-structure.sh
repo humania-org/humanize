@@ -162,29 +162,27 @@ for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
 done
 
 # ----------------------------------------
-# PT-6: Command-to-skill delegation
+# PT-6: Command-to-skill delegation via Skill tool
 # ----------------------------------------
 echo ""
-echo "PT-6: Command-to-skill delegation"
+echo "PT-6: Command-to-skill delegation via Skill tool"
 if [[ -f "$COMMANDS_DIR/start-rlcr-loop.md" ]]; then
-    # Check for skill reference (either in comment or description)
-    if grep -q "skills/start-rlcr-loop" "$COMMANDS_DIR/start-rlcr-loop.md" || \
-       grep -q "start-rlcr-loop skill" "$COMMANDS_DIR/start-rlcr-loop.md"; then
-        pass "start-rlcr-loop.md command references skill"
+    # Check for Skill tool delegation in allowed-tools
+    if grep -q "Skill(humanize:start-rlcr-loop" "$COMMANDS_DIR/start-rlcr-loop.md"; then
+        pass "start-rlcr-loop.md command delegates via Skill tool"
     else
-        fail "start-rlcr-loop.md command delegation" "Reference to skill" "No reference found"
+        fail "start-rlcr-loop.md command delegation" "Skill(humanize:start-rlcr-loop in allowed-tools" "Not found"
     fi
 else
     fail "start-rlcr-loop.md exists" "File exists" "File not found"
 fi
 
 if [[ -f "$COMMANDS_DIR/cancel-rlcr-loop.md" ]]; then
-    # Check for skill reference (either in comment or description)
-    if grep -q "skills/cancel-rlcr-loop" "$COMMANDS_DIR/cancel-rlcr-loop.md" || \
-       grep -q "cancel-rlcr-loop skill" "$COMMANDS_DIR/cancel-rlcr-loop.md"; then
-        pass "cancel-rlcr-loop.md command references skill"
+    # Check for Skill tool delegation in allowed-tools
+    if grep -q "Skill(humanize:cancel-rlcr-loop" "$COMMANDS_DIR/cancel-rlcr-loop.md"; then
+        pass "cancel-rlcr-loop.md command delegates via Skill tool"
     else
-        fail "cancel-rlcr-loop.md command delegation" "Reference to skill" "No reference found"
+        fail "cancel-rlcr-loop.md command delegation" "Skill(humanize:cancel-rlcr-loop in allowed-tools" "Not found"
     fi
 else
     fail "cancel-rlcr-loop.md exists" "File exists" "File not found"
