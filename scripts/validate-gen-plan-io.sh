@@ -99,10 +99,17 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     exit 3
 fi
 
-# Check 4: Output file does not already exist
-if [[ -f "$OUTPUT_FILE" ]]; then
+# Check 4: Output path must not exist (must be a new file path)
+if [[ -d "$OUTPUT_FILE" ]]; then
+    echo "VALIDATION_ERROR: OUTPUT_IS_DIRECTORY"
+    echo "The output path is a directory: $OUTPUT_FILE"
+    echo "Please specify a file path, not a directory (e.g., $OUTPUT_FILE/plan.md)."
+    exit 4
+fi
+
+if [[ -e "$OUTPUT_FILE" ]]; then
     echo "VALIDATION_ERROR: OUTPUT_EXISTS"
-    echo "The output file already exists: $OUTPUT_FILE"
+    echo "The output path already exists: $OUTPUT_FILE"
     echo "Please choose a different output path or remove the existing file."
     exit 4
 fi

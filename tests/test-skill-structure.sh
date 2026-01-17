@@ -766,6 +766,16 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         fail "validate-gen-plan-io: output exists should exit 4" "4" "$EXIT_CODE"
     fi
 
+    # Test: Output path is a directory should exit 4
+    mkdir -p "$SCRIPT_TEST_DIR/output_dir"
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/output_dir" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 4 ]]; then
+        pass "validate-gen-plan-io: output is directory exits 4"
+    else
+        fail "validate-gen-plan-io: output is directory should exit 4" "4" "$EXIT_CODE"
+    fi
+
     # Test: Valid paths should exit 0
     EXIT_CODE=0
     "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output.md" 2>/dev/null || EXIT_CODE=$?
