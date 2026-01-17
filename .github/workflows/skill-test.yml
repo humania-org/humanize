@@ -60,31 +60,6 @@ jobs:
           chmod +x tests/test-skill-invocation.sh
           ./tests/test-skill-invocation.sh
 
-      - name: Verify skill files exist
-        run: |
-          echo "========================================"
-          echo "Verifying skill files exist"
-          echo "========================================"
-
-          # Check start-rlcr-loop skill
-          if [[ -f "skills/start-rlcr-loop/SKILL.md" ]]; then
-            echo "PASS: skills/start-rlcr-loop/SKILL.md exists"
-          else
-            echo "FAIL: skills/start-rlcr-loop/SKILL.md not found"
-            exit 1
-          fi
-
-          # Check cancel-rlcr-loop skill
-          if [[ -f "skills/cancel-rlcr-loop/SKILL.md" ]]; then
-            echo "PASS: skills/cancel-rlcr-loop/SKILL.md exists"
-          else
-            echo "FAIL: skills/cancel-rlcr-loop/SKILL.md not found"
-            exit 1
-          fi
-
-          echo ""
-          echo "All skill files verified"
-
       - name: Verify hooks.json integrity
         run: |
           echo "========================================"

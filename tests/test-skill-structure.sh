@@ -646,16 +646,9 @@ echo "Content validation: No Emoji or CJK characters"
 for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
     if [[ -f "$skill_file" ]]; then
         skill_name=$(basename "$(dirname "$skill_file")")
-        # Check for CJK characters (Unicode range) and common emoji patterns
-        if grep -Pq '[\x{4E00}-\x{9FFF}\x{3000}-\x{303F}\x{1F300}-\x{1F9FF}]' "$skill_file" 2>/dev/null || \
-           grep -q '[^\x00-\x7F]' "$skill_file" 2>/dev/null && \
-           grep -Eq '[^\x00-\x7F\xC0-\xFF]' "$skill_file" 2>/dev/null; then
-            # More specific check needed - simplified approach
-            if grep -Pq '[\p{Han}\p{Emoji}]' "$skill_file" 2>/dev/null; then
-                fail "$skill_name: Contains Emoji or CJK characters"
-            else
-                pass "$skill_name: Content is English only (basic ASCII)"
-            fi
+        # Check for CJK characters (Han script) and graphical emoji (exclude digits which have emoji variants)
+        if grep -Pq '[\p{Han}]|[\x{1F300}-\x{1F9FF}]|[\x{2600}-\x{26FF}]|[\x{2700}-\x{27BF}]' "$skill_file" 2>/dev/null; then
+            fail "$skill_name: Contains Emoji or CJK characters"
         else
             pass "$skill_name: Content is English only"
         fi
