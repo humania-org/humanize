@@ -47,7 +47,7 @@ TEST_SUITES=(
     "test-humanize-escape.sh"
     "test-zsh-monitor-safety.sh"
     "test-monitor-runtime.sh"
-    "test-monitor-e2e.sh"
+    "test-monitor-e2e-real.sh"
 )
 
 # Tests that must be run with zsh (not bash)
