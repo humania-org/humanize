@@ -29,10 +29,18 @@ OUTPUT_FILE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --input)
+            if [[ $# -lt 2 || "$2" == --* ]]; then
+                echo "ERROR: --input requires a value"
+                usage
+            fi
             INPUT_FILE="$2"
             shift 2
             ;;
         --output)
+            if [[ $# -lt 2 || "$2" == --* ]]; then
+                echo "ERROR: --output requires a value"
+                usage
+            fi
             OUTPUT_FILE="$2"
             shift 2
             ;;

@@ -657,6 +657,115 @@ for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
 done
 
 # ========================================
+# Script Tests: validate-gen-plan-io.sh
+# ========================================
+echo ""
+echo "Script Tests: validate-gen-plan-io.sh"
+
+VALIDATE_SCRIPT="$PROJECT_ROOT/scripts/validate-gen-plan-io.sh"
+
+if [[ -x "$VALIDATE_SCRIPT" ]]; then
+    # Create temp directory for script tests
+    SCRIPT_TEST_DIR=$(mktemp -d)
+    trap "rm -rf $SCRIPT_TEST_DIR" EXIT
+
+    # Test: --input without value should exit 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --input without value exits 6"
+    else
+        fail "validate-gen-plan-io: --input without value should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: --output without value should exit 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --output 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --output without value exits 6"
+    else
+        fail "validate-gen-plan-io: --output without value should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: --input followed by another flag should exit 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input --output /tmp/out.md 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --input followed by flag exits 6"
+    else
+        fail "validate-gen-plan-io: --input followed by flag should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: Unknown option should exit 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --unknown-flag 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: unknown option exits 6"
+    else
+        fail "validate-gen-plan-io: unknown option should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: Input file not found should exit 1
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/nonexistent.md" --output "$SCRIPT_TEST_DIR/out.md" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 1 ]]; then
+        pass "validate-gen-plan-io: input not found exits 1"
+    else
+        fail "validate-gen-plan-io: input not found should exit 1" "1" "$EXIT_CODE"
+    fi
+
+    # Test: Empty input file should exit 2
+    touch "$SCRIPT_TEST_DIR/empty.md"
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/empty.md" --output "$SCRIPT_TEST_DIR/out.md" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 2 ]]; then
+        pass "validate-gen-plan-io: empty input exits 2"
+    else
+        fail "validate-gen-plan-io: empty input should exit 2" "2" "$EXIT_CODE"
+    fi
+
+    # Test: Output directory not found should exit 3
+    echo "content" > "$SCRIPT_TEST_DIR/valid.md"
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/nonexistent_dir/out.md" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 3 ]]; then
+        pass "validate-gen-plan-io: output dir not found exits 3"
+    else
+        fail "validate-gen-plan-io: output dir not found should exit 3" "3" "$EXIT_CODE"
+    fi
+
+    # Test: Output file already exists should exit 4
+    touch "$SCRIPT_TEST_DIR/existing.md"
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/existing.md" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 4 ]]; then
+        pass "validate-gen-plan-io: output exists exits 4"
+    else
+        fail "validate-gen-plan-io: output exists should exit 4" "4" "$EXIT_CODE"
+    fi
+
+    # Test: Valid paths should exit 0
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output.md" 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: valid paths exits 0"
+    else
+        fail "validate-gen-plan-io: valid paths should exit 0" "0" "$EXIT_CODE"
+    fi
+
+    # Test: Help option should exit 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --help 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --help exits 6"
+    else
+        fail "validate-gen-plan-io: --help should exit 6" "6" "$EXIT_CODE"
+    fi
+else
+    fail "validate-gen-plan-io.sh not found or not executable"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""
