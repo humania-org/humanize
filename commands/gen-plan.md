@@ -16,8 +16,4 @@ Skill: humanize:gen-plan
 Arguments: $ARGUMENTS
 ```
 
-The skill transforms a user's draft document into a well-structured implementation plan with:
-- Goal description
-- Acceptance criteria (AC-X format)
-- Path boundaries
-- Feasibility hints and suggestions
+The skill contains the full instructions for transforming a draft into a structured implementation plan.

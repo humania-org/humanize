@@ -222,11 +222,10 @@ Example: "The implementation includes core feature X with basic validation"
 
 ## Phase 6: Write and Complete
 
-1. Write the generated plan to the output file path
-2. Report completion with:
-   - Path to the generated plan
-   - Summary of what was included
-   - Number of acceptance criteria defined
+Write the generated plan to the output file path, then report:
+- Path to the generated plan
+- Summary of what was included
+- Number of acceptance criteria defined
 
 ---
 

@@ -63,17 +63,14 @@ OUTPUT_FILE=$(realpath -m "$OUTPUT_FILE" 2>/dev/null || echo "$OUTPUT_FILE")
 OUTPUT_DIR=$(dirname "$OUTPUT_FILE")
 
 echo "=== gen-plan IO Validation ==="
-echo ""
 echo "Input file: $INPUT_FILE"
 echo "Output file: $OUTPUT_FILE"
 echo "Output directory: $OUTPUT_DIR"
-echo ""
 
 # Check 1: Input file exists
 if [[ ! -f "$INPUT_FILE" ]]; then
     echo "VALIDATION_ERROR: INPUT_NOT_FOUND"
     echo "The input file does not exist: $INPUT_FILE"
-    echo ""
     echo "Please ensure the draft file exists before running gen-plan."
     exit 1
 fi
@@ -82,7 +79,6 @@ fi
 if [[ ! -s "$INPUT_FILE" ]]; then
     echo "VALIDATION_ERROR: INPUT_EMPTY"
     echo "The input file is empty: $INPUT_FILE"
-    echo ""
     echo "Please add content to your draft file before running gen-plan."
     exit 2
 fi
@@ -91,9 +87,7 @@ fi
 if [[ ! -d "$OUTPUT_DIR" ]]; then
     echo "VALIDATION_ERROR: OUTPUT_DIR_NOT_FOUND"
     echo "The output directory does not exist: $OUTPUT_DIR"
-    echo ""
-    echo "Please create the directory before running gen-plan:"
-    echo "  mkdir -p $OUTPUT_DIR"
+    echo "Please create the directory: mkdir -p $OUTPUT_DIR"
     exit 3
 fi
 
@@ -101,7 +95,6 @@ fi
 if [[ -f "$OUTPUT_FILE" ]]; then
     echo "VALIDATION_ERROR: OUTPUT_EXISTS"
     echo "The output file already exists: $OUTPUT_FILE"
-    echo ""
     echo "Please choose a different output path or remove the existing file."
     exit 4
 fi
@@ -110,7 +103,6 @@ fi
 if [[ ! -w "$OUTPUT_DIR" ]]; then
     echo "VALIDATION_ERROR: NO_WRITE_PERMISSION"
     echo "No write permission for the output directory: $OUTPUT_DIR"
-    echo ""
     echo "Please check directory permissions."
     exit 5
 fi
@@ -118,9 +110,7 @@ fi
 # All checks passed
 INPUT_LINE_COUNT=$(wc -l < "$INPUT_FILE" | tr -d ' ')
 echo "VALIDATION_SUCCESS"
-echo ""
 echo "Input file: $INPUT_FILE ($INPUT_LINE_COUNT lines)"
 echo "Output target: $OUTPUT_FILE"
-echo ""
 echo "IO validation passed. Proceeding with draft analysis..."
 exit 0
