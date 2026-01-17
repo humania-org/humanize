@@ -28,19 +28,10 @@ _humanize_monitor_codex() {
             echo ""
             return
         fi
-        # Check if directory has any entries (prevents zsh "no matches found" on empty dir)
-        # Using ls instead of glob to avoid zsh errors
-        local ls_output
-        ls_output=$(ls -A "$loop_dir" 2>/dev/null)
-        if [[ -z "$ls_output" ]]; then
-            echo ""
-            return
-        fi
-        # Iterate over directories (bash/zsh compatible)
-        for session_dir in "$loop_dir"/*; do
-            # Skip if glob didn't match anything (shouldn't happen after ls check, but be safe)
-            [[ ! -e "$session_dir" ]] && continue
-            # Only process directories
+        # Use find instead of glob to avoid zsh "no matches found" errors
+        # find is safe even when directory is empty or has no matching files
+        while IFS= read -r session_dir; do
+            [[ -z "$session_dir" ]] && continue
             [[ ! -d "$session_dir" ]] && continue
 
             local session_name=$(basename "$session_dir")
@@ -49,7 +40,7 @@ _humanize_monitor_codex() {
                     latest_session="$session_dir"
                 fi
             fi
-        done
+        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         echo "$latest_session"
     }
 
@@ -67,24 +58,16 @@ _humanize_monitor_codex() {
         local sanitized_project=$(echo "$project_root" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
         local project_cache_dir="$cache_base/$sanitized_project"
 
-        # Check if loop_dir exists before glob operation (prevents zsh "no matches found" error)
+        # Check if loop_dir exists before iteration (prevents errors on missing dir)
         if [[ ! -d "$loop_dir" ]]; then
             echo ""
             return
         fi
-        # Check if directory has any entries (prevents zsh "no matches found" on empty dir)
-        local ls_output
-        ls_output=$(ls -A "$loop_dir" 2>/dev/null)
-        if [[ -z "$ls_output" ]]; then
-            echo ""
-            return
-        fi
 
-        # First, find valid session timestamps from local .humanize/rlcr
-        for session_dir in "$loop_dir"/*; do
-            # Skip if glob didn't match anything
-            [[ ! -e "$session_dir" ]] && continue
-            # Only process directories
+        # Use find instead of glob to avoid zsh "no matches found" errors
+        # find is safe even when directory is empty or has no matching files
+        while IFS= read -r session_dir; do
+            [[ -z "$session_dir" ]] && continue
             [[ ! -d "$session_dir" ]] && continue
 
             local session_name=$(basename "$session_dir")
@@ -116,7 +99,7 @@ _humanize_monitor_codex() {
                     latest_round="$round_num"
                 fi
             done < <(find "$cache_dir" -maxdepth 1 -name 'round-*-codex-run.log' -type f 2>/dev/null)
-        done
+        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
         echo "$latest"
     }
@@ -141,10 +124,11 @@ _humanize_monitor_codex() {
 
         # Priority 2: Look for <STOP_REASON>-state.md files
         # Common stop reasons: completed, failed, cancelled, timeout, error
+        # Use find instead of glob to avoid zsh "no matches found" errors
         local state_file=""
         local stop_reason=""
-        for f in "$session_dir"/*-state.md; do
-            [[ ! -e "$f" ]] && continue
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
             if [[ -f "$f" ]]; then
                 state_file="$f"
                 # Extract stop reason from filename (e.g., "completed-state.md" -> "completed")
@@ -152,7 +136,7 @@ _humanize_monitor_codex() {
                 stop_reason="${basename%-state.md}"
                 break
             fi
-        done
+        done < <(find "$session_dir" -maxdepth 1 -name '*-state.md' -type f 2>/dev/null)
 
         if [[ -n "$state_file" ]]; then
             echo "$state_file|$stop_reason"
