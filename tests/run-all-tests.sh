@@ -44,6 +44,7 @@ TEST_SUITES=(
     "test-allowlist-validators.sh"
     "test-finalize-phase.sh"
     "test-cancel-signal-file.sh"
+    "test-humanize-escape.sh"
 )
 
 for suite in "${TEST_SUITES[@]}"; do
