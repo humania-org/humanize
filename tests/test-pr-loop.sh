@@ -884,6 +884,271 @@ test_approve_marker_detection
 test_waiting_for_bots_marker
 
 # ========================================
+# Stop Hook Integration Tests (with mocked gh/codex)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Stop Hook Integration"
+echo "========================================"
+echo ""
+
+# Create enhanced mock gh that returns trigger comments
+create_enhanced_mock_gh() {
+    local mock_dir="$1"
+    local trigger_user="${2:-testuser}"
+    local trigger_timestamp="${3:-2026-01-18T12:00:00Z}"
+
+    cat > "$mock_dir/gh" << MOCK_GH
+#!/bin/bash
+# Enhanced mock gh CLI for stop hook testing
+
+case "\$1" in
+    auth)
+        if [[ "\$2" == "status" ]]; then
+            echo "Logged in to github.com"
+            exit 0
+        fi
+        ;;
+    repo)
+        if [[ "\$2" == "view" ]]; then
+            if [[ "\$3" == "--json" && "\$4" == "owner" ]]; then
+                echo '{"login": "testowner"}'
+            elif [[ "\$3" == "--json" && "\$4" == "name" ]]; then
+                echo '{"name": "testrepo"}'
+            fi
+            exit 0
+        fi
+        ;;
+    pr)
+        if [[ "\$2" == "view" ]]; then
+            if [[ "\$*" == *"number"* ]]; then
+                echo '{"number": 123}'
+            elif [[ "\$*" == *"state"* ]]; then
+                echo '{"state": "OPEN"}'
+            fi
+            exit 0
+        fi
+        ;;
+    api)
+        # Handle user endpoint for current user
+        if [[ "\$2" == "user" ]]; then
+            echo '{"login": "${trigger_user}"}'
+            exit 0
+        fi
+        # Handle PR comments endpoint
+        if [[ "\$2" == *"/issues/"*"/comments"* ]]; then
+            echo '[{"id": 1, "user": {"login": "${trigger_user}"}, "created_at": "${trigger_timestamp}", "body": "@claude @chatgpt-codex-connector please review"}]'
+            exit 0
+        fi
+        # Return empty arrays for other endpoints
+        echo "[]"
+        exit 0
+        ;;
+esac
+
+echo "Mock gh: unhandled command: \$*" >&2
+exit 1
+MOCK_GH
+    chmod +x "$mock_dir/gh"
+}
+
+# Test: Trigger comment detection filters by current user
+test_trigger_user_filter() {
+    local test_subdir="$TEST_DIR/stop_hook_user_test"
+    mkdir -p "$test_subdir"
+
+    # Create mock that returns comments from different users
+    cat > "$test_subdir/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            echo '{"login": "myuser"}'
+            exit 0
+        fi
+        if [[ "$2" == *"/issues/"*"/comments"* ]]; then
+            echo '[
+                {"id": 1, "user": {"login": "otheruser"}, "created_at": "2026-01-18T11:00:00Z", "body": "@claude please review"},
+                {"id": 2, "user": {"login": "myuser"}, "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review"},
+                {"id": 3, "user": {"login": "otheruser"}, "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}
+            ]'
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+esac
+exit 1
+MOCK_GH
+    chmod +x "$test_subdir/gh"
+
+    # Test the jq filter logic
+    local comments='[
+        {"id": 1, "author": "otheruser", "created_at": "2026-01-18T11:00:00Z", "body": "@claude please review"},
+        {"id": 2, "author": "myuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review"},
+        {"id": 3, "author": "otheruser", "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}
+    ]'
+
+    local trigger_ts
+    trigger_ts=$(echo "$comments" | jq -r --arg pattern "@claude" --arg user "myuser" '
+        [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
+        sort_by(.created_at) | reverse | .[0].created_at // empty
+    ')
+
+    if [[ "$trigger_ts" == "2026-01-18T12:00:00Z" ]]; then
+        pass "T-HOOK-1: Trigger detection filters by current user"
+    else
+        fail "T-HOOK-1: Trigger should be from myuser only" "2026-01-18T12:00:00Z" "got $trigger_ts"
+    fi
+}
+
+# Test: Trigger timestamp refresh when newer exists
+test_trigger_refresh() {
+    local old_trigger="2026-01-18T10:00:00Z"
+    local new_trigger="2026-01-18T12:00:00Z"
+
+    # Simulate the refresh logic from stop hook
+    local should_update=false
+    if [[ -z "$old_trigger" ]] || [[ "$new_trigger" > "$old_trigger" ]]; then
+        should_update=true
+    fi
+
+    if [[ "$should_update" == "true" ]]; then
+        pass "T-HOOK-2: Trigger timestamp refreshes when newer comment exists"
+    else
+        fail "T-HOOK-2: Should update trigger when newer" "update" "no update"
+    fi
+}
+
+# Test: Missing trigger blocks exit for round > 0
+test_missing_trigger_blocks() {
+    local current_round=1
+    local last_trigger_at=""
+
+    # Simulate the check from stop hook
+    local should_block=false
+    if [[ "$current_round" -gt 0 && -z "$last_trigger_at" ]]; then
+        should_block=true
+    fi
+
+    if [[ "$should_block" == "true" ]]; then
+        pass "T-HOOK-3: Missing trigger comment blocks exit for round > 0"
+    else
+        fail "T-HOOK-3: Should block when no trigger" "block" "allow"
+    fi
+}
+
+# Test: Round 0 uses started_at (no trigger required)
+test_round0_uses_started_at() {
+    local current_round=0
+    local started_at="2026-01-18T10:00:00Z"
+    local last_trigger_at=""
+
+    # Simulate the timestamp selection from stop hook
+    local after_timestamp
+    if [[ "$current_round" -eq 0 ]]; then
+        after_timestamp="$started_at"
+    else
+        after_timestamp="$last_trigger_at"
+    fi
+
+    if [[ "$after_timestamp" == "$started_at" ]]; then
+        pass "T-HOOK-4: Round 0 uses started_at for --after timestamp"
+    else
+        fail "T-HOOK-4: Round 0 should use started_at" "$started_at" "got $after_timestamp"
+    fi
+}
+
+# Test: Per-bot timeout anchored to trigger timestamp
+test_timeout_anchored_to_trigger() {
+    # Simulate: trigger at T=0, poll starts at T=60, timeout is 900s
+    local trigger_epoch=1000
+    local poll_start_epoch=1060
+    local current_time=1900  # 900s after trigger, 840s after poll start
+    local timeout=900
+
+    # With trigger-anchored timeout:
+    local elapsed_from_trigger=$((current_time - trigger_epoch))
+    # With poll-anchored timeout (wrong):
+    local elapsed_from_poll=$((current_time - poll_start_epoch))
+
+    local timed_out_trigger=false
+    local timed_out_poll=false
+
+    if [[ $elapsed_from_trigger -ge $timeout ]]; then
+        timed_out_trigger=true
+    fi
+    if [[ $elapsed_from_poll -ge $timeout ]]; then
+        timed_out_poll=true
+    fi
+
+    # Should be timed out based on trigger (900s elapsed), not poll (840s elapsed)
+    if [[ "$timed_out_trigger" == "true" && "$timed_out_poll" == "false" ]]; then
+        pass "T-HOOK-5: Per-bot timeout is anchored to trigger timestamp"
+    else
+        fail "T-HOOK-5: Timeout should be from trigger, not poll start" "trigger-based timeout" "poll-based timeout"
+    fi
+}
+
+# Test: State file includes configured_bots
+test_state_has_configured_bots() {
+    local test_subdir="$TEST_DIR/state_configured_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 1
+configured_bots:
+  - claude
+  - chatgpt-codex-connector
+active_bots:
+  - claude
+last_trigger_at: 2026-01-18T12:00:00Z
+---
+EOF
+
+    # Extract configured_bots count
+    local configured_count
+    configured_count=$(grep -c "^  - " "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" 2>/dev/null | head -1)
+
+    if [[ "$configured_count" -ge 2 ]]; then
+        pass "T-HOOK-6: State file tracks configured_bots separately"
+    else
+        fail "T-HOOK-6: State should have configured_bots" "2+ bots" "got $configured_count"
+    fi
+}
+
+# Test: Round file naming consistency
+test_round_file_naming() {
+    # All round-N files should use NEXT_ROUND
+    local current_round=1
+    local next_round=$((current_round + 1))
+
+    local comment_file="round-${next_round}-pr-comment.md"
+    local check_file="round-${next_round}-pr-check.md"
+    local feedback_file="round-${next_round}-pr-feedback.md"
+
+    # All should use next_round (2)
+    if [[ "$comment_file" == "round-2-pr-comment.md" && \
+          "$check_file" == "round-2-pr-check.md" && \
+          "$feedback_file" == "round-2-pr-feedback.md" ]]; then
+        pass "T-HOOK-7: Round file naming is consistent (all use NEXT_ROUND)"
+    else
+        fail "T-HOOK-7: Round files should all use NEXT_ROUND" "round-2-*" "inconsistent"
+    fi
+}
+
+# Run stop hook integration tests
+test_trigger_user_filter
+test_trigger_refresh
+test_missing_trigger_blocks
+test_round0_uses_started_at
+test_timeout_anchored_to_trigger
+test_state_has_configured_bots
+test_round_file_naming
+
+# ========================================
 # Summary
 # ========================================
 

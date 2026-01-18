@@ -308,11 +308,16 @@ fi
 # Detect Trigger Comment and Update last_trigger_at
 # ========================================
 
-# Find the most recent PR comment that contains bot mentions
+# Get current GitHub user login for trigger comment filtering
+get_current_user() {
+    run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null || echo ""
+}
+
+# Find the most recent PR comment from CURRENT USER that contains bot mentions
 # This timestamp is used for --after filtering to catch fast bot replies
 detect_trigger_comment() {
     local pr_num="$1"
-    local bot_mention="$2"
+    local current_user="$2"
 
     # Fetch recent issue comments on the PR
     local comments_json
@@ -323,7 +328,6 @@ detect_trigger_comment() {
         return 1
     fi
 
-    # Find the most recent comment containing ANY of the configured bot mentions
     # Build pattern to match any @bot mention
     local bot_pattern=""
     for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
@@ -334,10 +338,10 @@ detect_trigger_comment() {
         fi
     done
 
-    # Find most recent trigger comment (sorted by created_at descending)
+    # Find most recent trigger comment from CURRENT USER (sorted by created_at descending)
     local trigger_timestamp
-    trigger_timestamp=$(echo "$comments_json" | jq -r --arg pattern "$bot_pattern" '
-        [.[] | select(.body | test($pattern; "i"))] |
+    trigger_timestamp=$(echo "$comments_json" | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
+        [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
         sort_by(.created_at) | reverse | .[0].created_at // empty
     ')
 
@@ -349,20 +353,58 @@ detect_trigger_comment() {
     return 1
 }
 
-# Try to detect and persist trigger timestamp if not already set
-if [[ -z "$PR_LAST_TRIGGER_AT" ]]; then
-    echo "Detecting trigger comment timestamp..." >&2
-    DETECTED_TRIGGER_AT=$(detect_trigger_comment "$PR_NUMBER" "$PR_BOT_MENTION_STRING") || true
+# Get current user for trigger comment filtering
+CURRENT_USER=$(get_current_user)
+if [[ -z "$CURRENT_USER" ]]; then
+    echo "Warning: Could not determine current GitHub user" >&2
+fi
 
-    if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
+# ALWAYS check for newer trigger comments and update last_trigger_at
+# This ensures we use the most recent trigger, not a stale one
+echo "Detecting trigger comment timestamp from user '$CURRENT_USER'..." >&2
+DETECTED_TRIGGER_AT=$(detect_trigger_comment "$PR_NUMBER" "$CURRENT_USER") || true
+
+if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
+    # Check if detected trigger is newer than stored one
+    if [[ -z "$PR_LAST_TRIGGER_AT" ]] || [[ "$DETECTED_TRIGGER_AT" > "$PR_LAST_TRIGGER_AT" ]]; then
         echo "Found trigger comment at: $DETECTED_TRIGGER_AT" >&2
+        if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
+            echo "  (Updating from older trigger: $PR_LAST_TRIGGER_AT)" >&2
+        fi
         PR_LAST_TRIGGER_AT="$DETECTED_TRIGGER_AT"
 
         # Persist to state file
         TEMP_FILE="${STATE_FILE}.trigger.$$"
         sed "s/^last_trigger_at:.*/last_trigger_at: $DETECTED_TRIGGER_AT/" "$STATE_FILE" > "$TEMP_FILE"
         mv "$TEMP_FILE" "$STATE_FILE"
+    else
+        echo "Using existing trigger timestamp: $PR_LAST_TRIGGER_AT" >&2
     fi
+fi
+
+# ========================================
+# Validate Trigger Comment Exists (Required for Rounds > 0)
+# ========================================
+
+# For round 0, we use started_at. For subsequent rounds, we REQUIRE a trigger comment.
+# This prevents using stale timestamps that could include old bot comments.
+if [[ "$PR_CURRENT_ROUND" -gt 0 && -z "$PR_LAST_TRIGGER_AT" ]]; then
+    REASON="# Missing Trigger Comment
+
+No @bot mention comment found from you on this PR.
+
+Before the Stop Hook can poll for bot reviews, you must comment on the PR to trigger the bots.
+
+**Please run:**
+\`\`\`bash
+gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review the latest changes\"
+\`\`\`
+
+Then try exiting again."
+
+    jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment - please @mention bots first" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
 fi
 
 # ========================================
@@ -378,37 +420,36 @@ echo "Poll interval: ${PR_POLL_INTERVAL}s, Timeout: ${PR_POLL_TIMEOUT}s per bot"
 POLL_SCRIPT="$PLUGIN_ROOT/scripts/poll-pr-reviews.sh"
 
 # Consistent file naming: round-N files all refer to round N
-# Comment file: round-${NEXT_ROUND}-pr-comment.md (polled comments for next round)
-# Check file: round-${NEXT_ROUND}-pr-check.md (Codex analysis for next round)
-# Feedback file: round-${NEXT_ROUND}-pr-feedback.md (instructions for next round)
 COMMENT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-comment.md"
 
-# Get timestamp for filtering
-# Priority: last_trigger_at (when @mention was posted) > started_at > now
-# This ensures we catch fast bot replies immediately after the @mention
-POLL_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
-    # Use the timestamp when @mention was posted (most accurate)
-    AFTER_TIMESTAMP="$PR_LAST_TRIGGER_AT"
-elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
-    # Round 0: use started_at from setup
-    AFTER_TIMESTAMP="${PR_STARTED_AT:-$POLL_START_TIME}"
+# Get timestamp for filtering - MUST use trigger timestamp to avoid stale comments
+# Round 0: use started_at (no trigger comment yet)
+# Round N>0: use last_trigger_at (REQUIRED - validated above)
+if [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
+    AFTER_TIMESTAMP="${PR_STARTED_AT}"
+    echo "Round 0: using started_at for --after: $AFTER_TIMESTAMP" >&2
 else
-    # Fallback: use current time (less ideal but safe)
-    AFTER_TIMESTAMP="$POLL_START_TIME"
+    AFTER_TIMESTAMP="$PR_LAST_TRIGGER_AT"
+    echo "Round $PR_CURRENT_ROUND: using trigger timestamp for --after: $AFTER_TIMESTAMP" >&2
 fi
 
-echo "Using after_timestamp: $AFTER_TIMESTAMP" >&2
+# Convert trigger timestamp to epoch for timeout anchoring
+# Per-bot timeouts are measured from the TRIGGER time, not poll start time
+TRIGGER_EPOCH=$(date -d "$AFTER_TIMESTAMP" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$AFTER_TIMESTAMP" +%s 2>/dev/null || date +%s)
 
 # Track which bots have responded and their individual timeouts
 # IMPORTANT: Poll ALL configured bots (not just active) so we can detect when
 # previously approved bots post new issues and re-add them to active_bots
+# IMPORTANT: Timeouts are anchored to TRIGGER_EPOCH, not poll start time
+# This ensures the 15-minute window is measured from when the @mention was posted
 declare -A BOTS_RESPONDED
 declare -A BOTS_TIMEOUT_START
 POLL_START_EPOCH=$(date +%s)
+echo "Timeout anchor: trigger at epoch $TRIGGER_EPOCH (poll started at $POLL_START_EPOCH)" >&2
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     BOTS_RESPONDED["$bot"]="false"
-    BOTS_TIMEOUT_START["$bot"]="$POLL_START_EPOCH"
+    # Use TRIGGER_EPOCH for timeout, not poll start
+    BOTS_TIMEOUT_START["$bot"]="$TRIGGER_EPOCH"
 done
 
 # Collect all new comments with deduplication by id
