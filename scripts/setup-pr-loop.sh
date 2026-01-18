@@ -31,6 +31,13 @@ GIT_TIMEOUT=30
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
 
+# Source template loader
+HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
+source "$HOOKS_LIB_DIR/template-loader.sh"
+
+# Initialize template directory
+TEMPLATE_DIR="${TEMPLATE_DIR:-$(get_template_dir "$HOOKS_LIB_DIR")}"
+
 # ========================================
 # Parse Arguments
 # ========================================
@@ -375,29 +382,82 @@ RESOLVE_PATH="$LOOP_DIR/round-0-pr-resolve.md"
 # Build display string for active bots
 ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${ACTIVE_BOTS_ARRAY[*]}")
 
-cat > "$LOOP_DIR/round-0-prompt.md" << EOF
-Read and execute below with ultrathink
+# Count comments early to determine prompt type
+COMMENT_COUNT=$(grep -c '^## Comment' "$COMMENT_FILE" 2>/dev/null || echo "0")
+
+# Template variables for rendering
+TEMPLATE_VARS=(
+    "PR_NUMBER=$PR_NUMBER"
+    "START_BRANCH=$START_BRANCH"
+    "ACTIVE_BOTS_DISPLAY=$ACTIVE_BOTS_DISPLAY"
+    "RESOLVE_PATH=$RESOLVE_PATH"
+    "BOT_MENTION_STRING=$BOT_MENTION_STRING"
+)
+
+# Fallback header (used if template fails to load)
+FALLBACK_HEADER="Read and execute below with ultrathink
 
 ## PR Review Loop (Round 0)
 
 You are in a PR review loop monitoring feedback from remote review bots.
 
 **PR Information:**
-- PR Number: #$PR_NUMBER
-- Branch: $START_BRANCH
-- Active Bots: $ACTIVE_BOTS_DISPLAY
+- PR Number: #{{PR_NUMBER}}
+- Branch: {{START_BRANCH}}
+- Active Bots: {{ACTIVE_BOTS_DISPLAY}}
 
 ## Review Comments
 
 The following comments have been fetched from the PR:
+"
 
-EOF
+# Load and render header template
+HEADER_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/round-0-header.md" "$FALLBACK_HEADER" "${TEMPLATE_VARS[@]}")
+
+# Write header to prompt file
+echo "$HEADER_CONTENT" > "$LOOP_DIR/round-0-prompt.md"
 
 # Append the fetched comments
 cat "$COMMENT_FILE" >> "$LOOP_DIR/round-0-prompt.md"
 
-cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
+# Select task template based on whether there are comments
+if [[ "$COMMENT_COUNT" -eq 0 ]]; then
+    # No comments yet - this is a fresh PR, bots will review automatically
+    FALLBACK_TASK="
+---
 
+## Your Task
+
+This PR has no review comments yet. The monitored bots ({{ACTIVE_BOTS_DISPLAY}}) will automatically review the PR - you do NOT need to comment to trigger the first review.
+
+1. **Wait for automatic bot reviews**:
+   - Simply write your summary and try to exit
+   - The Stop Hook will poll for the first bot reviews
+
+2. **Write your initial summary** to: @{{RESOLVE_PATH}}
+   - Note that this is Round 0 awaiting initial bot reviews
+   - No issues to address yet
+
+---
+
+## Important Rules
+
+1. **Do not comment to trigger review**: First reviews are automatic
+2. **Do not modify state files**: The .humanize/pr-loop/ files are managed by the system
+3. **Trust the process**: The Stop Hook manages polling and Codex validation
+
+---
+
+Note: After you write your summary and try to exit, the Stop Hook will:
+1. Poll for bot reviews (every 30 seconds, up to 15 minutes per bot)
+2. When reviews arrive, local Codex will validate if they indicate approval
+3. If issues are found, you will receive feedback and continue
+4. If all bots approve, the loop ends
+"
+    TASK_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/round-0-task-no-comments.md" "$FALLBACK_TASK" "${TEMPLATE_VARS[@]}")
+else
+    # Has comments - normal flow with issues to address
+    FALLBACK_TASK="
 ---
 
 ## Your Task
@@ -416,10 +476,10 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
    - Push to the remote repository
    - Comment on the PR to trigger re-review:
      \`\`\`bash
-     gh pr comment $PR_NUMBER --body "$BOT_MENTION_STRING please review the latest changes"
+     gh pr comment {{PR_NUMBER}} --body \"{{BOT_MENTION_STRING}} please review the latest changes\"
      \`\`\`
 
-4. **Write your resolution summary** to: @$RESOLVE_PATH
+4. **Write your resolution summary** to: @{{RESOLVE_PATH}}
    - List what issues were addressed
    - Files modified
    - Tests added (if any)
@@ -438,9 +498,14 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 Note: After you write your summary and try to exit, the Stop Hook will:
 1. Poll for new bot reviews (every 30 seconds, up to 15 minutes per bot)
 2. When reviews arrive, local Codex will validate if they indicate approval
-3. If issues remain, you'll receive feedback and continue
+3. If issues remain, you will receive feedback and continue
 4. If all bots approve, the loop ends
-EOF
+"
+    TASK_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/round-0-task-has-comments.md" "$FALLBACK_TASK" "${TEMPLATE_VARS[@]}")
+fi
+
+# Append task section to prompt file
+echo "$TASK_CONTENT" >> "$LOOP_DIR/round-0-prompt.md"
 
 # ========================================
 # Output Setup Message
@@ -448,8 +513,6 @@ EOF
 
 # All important work is done. If output fails due to SIGPIPE (pipe closed), exit cleanly.
 trap 'exit 0' PIPE
-
-COMMENT_COUNT=$(grep -c '^## Comment' "$COMMENT_FILE" 2>/dev/null || echo "0")
 
 cat << EOF
 === start-pr-loop activated ===
@@ -481,30 +544,59 @@ EOF
 # Output the initial prompt
 cat "$LOOP_DIR/round-0-prompt.md"
 
+# Output critical requirements based on whether there are comments
 echo ""
-echo "==========================================="
-echo "CRITICAL - Work Completion Requirements"
-echo "==========================================="
-echo ""
-echo "When you complete your work, you MUST:"
-echo ""
-echo "1. COMMIT and PUSH your changes:"
-echo "   - Create a commit with descriptive message"
-echo "   - Push to the remote repository"
-echo ""
-echo "2. Comment on the PR to trigger re-review:"
-echo "   gh pr comment $PR_NUMBER --body \"$BOT_MENTION_STRING please review\""
-echo ""
-echo "3. Write your resolution summary to:"
-echo "   $RESOLVE_PATH"
-echo ""
-echo "   The summary should include:"
-echo "   - Issues addressed"
-echo "   - Files modified"
-echo "   - Tests added (if any)"
-echo ""
-echo "The Stop Hook will then poll for bot reviews."
-echo "==========================================="
+if [[ "$COMMENT_COUNT" -eq 0 ]]; then
+    FALLBACK_CRITICAL="
+===========================================
+CRITICAL - Work Completion Requirements
+===========================================
+
+When you complete your work, you MUST:
+
+1. Write your resolution summary to:
+   {{RESOLVE_PATH}}
+
+   The summary should note:
+   - This is Round 0 awaiting initial bot reviews
+   - No issues to address yet
+
+2. Try to exit - the Stop Hook will poll for bot reviews
+
+DO NOT comment on the PR to trigger review - the bots will
+review automatically since this is a new PR.
+
+The Stop Hook will poll for bot reviews.
+==========================================="
+    CRITICAL_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/critical-requirements-no-comments.md" "$FALLBACK_CRITICAL" "${TEMPLATE_VARS[@]}")
+else
+    FALLBACK_CRITICAL="
+===========================================
+CRITICAL - Work Completion Requirements
+===========================================
+
+When you complete your work, you MUST:
+
+1. COMMIT and PUSH your changes:
+   - Create a commit with descriptive message
+   - Push to the remote repository
+
+2. Comment on the PR to trigger re-review:
+   gh pr comment {{PR_NUMBER}} --body \"{{BOT_MENTION_STRING}} please review\"
+
+3. Write your resolution summary to:
+   {{RESOLVE_PATH}}
+
+   The summary should include:
+   - Issues addressed
+   - Files modified
+   - Tests added (if any)
+
+The Stop Hook will then poll for bot reviews.
+==========================================="
+    CRITICAL_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/critical-requirements-has-comments.md" "$FALLBACK_CRITICAL" "${TEMPLATE_VARS[@]}")
+fi
+echo "$CRITICAL_CONTENT"
 
 # Explicit exit 0 to ensure clean exit code even if final output fails
 exit 0
