@@ -22,6 +22,7 @@ set -euo pipefail
 PR_NUMBER=""
 OUTPUT_FILE=""
 AFTER_TIMESTAMP=""
+ACTIVE_BOTS=""  # Comma-separated list of active bots for grouping
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -31,6 +32,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             AFTER_TIMESTAMP="$2"
+            shift 2
+            ;;
+        --bots)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --bots requires a comma-separated list of bot names" >&2
+                exit 1
+            fi
+            ACTIVE_BOTS="$2"
             shift 2
             ;;
         -h|--help)
@@ -46,6 +55,7 @@ ARGUMENTS:
 
 OPTIONS:
   --after <timestamp>   Only include comments after this ISO 8601 timestamp
+  --bots <bot1,bot2>    Comma-separated list of active bots for grouping
   -h, --help            Show this help message
 
 OUTPUT FORMAT:
@@ -55,7 +65,9 @@ OUTPUT FORMAT:
   - Timestamp
   - Content
 
-  Comments are sorted newest first, with human comments before bot comments.
+  Comments are deduplicated by ID and sorted newest first.
+  Human comments come before bot comments.
+  If --bots is provided, bot comments are grouped by bot.
 HELP_EOF
             exit 0
             ;;
@@ -137,6 +149,9 @@ PR_REVIEWS_FILE="$TEMP_DIR/pr_reviews.json"
 MAX_RETRIES=3
 RETRY_DELAY=2
 
+# Track API failures for strict mode
+API_FAILURES=0
+
 # Function to fetch with retries
 fetch_with_retry() {
     local endpoint="$1"
@@ -153,8 +168,9 @@ fetch_with_retry() {
             echo "Warning: Failed to fetch $description (attempt $attempt/$MAX_RETRIES), retrying in ${RETRY_DELAY}s..." >&2
             sleep "$RETRY_DELAY"
         else
-            echo "Warning: Failed to fetch $description after $MAX_RETRIES attempts" >&2
+            echo "ERROR: Failed to fetch $description after $MAX_RETRIES attempts" >&2
             echo "[]" > "$output_file"
+            API_FAILURES=$((API_FAILURES + 1))
         fi
         ((attempt++))
     done
@@ -271,9 +287,9 @@ jq -r --arg type "pr_review" '
     end
 ' "$PR_REVIEWS_FILE" > "$TEMP_DIR/reviews_processed.jsonl" 2>/dev/null || true
 
-# Combine all processed comments
+# Combine all processed comments and deduplicate by id
 cat "$TEMP_DIR/issue_processed.jsonl" "$TEMP_DIR/review_processed.jsonl" "$TEMP_DIR/reviews_processed.jsonl" 2>/dev/null | \
-    jq -s '.' > "$ALL_COMMENTS_FILE"
+    jq -s 'unique_by(.id)' > "$ALL_COMMENTS_FILE"
 
 # Filter by timestamp if provided
 if [[ -n "$AFTER_TIMESTAMP" ]]; then
@@ -309,7 +325,7 @@ else
     echo "" >> "$OUTPUT_FILE"
 
     # First pass: human comments
-    jq -r '
+    HUMAN_COMMENTS=$(jq -r '
         .[] | select(.author_type != "Bot" and (.author | test("\\[bot\\]$") | not)) |
         "### Comment from \(.author)\n\n" +
         "- **Type**: \(.type | gsub("_"; " "))\n" +
@@ -317,27 +333,74 @@ else
         (if .path then "- **File**: `\(.path)`\(if .line then " (line \(.line))" else "" end)\n" else "" end) +
         (if .state then "- **Status**: \(.state)\n" else "" end) +
         "\n\(.body)\n\n---\n"
-    ' "$TEMP_DIR/sorted.json" >> "$OUTPUT_FILE" 2>/dev/null || true
+    ' "$TEMP_DIR/sorted.json" 2>/dev/null || true)
 
-    echo "" >> "$OUTPUT_FILE"
-    echo "## Bot Comments" >> "$OUTPUT_FILE"
+    if [[ -n "$HUMAN_COMMENTS" ]]; then
+        echo "$HUMAN_COMMENTS" >> "$OUTPUT_FILE"
+    else
+        echo "*No human comments.*" >> "$OUTPUT_FILE"
+        echo "" >> "$OUTPUT_FILE"
+    fi
+
     echo "" >> "$OUTPUT_FILE"
 
     # Second pass: bot comments
-    jq -r '
-        .[] | select(.author_type == "Bot" or (.author | test("\\[bot\\]$"))) |
-        "### Comment from \(.author) [bot]\n\n" +
-        "- **Type**: \(.type | gsub("_"; " "))\n" +
-        "- **Time**: \(.created_at)\n" +
-        (if .path then "- **File**: `\(.path)`\(if .line then " (line \(.line))" else "" end)\n" else "" end) +
-        (if .state then "- **Status**: \(.state)\n" else "" end) +
-        "\n\(.body)\n\n---\n"
-    ' "$TEMP_DIR/sorted.json" >> "$OUTPUT_FILE" 2>/dev/null || true
+    if [[ -n "$ACTIVE_BOTS" ]]; then
+        # Group bot comments by active bots
+        echo "## Bot Comments (Grouped by Bot)" >> "$OUTPUT_FILE"
+        echo "" >> "$OUTPUT_FILE"
+
+        IFS=',' read -ra BOT_ARRAY <<< "$ACTIVE_BOTS"
+        for bot in "${BOT_ARRAY[@]}"; do
+            bot=$(echo "$bot" | tr -d ' ')
+            echo "### Comments from ${bot}[bot]" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+
+            BOT_COMMENTS=$(jq -r --arg bot "$bot" --arg botfull "${bot}[bot]" '
+                [.[] | select(.author == $bot or .author == $botfull or .author == ($bot + "[bot]"))] |
+                if length == 0 then
+                    "*No comments from this bot.*\n"
+                else
+                    .[] |
+                    "#### Comment\n\n" +
+                    "- **Type**: \(.type | gsub("_"; " "))\n" +
+                    "- **Time**: \(.created_at)\n" +
+                    (if .path then "- **File**: `\(.path)`\(if .line then " (line \(.line))" else "" end)\n" else "" end) +
+                    (if .state then "- **Status**: \(.state)\n" else "" end) +
+                    "\n\(.body)\n\n---\n"
+                end
+            ' "$TEMP_DIR/sorted.json" 2>/dev/null || echo "*Error reading comments.*")
+
+            echo "$BOT_COMMENTS" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+        done
+    else
+        # Default: all bot comments together
+        echo "## Bot Comments" >> "$OUTPUT_FILE"
+        echo "" >> "$OUTPUT_FILE"
+
+        jq -r '
+            .[] | select(.author_type == "Bot" or (.author | test("\\[bot\\]$"))) |
+            "### Comment from \(.author)\n\n" +
+            "- **Type**: \(.type | gsub("_"; " "))\n" +
+            "- **Time**: \(.created_at)\n" +
+            (if .path then "- **File**: `\(.path)`\(if .line then " (line \(.line))" else "" end)\n" else "" end) +
+            (if .state then "- **Status**: \(.state)\n" else "" end) +
+            "\n\(.body)\n\n---\n"
+        ' "$TEMP_DIR/sorted.json" >> "$OUTPUT_FILE" 2>/dev/null || true
+    fi
 fi
 
 echo "" >> "$OUTPUT_FILE"
 echo "---" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 echo "*End of comments*" >> "$OUTPUT_FILE"
+
+# Report API failures (non-fatal but logged)
+if [[ $API_FAILURES -gt 0 ]]; then
+    echo "WARNING: $API_FAILURES API endpoint(s) failed after retries. Some comments may be missing." >&2
+    echo "" >> "$OUTPUT_FILE"
+    echo "**Warning:** Some API calls failed. Comments may be incomplete." >> "$OUTPUT_FILE"
+fi
 
 exit 0

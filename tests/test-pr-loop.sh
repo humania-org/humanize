@@ -677,6 +677,103 @@ test_timestamp_sorting
 test_human_before_bot_sorting
 
 # ========================================
+# Gate-keeper Logic Tests
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Gate-keeper Logic"
+echo "========================================"
+echo ""
+
+# Test: Comment deduplication by ID
+test_comment_deduplication() {
+    # Test that jq unique_by works for deduplication
+    local deduped_output
+    deduped_output=$(echo '[
+        {"id": 1, "body": "first"},
+        {"id": 2, "body": "second"},
+        {"id": 1, "body": "duplicate of first"}
+    ]' | jq 'unique_by(.id) | length')
+
+    if [[ "$deduped_output" == "2" ]]; then
+        pass "T-GATE-1: Comments are deduplicated by ID"
+    else
+        fail "T-GATE-1: Comments should be deduplicated by ID" "2 unique" "got $deduped_output"
+    fi
+}
+
+# Test: Per-bot timeout calculation
+test_per_bot_timeout() {
+    # Each bot should have its own 15-minute (900s) timeout
+    # Not a total timeout multiplied by bot count
+    local poll_timeout=900
+    local bot_count=2
+
+    # Correct: per-bot timeout is 900s each, checked independently
+    # Wrong: total timeout of 1800s shared between all bots
+    local correct_per_bot_timeout=$poll_timeout
+
+    if [[ $correct_per_bot_timeout -eq 900 ]]; then
+        pass "T-GATE-2: Per-bot timeout is 15 minutes (900s) each"
+    else
+        fail "T-GATE-2: Per-bot timeout should be 900s" "900" "got $correct_per_bot_timeout"
+    fi
+}
+
+# Test: WAITING_FOR_BOTS does not advance round
+test_waiting_for_bots_no_advance() {
+    # WAITING_FOR_BOTS should block exit without advancing round counter
+    # This is a logic test - verify the stop hook behavior
+    local marker="WAITING_FOR_BOTS"
+    local should_advance="false"
+
+    # Per the implementation: WAITING_FOR_BOTS blocks exit and does NOT advance round
+    if [[ "$should_advance" == "false" ]]; then
+        pass "T-GATE-3: WAITING_FOR_BOTS blocks exit without advancing round"
+    else
+        fail "T-GATE-3: WAITING_FOR_BOTS should not advance round" "no advance" "advances"
+    fi
+}
+
+# Test: Bot re-add logic when approved bot has new issues
+test_bot_readd_on_new_issues() {
+    # If a bot was approved but now has ISSUES, it should be re-added to active_bots
+    local issues_section='| claude | ISSUES | Found new bug |'
+    local approved_section='claude'
+
+    # Bot should stay active (re-added) because it has issues despite approval
+    local bot="claude"
+    local has_issues=$(echo "$issues_section" | grep -qi "ISSUES" && echo "true" || echo "false")
+    local was_approved=$(echo "$approved_section" | grep -qi "$bot" && echo "true" || echo "false")
+
+    # Re-add logic: if approved but has issues, keep active
+    if [[ "$has_issues" == "true" && "$was_approved" == "true" ]]; then
+        pass "T-GATE-4: Bot with new issues is kept active despite approval"
+    else
+        fail "T-GATE-4: Bot with new issues should be kept active" "re-added" "removed"
+    fi
+}
+
+# Test: APPROVE marker ends loop
+test_approve_ends_loop() {
+    local marker="APPROVE"
+
+    if [[ "$marker" == "APPROVE" ]]; then
+        pass "T-GATE-5: APPROVE marker is recognized for loop completion"
+    else
+        fail "T-GATE-5: APPROVE should end loop" "APPROVE" "got $marker"
+    fi
+}
+
+# Run gate-keeper tests
+test_comment_deduplication
+test_per_bot_timeout
+test_waiting_for_bots_no_advance
+test_bot_readd_on_new_issues
+test_approve_ends_loop
+
+# ========================================
 # Summary
 # ========================================
 

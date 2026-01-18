@@ -104,6 +104,7 @@ parse_pr_loop_state() {
     PR_POLL_INTERVAL=$(echo "$STATE_FRONTMATTER" | grep "^poll_interval:" | sed "s/poll_interval: *//" | tr -d ' ' || true)
     PR_POLL_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^poll_timeout:" | sed "s/poll_timeout: *//" | tr -d ' ' || true)
     PR_STARTED_AT=$(echo "$STATE_FRONTMATTER" | grep "^started_at:" | sed "s/started_at: *//" || true)
+    PR_LAST_TRIGGER_AT=$(echo "$STATE_FRONTMATTER" | grep "^last_trigger_at:" | sed "s/last_trigger_at: *//" || true)
 
     # Parse active_bots as YAML list (lines starting with "  - ")
     # Extract lines between "active_bots:" and next field, then parse list items
@@ -293,54 +294,80 @@ echo "Poll interval: ${PR_POLL_INTERVAL}s, Timeout: ${PR_POLL_TIMEOUT}s per bot"
 
 POLL_SCRIPT="$PLUGIN_ROOT/scripts/poll-pr-reviews.sh"
 
-# Use correct file naming: round-N-pr-comment.md
-COMMENT_FILE="$LOOP_DIR/round-${PR_CURRENT_ROUND}-pr-comment.md"
+# Use correct file naming: round-(N+1)-pr-comment.md for NEW comments this round
+# The current round's pr-comment already exists from setup/previous feedback
+COMMENT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-comment.md"
 
-# Get timestamp for filtering (use resolve file mtime or started_at)
+# Get timestamp for filtering
+# Priority: last_trigger_at (when @mention was posted) > started_at > now
+# This ensures we catch fast bot replies immediately after the @mention
 POLL_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if [[ "$PR_CURRENT_ROUND" -gt 0 && -f "$RESOLVE_FILE" ]]; then
-    if [[ "$(uname)" == "Darwin" ]]; then
-        AFTER_TIMESTAMP=$(stat -f "%Sm" -t "%Y-%m-%dT%H:%M:%SZ" "$RESOLVE_FILE" 2>/dev/null || echo "$POLL_START_TIME")
-    else
-        AFTER_TIMESTAMP=$(stat -c "%y" "$RESOLVE_FILE" 2>/dev/null | sed 's/ /T/;s/\..*$/Z/' || echo "$POLL_START_TIME")
-    fi
-else
+if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
+    # Use the timestamp when @mention was posted (most accurate)
+    AFTER_TIMESTAMP="$PR_LAST_TRIGGER_AT"
+elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
+    # Round 0: use started_at from setup
     AFTER_TIMESTAMP="${PR_STARTED_AT:-$POLL_START_TIME}"
+else
+    # Fallback: use current time (less ideal but safe)
+    AFTER_TIMESTAMP="$POLL_START_TIME"
 fi
 
-# Track which bots have responded
+echo "Using after_timestamp: $AFTER_TIMESTAMP" >&2
+
+# Track which bots have responded and their individual timeouts
 declare -A BOTS_RESPONDED
+declare -A BOTS_TIMEOUT_START
+POLL_START_EPOCH=$(date +%s)
 for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
     BOTS_RESPONDED["$bot"]="false"
+    BOTS_TIMEOUT_START["$bot"]="$POLL_START_EPOCH"
 done
 
-# Collect all new comments
+# Collect all new comments with deduplication by id
+declare -A SEEN_COMMENT_IDS
 ALL_NEW_COMMENTS="[]"
 
-# Poll until ALL active bots respond (with per-bot timeout)
-TOTAL_POLL_START=$(date +%s)
-MAX_TOTAL_TIMEOUT=$((PR_POLL_TIMEOUT * ${#PR_ACTIVE_BOTS_ARRAY[@]}))
-
 while true; do
-    # Check if all bots have responded
-    ALL_RESPONDED=true
+    CURRENT_TIME=$(date +%s)
+
+    # Check if all bots have responded OR timed out (per-bot 15min timeout)
+    ALL_DONE=true
+    WAITING_BOTS=""
+    TIMED_OUT_BOTS=""
+
     for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-        if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
-            ALL_RESPONDED=false
-            break
+        if [[ "${BOTS_RESPONDED[$bot]}" == "true" ]]; then
+            continue  # Bot already responded
+        fi
+
+        # Check per-bot timeout (15 minutes each)
+        BOT_ELAPSED=$((CURRENT_TIME - BOTS_TIMEOUT_START[$bot]))
+        if [[ $BOT_ELAPSED -ge $PR_POLL_TIMEOUT ]]; then
+            echo "Bot '$bot' timed out after ${PR_POLL_TIMEOUT}s" >&2
+            if [[ -n "$TIMED_OUT_BOTS" ]]; then
+                TIMED_OUT_BOTS="${TIMED_OUT_BOTS}, ${bot}"
+            else
+                TIMED_OUT_BOTS="$bot"
+            fi
+            continue  # Mark as done (timed out)
+        fi
+
+        # Bot still waiting
+        ALL_DONE=false
+        if [[ -n "$WAITING_BOTS" ]]; then
+            WAITING_BOTS="${WAITING_BOTS},${bot}"
+        else
+            WAITING_BOTS="$bot"
         fi
     done
 
-    if [[ "$ALL_RESPONDED" == "true" ]]; then
-        echo "All active bots have responded!" >&2
-        break
-    fi
-
-    # Check total timeout
-    CURRENT_TIME=$(date +%s)
-    ELAPSED=$((CURRENT_TIME - TOTAL_POLL_START))
-    if [[ $ELAPSED -ge $MAX_TOTAL_TIMEOUT ]]; then
-        echo "Total poll timeout reached ($MAX_TOTAL_TIMEOUT seconds)." >&2
+    if [[ "$ALL_DONE" == "true" ]]; then
+        if [[ -n "$TIMED_OUT_BOTS" ]]; then
+            echo "Polling complete. Timed out bots: $TIMED_OUT_BOTS" >&2
+        else
+            echo "All active bots have responded!" >&2
+        fi
         break
     fi
 
@@ -350,21 +377,10 @@ while true; do
         exit 0
     fi
 
-    echo "Poll attempt (elapsed: ${ELAPSED}s / ${MAX_TOTAL_TIMEOUT}s)..." >&2
+    TOTAL_ELAPSED=$((CURRENT_TIME - POLL_START_EPOCH))
+    echo "Poll attempt (elapsed: ${TOTAL_ELAPSED}s, waiting for: $WAITING_BOTS)..." >&2
 
-    # Build comma-separated list of bots we're still waiting for
-    WAITING_BOTS=""
-    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-        if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
-            if [[ -n "$WAITING_BOTS" ]]; then
-                WAITING_BOTS="${WAITING_BOTS},${bot}"
-            else
-                WAITING_BOTS="$bot"
-            fi
-        fi
-    done
-
-    # Poll for new comments from bots we're waiting for
+    # Poll for new comments from bots we're still waiting for
     POLL_RESULT=$("$POLL_SCRIPT" "$PR_NUMBER" --after "$AFTER_TIMESTAMP" --bots "$WAITING_BOTS" 2>/dev/null) || {
         echo "Warning: Poll script failed, retrying..." >&2
         sleep "$PR_POLL_INTERVAL"
@@ -378,16 +394,31 @@ while true; do
         responded_bot_clean=$(echo "$responded_bot" | sed 's/\[bot\]$//')
         for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
             if [[ "$responded_bot_clean" == "$bot" || "$responded_bot" == "${bot}[bot]" ]]; then
-                BOTS_RESPONDED["$bot"]="true"
-                echo "Bot '$bot' has responded!" >&2
+                if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
+                    BOTS_RESPONDED["$bot"]="true"
+                    echo "Bot '$bot' has responded!" >&2
+                fi
             fi
         done
     done
 
-    # Collect new comments
+    # Collect new comments WITH DEDUPLICATION by comment id
     NEW_COMMENTS=$(echo "$POLL_RESULT" | jq -r '.comments' 2>/dev/null || echo "[]")
     if [[ "$NEW_COMMENTS" != "[]" && "$NEW_COMMENTS" != "null" ]]; then
-        ALL_NEW_COMMENTS=$(echo "$ALL_NEW_COMMENTS $NEW_COMMENTS" | jq -s 'add')
+        # Deduplicate: only add comments we haven't seen before
+        UNIQUE_COMMENTS="[]"
+        while IFS= read -r comment_json; do
+            [[ -z "$comment_json" || "$comment_json" == "null" ]] && continue
+            COMMENT_ID=$(echo "$comment_json" | jq -r '.id // empty')
+            if [[ -n "$COMMENT_ID" && -z "${SEEN_COMMENT_IDS[$COMMENT_ID]:-}" ]]; then
+                SEEN_COMMENT_IDS["$COMMENT_ID"]="1"
+                UNIQUE_COMMENTS=$(echo "$UNIQUE_COMMENTS" | jq --argjson c "$comment_json" '. + [$c]')
+            fi
+        done < <(echo "$NEW_COMMENTS" | jq -c '.[]')
+
+        if [[ "$UNIQUE_COMMENTS" != "[]" ]]; then
+            ALL_NEW_COMMENTS=$(echo "$ALL_NEW_COMMENTS $UNIQUE_COMMENTS" | jq -s 'add')
+        fi
     fi
 
     sleep "$PR_POLL_INTERVAL"
@@ -489,8 +520,10 @@ echo "Comments saved to: $COMMENT_FILE" >&2
 # Run Local Codex Review of Bot Feedback
 # ========================================
 
+# Check file uses current round (analysis of this round's bot responses)
+# Feedback file uses NEXT round (instructions for the next iteration)
 CHECK_FILE="$LOOP_DIR/round-${PR_CURRENT_ROUND}-pr-check.md"
-FEEDBACK_FILE="$LOOP_DIR/round-${PR_CURRENT_ROUND}-pr-feedback.md"
+FEEDBACK_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-feedback.md"
 
 echo "Running local Codex review of bot feedback..." >&2
 
@@ -612,6 +645,29 @@ if [[ "$LAST_LINE_TRIMMED" == "APPROVE" ]]; then
     exit 0
 fi
 
+# Handle WAITING_FOR_BOTS - block exit but don't advance round
+if [[ "$LAST_LINE_TRIMMED" == "WAITING_FOR_BOTS" ]]; then
+    echo "Some bots haven't responded yet. Blocking exit." >&2
+
+    REASON="# Waiting for Bot Responses
+
+Some bots haven't posted their reviews yet.
+
+**Options:**
+1. Wait and try exiting again (bots may still be processing)
+2. Comment on the PR to trigger bot reviews:
+   \`\`\`bash
+   gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review the latest changes\"
+   \`\`\`
+3. Cancel the loop: \`/humanize:cancel-pr-loop\`
+
+**Note:** The round counter will NOT advance until all expected bots respond."
+
+    jq -n --arg reason "$REASON" --arg msg "PR Loop: Waiting for bot responses" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
 # ========================================
 # Update active_bots in state file
 # ========================================
@@ -620,13 +676,39 @@ fi
 # Look for "### Approved Bots" section
 APPROVED_SECTION=$(sed -n '/### Approved Bots/,/^###/p' "$CHECK_FILE" | grep -v '^###' || true)
 
-# Build new active_bots array
+# Extract bots with issues from Codex output (for re-add logic)
+# Look for "### Per-Bot Status" table and find bots with ISSUES status
+ISSUES_SECTION=$(sed -n '/### Per-Bot Status/,/^###/p' "$CHECK_FILE" || true)
+
+# Build new active_bots array with re-add logic
+# 1. Remove bots that are approved
+# 2. Re-add bots that have new issues (even if previously removed)
 declare -a NEW_ACTIVE_BOTS=()
+declare -A BOTS_WITH_ISSUES=()
+
+# First, identify bots with issues from Codex output
+while IFS= read -r line; do
+    if echo "$line" | grep -qiE '\|[[:space:]]*ISSUES[[:space:]]*\|'; then
+        # Extract bot name from table row: | botname | ISSUES | summary |
+        BOT_WITH_ISSUE=$(echo "$line" | sed 's/|/\n/g' | sed -n '2p' | tr -d ' ')
+        if [[ -n "$BOT_WITH_ISSUE" ]]; then
+            BOTS_WITH_ISSUES["$BOT_WITH_ISSUE"]="true"
+        fi
+    fi
+done <<< "$ISSUES_SECTION"
+
+# Process each currently active bot
 for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-    # Check if this bot is in the approved list
     if echo "$APPROVED_SECTION" | grep -qi "$bot"; then
-        echo "Removing '$bot' from active_bots (approved)" >&2
+        # Bot is approved - but check if it also has new issues (re-add)
+        if [[ "${BOTS_WITH_ISSUES[$bot]:-}" == "true" ]]; then
+            echo "Bot '$bot' was approved but has new issues - keeping active" >&2
+            NEW_ACTIVE_BOTS+=("$bot")
+        else
+            echo "Removing '$bot' from active_bots (approved)" >&2
+        fi
     else
+        # Bot not approved - keep it
         NEW_ACTIVE_BOTS+=("$bot")
     fi
 done
@@ -641,7 +723,7 @@ for bot in "${NEW_ACTIVE_BOTS[@]}"; do
   - ${bot}"
 done
 
-# Create updated state file
+# Create updated state file (with last_trigger_at cleared - will be set when next @mention posted)
 {
     echo "---"
     echo "current_round: $NEXT_ROUND"
@@ -655,6 +737,7 @@ done
     echo "poll_interval: $PR_POLL_INTERVAL"
     echo "poll_timeout: $PR_POLL_TIMEOUT"
     echo "started_at: $PR_STARTED_AT"
+    echo "last_trigger_at:"
     echo "---"
 } > "$TEMP_FILE"
 mv "$TEMP_FILE" "$STATE_FILE"

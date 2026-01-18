@@ -324,8 +324,11 @@ mkdir -p "$LOOP_DIR"
 
 COMMENT_FILE="$LOOP_DIR/round-0-pr-comment.md"
 
-# Call fetch-pr-comments.sh to get all comments
-"$SCRIPT_DIR/fetch-pr-comments.sh" "$PR_NUMBER" "$COMMENT_FILE"
+# Build comma-separated bot list for fetch script
+BOTS_COMMA_LIST=$(IFS=','; echo "${ACTIVE_BOTS_ARRAY[*]}")
+
+# Call fetch-pr-comments.sh to get all comments, grouped by active bots
+"$SCRIPT_DIR/fetch-pr-comments.sh" "$PR_NUMBER" "$COMMENT_FILE" --bots "$BOTS_COMMA_LIST"
 
 # ========================================
 # Create State File

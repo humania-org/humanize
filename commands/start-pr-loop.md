@@ -38,11 +38,14 @@ Comments are processed in this order:
 
 1. Analyze PR comments and fix issues
 2. Commit and push changes
-3. Comment on PR to trigger re-review: `gh pr comment <PR> --body "@claude @chatgpt-codex-connector please review"`
+3. Comment on PR to trigger re-review using the bot mentions shown in the prompt
 4. Write resolution summary to the specified file
 5. Try to exit - Stop Hook intercepts and polls for bot reviews
 6. If issues remain, receive feedback and continue
 7. If all bots approve, loop ends
+
+**Note:** The setup script provides the exact mention string to use (e.g., `@claude @chatgpt-codex-connector`).
+Use whatever bot mentions are shown in the initial prompt - they match the flags you provided.
 
 ## Important Rules
 
