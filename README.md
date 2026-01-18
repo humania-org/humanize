@@ -91,14 +91,16 @@ flowchart LR
 #### start-rlcr-loop
 
 ```
-/humanize:start-rlcr-loop <path/to/plan.md> [OPTIONS]
+/humanize:start-rlcr-loop [path/to/plan.md | --plan-file path/to/plan.md] [OPTIONS]
 
 OPTIONS:
+  --plan-file <path>     Explicit plan file path (alternative to positional arg)
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
                          Codex model and reasoning effort (default: gpt-5.2-codex:high)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 5400)
+  --track-plan-file      Indicate plan file should be tracked in git (must be clean)
   --push-every-round     Require git push after each round (default: commits stay local)
   -h, --help             Show help message
 ```
