@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1001,
+    "user": {
+      "login": "humanuser",
+      "type": "User"
+    },
+    "created_at": "2026-01-18T10:00:00Z",
+    "body": "Please fix the bug in the login flow"
+  },
+  {
+    "id": 1002,
+    "user": {
+      "login": "claude[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-01-18T11:00:00Z",
+    "body": "I've reviewed the code and found the following issues:\n\n1. Missing null check on line 42\n2. Race condition in authentication handler"
+  },
+  {
+    "id": 1003,
+    "user": {
+      "login": "testuser",
+      "type": "User"
+    },
+    "created_at": "2026-01-18T12:00:00Z",
+    "body": "@claude @codex please review"
+  }
+]

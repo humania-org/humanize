@@ -1633,6 +1633,206 @@ test_approval_only_review_captured
 test_approval_polls_correctly
 
 # ========================================
+# Fixture-Backed Fetch/Poll Tests (AC-12)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Fetch/Poll with Fixture-Backed Mock GH"
+echo "========================================"
+echo ""
+
+# Set up fixture-backed mock gh
+setup_fixture_mock_gh() {
+    local mock_bin_dir="$TEST_DIR/mock_bin"
+    local fixtures_dir="$SCRIPT_DIR/fixtures"
+
+    # Create the mock gh
+    "$SCRIPT_DIR/setup-fixture-mock-gh.sh" "$mock_bin_dir" "$fixtures_dir" > /dev/null
+
+    echo "$mock_bin_dir"
+}
+
+# Test: fetch-pr-comments.sh returns all comment types including approval-only reviews
+test_fetch_pr_comments_with_fixtures() {
+    cd "$TEST_DIR"
+
+    local mock_bin_dir
+    mock_bin_dir=$(setup_fixture_mock_gh)
+
+    # Run fetch-pr-comments.sh with mock gh in PATH
+    local output_file="$TEST_DIR/pr-comments.md"
+    PATH="$mock_bin_dir:$PATH" "$PROJECT_ROOT/scripts/fetch-pr-comments.sh" 123 "$output_file"
+
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        fail "T-FIXTURE-1: fetch-pr-comments.sh should succeed" "exit=0" "exit=$exit_code"
+        return
+    fi
+
+    if [[ ! -f "$output_file" ]]; then
+        fail "T-FIXTURE-1: Output file should exist" "file exists" "file not found"
+        return
+    fi
+
+    # Check for issue comments
+    if ! grep -q "humanuser" "$output_file"; then
+        fail "T-FIXTURE-1: Output should contain human issue comment" "humanuser comment" "not found"
+        return
+    fi
+
+    # Check for review comments (inline code comments)
+    if ! grep -q "const instead of let" "$output_file"; then
+        fail "T-FIXTURE-1: Output should contain inline review comment" "const instead of let" "not found"
+        return
+    fi
+
+    # Check for approval-only PR reviews with placeholder
+    if ! grep -q "\[Review state: APPROVED\]" "$output_file"; then
+        fail "T-FIXTURE-1: Output should contain approval-only review with placeholder" "[Review state: APPROVED]" "not found"
+        return
+    fi
+
+    pass "T-FIXTURE-1: fetch-pr-comments.sh returns all comment types including approval-only"
+    cd "$SCRIPT_DIR"
+}
+
+# Test: fetch-pr-comments.sh respects --after timestamp filter
+test_fetch_pr_comments_after_filter() {
+    cd "$TEST_DIR"
+
+    local mock_bin_dir
+    mock_bin_dir=$(setup_fixture_mock_gh)
+
+    # Run with --after filter (after 12:00, should exclude early comments)
+    local output_file="$TEST_DIR/pr-comments-filtered.md"
+    PATH="$mock_bin_dir:$PATH" "$PROJECT_ROOT/scripts/fetch-pr-comments.sh" 123 "$output_file" --after "2026-01-18T12:00:00Z"
+
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        fail "T-FIXTURE-2: fetch-pr-comments.sh --after should succeed" "exit=0" "exit=$exit_code"
+        return
+    fi
+
+    # Should include late comments (13:00+ approvals)
+    if ! grep -q "\[Review state: APPROVED\]" "$output_file"; then
+        fail "T-FIXTURE-2: Should include late approval-only review" "[Review state: APPROVED]" "not found"
+        return
+    fi
+
+    # Should NOT include early human comment from 09:00
+    # (humanreviewer's "LGTM!" was at 09:00)
+    if grep -q "LGTM" "$output_file"; then
+        fail "T-FIXTURE-2: Should exclude comments before --after timestamp" "no LGTM" "LGTM found"
+        return
+    fi
+
+    pass "T-FIXTURE-2: fetch-pr-comments.sh --after filter works correctly"
+    cd "$SCRIPT_DIR"
+}
+
+# Test: poll-pr-reviews.sh returns JSON with approval-only reviews
+test_poll_pr_reviews_with_fixtures() {
+    cd "$TEST_DIR"
+
+    local mock_bin_dir
+    mock_bin_dir=$(setup_fixture_mock_gh)
+
+    # Run poll-pr-reviews.sh with mock gh in PATH
+    # Use early timestamp to catch all bot reviews
+    local output
+    output=$(PATH="$mock_bin_dir:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews.sh" 123 \
+        --after "2026-01-18T10:00:00Z" \
+        --bots "claude,codex")
+
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        fail "T-FIXTURE-3: poll-pr-reviews.sh should succeed" "exit=0" "exit=$exit_code"
+        return
+    fi
+
+    # Validate JSON structure
+    if ! echo "$output" | jq . > /dev/null 2>&1; then
+        fail "T-FIXTURE-3: Output should be valid JSON" "valid JSON" "invalid JSON"
+        return
+    fi
+
+    # Check for approval-only reviews in comments
+    local has_placeholder
+    has_placeholder=$(echo "$output" | jq '[.comments[]? | select(.body | test("\\[Review state:"))] | length')
+
+    if [[ "$has_placeholder" -lt 1 ]]; then
+        fail "T-FIXTURE-3: Should include approval-only reviews with placeholder" ">=1" "$has_placeholder"
+        return
+    fi
+
+    # Check bots_responded includes both bots
+    local bots_count
+    bots_count=$(echo "$output" | jq '.bots_responded | length')
+
+    if [[ "$bots_count" -lt 1 ]]; then
+        fail "T-FIXTURE-3: Should have bots in bots_responded" ">=1" "$bots_count"
+        return
+    fi
+
+    pass "T-FIXTURE-3: poll-pr-reviews.sh returns approval-only reviews in JSON"
+    cd "$SCRIPT_DIR"
+}
+
+# Test: poll-pr-reviews.sh filters by --after timestamp correctly
+test_poll_pr_reviews_after_filter() {
+    cd "$TEST_DIR"
+
+    local mock_bin_dir
+    mock_bin_dir=$(setup_fixture_mock_gh)
+
+    # Use timestamp that filters out early CHANGES_REQUESTED (11:00)
+    # but includes late APPROVED reviews (13:00, 13:30)
+    local output
+    output=$(PATH="$mock_bin_dir:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews.sh" 123 \
+        --after "2026-01-18T12:30:00Z" \
+        --bots "claude,codex")
+
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        fail "T-FIXTURE-4: poll-pr-reviews.sh --after should succeed" "exit=0" "exit=$exit_code"
+        return
+    fi
+
+    # Should have claude[bot] approval at 13:00 and codex approval at 13:30
+    local comment_count
+    comment_count=$(echo "$output" | jq '.comments | length')
+
+    # At minimum, should have the late approvals
+    if [[ "$comment_count" -lt 1 ]]; then
+        fail "T-FIXTURE-4: Should include late approvals" ">=1" "$comment_count"
+        return
+    fi
+
+    # Should NOT include the CHANGES_REQUESTED from 11:00 (before our --after)
+    local changes_requested
+    changes_requested=$(echo "$output" | jq '[.comments[]? | select(.body | test("security concerns"))] | length')
+
+    if [[ "$changes_requested" -gt 0 ]]; then
+        fail "T-FIXTURE-4: Should exclude comments before --after" "0" "$changes_requested"
+        return
+    fi
+
+    pass "T-FIXTURE-4: poll-pr-reviews.sh --after filter excludes early comments"
+    cd "$SCRIPT_DIR"
+}
+
+# Run fixture-backed tests
+test_fetch_pr_comments_with_fixtures
+test_fetch_pr_comments_after_filter
+test_poll_pr_reviews_with_fixtures
+test_poll_pr_reviews_after_filter
+
+# ========================================
 # Wrong-Round Validation Tests (AC-3)
 # ========================================
 
