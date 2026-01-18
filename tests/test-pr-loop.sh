@@ -161,22 +161,22 @@ test_setup_claude_flag() {
     fi
 }
 
-# Test: --chatgpt-codex-connector flag is recognized
-test_setup_chatgpt_flag() {
+# Test: --codex flag is recognized
+test_setup_codex_flag() {
     local output
-    output=$("$SETUP_SCRIPT" --chatgpt-codex-connector 2>&1) || true
+    output=$("$SETUP_SCRIPT" --codex 2>&1) || true
 
     if ! echo "$output" | grep -qi "at least one bot flag"; then
-        pass "T-POS-3: --chatgpt-codex-connector flag is recognized"
+        pass "T-POS-3: --codex flag is recognized"
     else
-        fail "T-POS-3: --chatgpt-codex-connector flag should be recognized"
+        fail "T-POS-3: --codex flag should be recognized"
     fi
 }
 
 # Test: Both bot flags work together
 test_setup_both_bots() {
     local output
-    output=$("$SETUP_SCRIPT" --claude --chatgpt-codex-connector 2>&1) || true
+    output=$("$SETUP_SCRIPT" --claude --codex 2>&1) || true
 
     if ! echo "$output" | grep -qi "at least one bot flag"; then
         pass "T-POS-4: Both bot flags work together"
@@ -241,7 +241,7 @@ test_setup_help
 test_setup_no_bot_flag
 test_setup_invalid_bot
 test_setup_claude_flag
-test_setup_chatgpt_flag
+test_setup_codex_flag
 test_setup_both_bots
 test_setup_max_arg
 test_setup_max_invalid
@@ -506,7 +506,7 @@ pr_number: 123
 start_branch: test-branch
 active_bots:
   - claude
-  - chatgpt-codex-connector
+  - codex
 codex_model: gpt-5.2-codex
 codex_effort: medium
 codex_timeout: 900
@@ -518,7 +518,7 @@ EOF
 
     # Verify state file has YAML list format
     if grep -q "^  - claude$" "$loop_dir/state.md" && \
-       grep -q "^  - chatgpt-codex-connector$" "$loop_dir/state.md"; then
+       grep -q "^  - codex$" "$loop_dir/state.md"; then
         pass "T-POS-12: active_bots is stored as YAML list format"
     else
         fail "T-POS-12: active_bots should be stored as YAML list format"
@@ -715,7 +715,7 @@ test_configured_bots_parsing() {
 current_round: 0
 configured_bots:
   - claude
-  - chatgpt-codex-connector
+  - codex
 active_bots:
   - claude
 codex_model: gpt-5.2-codex
@@ -740,10 +740,10 @@ codex_model: gpt-5.2-codex
         fi
     done <<< "$test_state"
 
-    if [[ "$configured_bots" == "claude,chatgpt-codex-connector," ]]; then
+    if [[ "$configured_bots" == "claude,codex," ]]; then
         pass "T-GATE-2: configured_bots YAML list is parsed correctly"
     else
-        fail "T-GATE-2: configured_bots parsing failed" "claude,chatgpt-codex-connector," "got $configured_bots"
+        fail "T-GATE-2: configured_bots parsing failed" "claude,codex," "got $configured_bots"
     fi
 }
 
@@ -753,7 +753,7 @@ test_bot_status_extraction() {
 | Bot | Status | Summary |
 |-----|--------|---------|
 | claude | APPROVE | No issues found |
-| chatgpt-codex-connector | ISSUES | Found bug in line 42 |
+| codex | ISSUES | Found bug in line 42 |
 
 ### Approved Bots
 - claude"
@@ -767,18 +767,18 @@ test_bot_status_extraction() {
         fi
     done <<< "$codex_output"
 
-    if [[ "$bots_with_issues" == "chatgpt-codex-connector," ]]; then
+    if [[ "$bots_with_issues" == "codex," ]]; then
         pass "T-GATE-3: Bots with ISSUES status are correctly identified"
     else
-        fail "T-GATE-3: Bot status extraction failed" "chatgpt-codex-connector," "got $bots_with_issues"
+        fail "T-GATE-3: Bot status extraction failed" "codex," "got $bots_with_issues"
     fi
 }
 
 # Test: Bot re-add logic when previously approved bot has new issues
 test_bot_readd_logic() {
     # Simulate: claude was approved (removed from active), but now has ISSUES
-    local configured_bots=("claude" "chatgpt-codex-connector")
-    local active_bots=("chatgpt-codex-connector")  # claude was removed (approved)
+    local configured_bots=("claude" "codex")
+    local active_bots=("codex")  # claude was removed (approved)
 
     # Codex output shows claude now has issues
     declare -A bots_with_issues
@@ -815,12 +815,12 @@ test_bot_readd_logic() {
 test_trigger_comment_detection() {
     local comments='[
         {"id": 1, "body": "Just a regular comment", "created_at": "2026-01-18T10:00:00Z"},
-        {"id": 2, "body": "@claude @chatgpt-codex-connector please review", "created_at": "2026-01-18T11:00:00Z"},
+        {"id": 2, "body": "@claude @codex please review", "created_at": "2026-01-18T11:00:00Z"},
         {"id": 3, "body": "Another comment", "created_at": "2026-01-18T12:00:00Z"}
     ]'
 
     # Build pattern for @bot mentions
-    local bot_pattern="@claude|@chatgpt-codex-connector"
+    local bot_pattern="@claude|@codex"
 
     # Find most recent trigger comment
     local trigger_ts
@@ -944,7 +944,7 @@ case "\$1" in
         fi
         # Handle PR comments endpoint
         if [[ "\$2" == *"/issues/"*"/comments"* ]]; then
-            echo '[{"id": 1, "user": {"login": "${trigger_user}"}, "created_at": "${trigger_timestamp}", "body": "@claude @chatgpt-codex-connector please review"}]'
+            echo '[{"id": 1, "user": {"login": "${trigger_user}"}, "created_at": "${trigger_timestamp}", "body": "@claude @codex please review"}]'
             exit 0
         fi
         # Return empty arrays for other endpoints
@@ -1129,7 +1129,7 @@ test_state_has_configured_bots() {
 current_round: 1
 configured_bots:
   - claude
-  - chatgpt-codex-connector
+  - codex
 active_bots:
   - claude
 last_trigger_at: 2026-01-18T12:00:00Z

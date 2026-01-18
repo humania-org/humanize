@@ -32,6 +32,35 @@ DEFAULT_POLL_INTERVAL=30
 DEFAULT_POLL_TIMEOUT=900  # 15 minutes per bot
 
 # ========================================
+# Bot Name Mapping
+# ========================================
+
+# Map bot names to GitHub comment author names:
+# - claude -> claude[bot]
+# - codex -> chatgpt-codex-connector[bot]
+map_bot_to_author() {
+    local bot="$1"
+    case "$bot" in
+        codex) echo "chatgpt-codex-connector[bot]" ;;
+        *) echo "${bot}[bot]" ;;
+    esac
+}
+
+# Reverse mapping: author name to bot name
+# - chatgpt-codex-connector[bot] -> codex
+# - chatgpt-codex-connector -> codex
+# - claude[bot] -> claude
+map_author_to_bot() {
+    local author="$1"
+    # Remove [bot] suffix if present
+    local author_clean="${author%\[bot\]}"
+    case "$author_clean" in
+        chatgpt-codex-connector) echo "codex" ;;
+        *) echo "$author_clean" ;;
+    esac
+}
+
+# ========================================
 # Read Hook Input
 # ========================================
 
@@ -540,12 +569,14 @@ while true; do
     }
 
     # Check which bots responded (check all configured bots)
+    # Poll script returns author names (e.g., chatgpt-codex-connector[bot])
+    # We need to map them back to bot names (e.g., codex)
     RESPONDED_BOTS=$(echo "$POLL_RESULT" | jq -r '.bots_responded[]' 2>/dev/null || true)
-    for responded_bot in $RESPONDED_BOTS; do
-        # Normalize bot name (remove [bot] suffix if present)
-        responded_bot_clean=$(echo "$responded_bot" | sed 's/\[bot\]$//')
+    for responded_author in $RESPONDED_BOTS; do
+        # Map author name to bot name (e.g., chatgpt-codex-connector[bot] -> codex)
+        responded_bot=$(map_author_to_bot "$responded_author")
         for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-            if [[ "$responded_bot_clean" == "$bot" || "$responded_bot" == "${bot}[bot]" ]]; then
+            if [[ "$responded_bot" == "$bot" ]]; then
                 if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
                     BOTS_RESPONDED["$bot"]="true"
                     echo "Bot '$bot' has responded!" >&2
@@ -640,13 +671,15 @@ EOF
 # Group comments by ALL configured bots (not just active)
 # This allows Codex to see when previously approved bots post new issues
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    BOT_COMMENTS=$(echo "$ALL_NEW_COMMENTS" | jq -r --arg bot "$bot" --arg botfull "${bot}[bot]" '
-        [.[] | select(.author == $bot or .author == $botfull)]
+    # Map bot name to author name (e.g., codex -> chatgpt-codex-connector[bot])
+    author=$(map_bot_to_author "$bot")
+    BOT_COMMENTS=$(echo "$ALL_NEW_COMMENTS" | jq -r --arg author "$author" '
+        [.[] | select(.author == $author)]
     ')
     BOT_COUNT=$(echo "$BOT_COMMENTS" | jq 'length')
 
     if [[ "$BOT_COUNT" -gt 0 ]]; then
-        echo "## Comments from ${bot}[bot]" >> "$COMMENT_FILE"
+        echo "## Comments from ${author}" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"
 
         echo "$BOT_COMMENTS" | jq -r '
@@ -659,7 +692,7 @@ for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
             "\n\(.body)\n\n---\n"
         ' >> "$COMMENT_FILE"
     else
-        echo "## Comments from ${bot}[bot]" >> "$COMMENT_FILE"
+        echo "## Comments from ${author}" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"
         echo "*No new comments from this bot.*" >> "$COMMENT_FILE"
         echo "" >> "$COMMENT_FILE"

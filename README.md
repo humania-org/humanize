@@ -85,7 +85,7 @@ flowchart LR
 | `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
-| `/start-pr-loop --claude\|--chatgpt-codex-connector` | Start PR review loop with bot monitoring |
+| `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
 | `/cancel-pr-loop` | Cancel active PR loop |
 
 ### Command Options
@@ -129,11 +129,11 @@ Workflow:
 #### start-pr-loop
 
 ```
-/humanize:start-pr-loop --claude|--chatgpt-codex-connector [OPTIONS]
+/humanize:start-pr-loop --claude|--codex [OPTIONS]
 
 BOT FLAGS (at least one required):
-  --claude                    Monitor reviews from claude[bot]
-  --chatgpt-codex-connector   Monitor reviews from chatgpt-codex-connector[bot]
+  --claude   Monitor reviews from claude[bot] (trigger with @claude)
+  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger with @codex)
 
 OPTIONS:
   --max <N>              Maximum iterations before auto-stop (default: 42)

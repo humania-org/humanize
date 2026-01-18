@@ -60,7 +60,7 @@ OUTPUT:
   - has_new_comments: Boolean indicating if any new comments found
 
 EXAMPLE:
-  poll-pr-reviews.sh 123 --after 2026-01-18T12:00:00Z --bots claude,chatgpt-codex-connector
+  poll-pr-reviews.sh 123 --after 2026-01-18T12:00:00Z --bots claude,codex
 HELP_EOF
             exit 0
             ;;
@@ -133,16 +133,29 @@ REPO_NAME=$(gh repo view --json name -q .name 2>/dev/null) || {
 # Build Bot Filter
 # ========================================
 
+# Map bot names to GitHub comment author names:
+# - claude -> claude[bot]
+# - codex -> chatgpt-codex-connector[bot]
+map_bot_to_author() {
+    local bot="$1"
+    case "$bot" in
+        codex) echo "chatgpt-codex-connector[bot]" ;;
+        *) echo "${bot}[bot]" ;;
+    esac
+}
+
 # Convert comma-separated bots to jq filter pattern
-# Bot names: claude -> claude[bot], chatgpt-codex-connector -> chatgpt-codex-connector[bot]
 BOT_PATTERNS=""
 IFS=',' read -ra BOT_ARRAY <<< "$BOTS"
 for bot in "${BOT_ARRAY[@]}"; do
     bot=$(echo "$bot" | tr -d ' ')
+    author=$(map_bot_to_author "$bot")
     if [[ -n "$BOT_PATTERNS" ]]; then
         BOT_PATTERNS="$BOT_PATTERNS|"
     fi
-    BOT_PATTERNS="${BOT_PATTERNS}${bot}\\[bot\\]"
+    # Escape brackets for regex
+    BOT_PATTERNS="${BOT_PATTERNS}${author//\[/\\[}"
+    BOT_PATTERNS="${BOT_PATTERNS//\]/\\]}"
 done
 
 # ========================================

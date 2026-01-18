@@ -182,7 +182,7 @@ fetch_with_retry() {
 fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/comments" "$ISSUE_COMMENTS_FILE" "issue comments"
 
 # Fetch PR review comments (inline code comments)
-# chatgpt-codex-connector[bot] typically posts inline comments here
+# codex (chatgpt-codex-connector[bot]) typically posts inline comments here
 fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/comments" "$REVIEW_COMMENTS_FILE" "PR review comments"
 
 # Fetch PR reviews (summary reviews with approval status)
@@ -346,6 +346,17 @@ else
 
     # Second pass: bot comments
     if [[ -n "$ACTIVE_BOTS" ]]; then
+        # Map bot names to GitHub comment author names:
+        # - claude -> claude[bot]
+        # - codex -> chatgpt-codex-connector[bot]
+        map_bot_to_author() {
+            local bot="$1"
+            case "$bot" in
+                codex) echo "chatgpt-codex-connector[bot]" ;;
+                *) echo "${bot}[bot]" ;;
+            esac
+        }
+
         # Group bot comments by active bots
         echo "## Bot Comments (Grouped by Bot)" >> "$OUTPUT_FILE"
         echo "" >> "$OUTPUT_FILE"
@@ -353,11 +364,12 @@ else
         IFS=',' read -ra BOT_ARRAY <<< "$ACTIVE_BOTS"
         for bot in "${BOT_ARRAY[@]}"; do
             bot=$(echo "$bot" | tr -d ' ')
-            echo "### Comments from ${bot}[bot]" >> "$OUTPUT_FILE"
+            author=$(map_bot_to_author "$bot")
+            echo "### Comments from ${author}" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
 
-            BOT_COMMENTS=$(jq -r --arg bot "$bot" --arg botfull "${bot}[bot]" '
-                [.[] | select(.author == $bot or .author == $botfull or .author == ($bot + "[bot]"))] |
+            BOT_COMMENTS=$(jq -r --arg author "$author" '
+                [.[] | select(.author == $author)] |
                 if length == 0 then
                     "*No comments from this bot.*\n"
                 else

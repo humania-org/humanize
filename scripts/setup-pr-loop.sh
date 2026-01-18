@@ -5,7 +5,7 @@
 # Creates state files for the PR loop that monitors GitHub PR reviews from bots.
 #
 # Usage:
-#   setup-pr-loop.sh --claude|--chatgpt-codex-connector [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS]
+#   setup-pr-loop.sh --claude|--codex [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS]
 #
 
 set -euo pipefail
@@ -42,18 +42,18 @@ CODEX_TIMEOUT="$DEFAULT_CODEX_TIMEOUT"
 
 # Bot flags
 BOT_CLAUDE="false"
-BOT_CHATGPT_CODEX_CONNECTOR="false"
+BOT_CODEX="false"
 
 show_help() {
     cat << 'HELP_EOF'
 start-pr-loop - PR review loop with remote bot monitoring
 
 USAGE:
-  /humanize:start-pr-loop --claude|--chatgpt-codex-connector [OPTIONS]
+  /humanize:start-pr-loop --claude|--codex [OPTIONS]
 
 BOT FLAGS (at least one required):
-  --claude                    Monitor reviews from claude[bot]
-  --chatgpt-codex-connector   Monitor reviews from chatgpt-codex-connector[bot]
+  --claude   Monitor reviews from claude[bot] (trigger: @claude)
+  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger: @codex)
 
 OPTIONS:
   --max <N>            Maximum iterations before auto-stop (default: 42)
@@ -83,8 +83,8 @@ DESCRIPTION:
 
 EXAMPLES:
   /humanize:start-pr-loop --claude
-  /humanize:start-pr-loop --chatgpt-codex-connector --max 20
-  /humanize:start-pr-loop --claude --chatgpt-codex-connector
+  /humanize:start-pr-loop --codex --max 20
+  /humanize:start-pr-loop --claude --codex
 
 STOPPING:
   - /humanize:cancel-pr-loop   Cancel the active PR loop
@@ -106,8 +106,8 @@ while [[ $# -gt 0 ]]; do
             BOT_CLAUDE="true"
             shift
             ;;
-        --chatgpt-codex-connector)
-            BOT_CHATGPT_CODEX_CONNECTOR="true"
+        --codex)
+            BOT_CODEX="true"
             shift
             ;;
         --max)
@@ -166,26 +166,29 @@ done
 # Validate Bot Flags
 # ========================================
 
-if [[ "$BOT_CLAUDE" != "true" && "$BOT_CHATGPT_CODEX_CONNECTOR" != "true" ]]; then
+if [[ "$BOT_CLAUDE" != "true" && "$BOT_CODEX" != "true" ]]; then
     echo "Error: At least one bot flag is required" >&2
     echo "" >&2
-    echo "Usage: /humanize:start-pr-loop --claude|--chatgpt-codex-connector [OPTIONS]" >&2
+    echo "Usage: /humanize:start-pr-loop --claude|--codex [OPTIONS]" >&2
     echo "" >&2
     echo "Bot flags:" >&2
-    echo "  --claude                    Monitor reviews from claude[bot]" >&2
-    echo "  --chatgpt-codex-connector   Monitor reviews from chatgpt-codex-connector[bot]" >&2
+    echo "  --claude   Monitor reviews from claude[bot] (trigger: @claude)" >&2
+    echo "  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger: @codex)" >&2
     echo "" >&2
     echo "For help: /humanize:start-pr-loop --help" >&2
     exit 1
 fi
 
 # Build active_bots list (stored as array for YAML list format)
+# Bot names stored in state: claude, codex
+# Trigger mentions: @claude, @codex
+# Comment authors: claude[bot], chatgpt-codex-connector[bot]
 declare -a ACTIVE_BOTS_ARRAY=()
 if [[ "$BOT_CLAUDE" == "true" ]]; then
     ACTIVE_BOTS_ARRAY+=("claude")
 fi
-if [[ "$BOT_CHATGPT_CODEX_CONNECTOR" == "true" ]]; then
-    ACTIVE_BOTS_ARRAY+=("chatgpt-codex-connector")
+if [[ "$BOT_CODEX" == "true" ]]; then
+    ACTIVE_BOTS_ARRAY+=("codex")
 fi
 
 # Build dynamic mention string from active bots (no hardcoded bot names)
