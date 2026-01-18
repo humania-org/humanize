@@ -532,7 +532,7 @@ SANITIZED=$(echo "$MONITOR_TEST_DIR/project2" | sed 's/[^a-zA-Z0-9._-]/-/g' | se
 mkdir -p "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED/2026-01-17_10-00-00"
 echo "Test log" > "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED/2026-01-17_10-00-00/round-1-codex-run.log"
 
-# Create narrow terminal runner
+# Create narrow terminal runner - calls _humanize_monitor_codex directly in same shell
 cat > "$MONITOR_TEST_DIR/run_narrow.sh" << 'NARROW_EOF'
 #!/bin/bash
 PROJECT_DIR="$1"
@@ -549,23 +549,54 @@ clear() { :; }
 export -f tput clear
 
 source "$PROJECT_ROOT/scripts/humanize.sh"
-# Run briefly then simulate directory deletion
+
+# Delete the session directory after 1 second to trigger graceful exit
 (sleep 1 && rm -rf "$PROJECT_DIR/.humanize/rlcr") &
-timeout 5 bash -c '_humanize_monitor_codex 2>&1' || true
-echo "EXIT_CODE:$?"
+DELETE_PID=$!
+
+# Call monitor directly in this shell (not in a subshell via bash -c)
+# Use timeout wrapper if available, otherwise just run with a trap
+_humanize_monitor_codex 2>&1 &
+MONITOR_PID=$!
+
+# Wait up to 5 seconds for monitor to exit
+WAIT_COUNT=0
+while kill -0 $MONITOR_PID 2>/dev/null && [[ $WAIT_COUNT -lt 10 ]]; do
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
+
+# Check if monitor exited
+if kill -0 $MONITOR_PID 2>/dev/null; then
+    kill $MONITOR_PID 2>/dev/null || true
+    wait $MONITOR_PID 2>/dev/null
+    MONITOR_EXIT=$?
+else
+    wait $MONITOR_PID 2>/dev/null
+    MONITOR_EXIT=$?
+fi
+
+# Clean up delete process if still running
+kill $DELETE_PID 2>/dev/null || true
+
+echo "MONITOR_EXIT:$MONITOR_EXIT"
 NARROW_EOF
 chmod +x "$MONITOR_TEST_DIR/run_narrow.sh"
 
 set +e
 OUTPUT=$("$MONITOR_TEST_DIR/run_narrow.sh" "$MONITOR_TEST_DIR/project2" "$PROJECT_ROOT" "$FAKE_HOME_MONITOR" 2>&1)
-EXIT_CODE=$?
+WRAPPER_EXIT=$?
 set -e
 
+# Extract actual monitor exit code from output
+MONITOR_EXIT=$(echo "$OUTPUT" | grep -oP 'MONITOR_EXIT:\K[0-9]+' | tail -1)
+MONITOR_EXIT=${MONITOR_EXIT:-$WRAPPER_EXIT}
+
 # Should not crash (exit code < 128 means no signal crash)
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "Monitor handles narrow terminal without crash"
+if [[ $MONITOR_EXIT -lt 128 ]]; then
+    pass "Monitor handles narrow terminal without crash (exit: $MONITOR_EXIT)"
 else
-    fail "Narrow terminal crash" "exit < 128" "exit $EXIT_CODE (signal)"
+    fail "Narrow terminal crash" "exit < 128" "exit $MONITOR_EXIT (signal)"
 fi
 
 # Test 26: Monitor with ANSI codes in log file
@@ -608,21 +639,49 @@ clear() { :; }
 export -f tput clear
 
 source "$PROJECT_ROOT/scripts/humanize.sh"
+
+# Delete session directory after 1 second
 (sleep 1 && rm -rf "$PROJECT_DIR/.humanize/rlcr") &
-timeout 5 bash -c '_humanize_monitor_codex 2>&1' || true
-echo "EXIT_CODE:$?"
+DELETE_PID=$!
+
+# Call monitor directly in this shell
+_humanize_monitor_codex 2>&1 &
+MONITOR_PID=$!
+
+# Wait up to 5 seconds
+WAIT_COUNT=0
+while kill -0 $MONITOR_PID 2>/dev/null && [[ $WAIT_COUNT -lt 10 ]]; do
+    sleep 0.5
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
+
+if kill -0 $MONITOR_PID 2>/dev/null; then
+    kill $MONITOR_PID 2>/dev/null || true
+    wait $MONITOR_PID 2>/dev/null
+    MONITOR_EXIT=$?
+else
+    wait $MONITOR_PID 2>/dev/null
+    MONITOR_EXIT=$?
+fi
+
+kill $DELETE_PID 2>/dev/null || true
+
+echo "MONITOR_EXIT:$MONITOR_EXIT"
 ANSI_EOF
 chmod +x "$MONITOR_TEST_DIR/run_ansi.sh"
 
 set +e
 OUTPUT=$("$MONITOR_TEST_DIR/run_ansi.sh" "$MONITOR_TEST_DIR/project3" "$PROJECT_ROOT" "$FAKE_HOME_MONITOR" 2>&1)
-EXIT_CODE=$?
+WRAPPER_EXIT=$?
 set -e
 
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "Monitor handles ANSI codes without crash"
+MONITOR_EXIT=$(echo "$OUTPUT" | grep -oP 'MONITOR_EXIT:\K[0-9]+' | tail -1)
+MONITOR_EXIT=${MONITOR_EXIT:-$WRAPPER_EXIT}
+
+if [[ $MONITOR_EXIT -lt 128 ]]; then
+    pass "Monitor handles ANSI codes without crash (exit: $MONITOR_EXIT)"
 else
-    fail "ANSI codes crash" "exit < 128" "exit $EXIT_CODE (signal)"
+    fail "ANSI codes crash" "exit < 128" "exit $MONITOR_EXIT (signal)"
 fi
 
 # ========================================

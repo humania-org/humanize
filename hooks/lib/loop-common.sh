@@ -725,10 +725,13 @@ is_cancel_authorized_strict() {
     fi
 
     # SECURITY: Reject if source file is a symlink (filesystem check)
-    # Use original case-sensitive path for filesystem check
-    local src_original="${active_loop_dir}/state.md"
-    if [[ "$src" == *"finalize"* ]]; then
+    # Determine source file by comparing against expected paths (not substring match)
+    # This avoids vulnerability when loop directory path contains "finalize"
+    local src_original
+    if [[ "$src" == "$expected_src_finalize" ]]; then
         src_original="${active_loop_dir}/finalize-state.md"
+    else
+        src_original="${active_loop_dir}/state.md"
     fi
     if [[ -L "$src_original" ]]; then
         return 6  # Source is a symlink

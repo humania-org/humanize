@@ -412,6 +412,44 @@ else
 fi
 rm -f "$LOOP_DIR/finalize-state.md" "$LOOP_DIR/real-finalize.md" "$LOOP_DIR/.cancel-requested"
 
+# Test 25: Regression test - loop dir path containing "finalize" should not bypass symlink check
+echo ""
+echo "Test 25: Loop dir with 'finalize' in path - state.md symlink rejected"
+# Create a loop directory with "finalize" in the path
+TRICKY_LOOP_DIR="$TEST_DIR/finalize-project/loop"
+mkdir -p "$TRICKY_LOOP_DIR"
+touch "$TRICKY_LOOP_DIR/.cancel-requested"
+# Create a symlink for state.md (not finalize-state.md)
+echo "real state" > "$TRICKY_LOOP_DIR/real-state.md"
+ln -s "$TRICKY_LOOP_DIR/real-state.md" "$TRICKY_LOOP_DIR/state.md"
+COMMAND="mv \"$TRICKY_LOOP_DIR/state.md\" \"$TRICKY_LOOP_DIR/cancel-state.md\""
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+# Bug: substring match on *finalize* could misclassify state.md as finalize-state.md
+# The fix uses exact path matching instead
+if ! is_cancel_authorized_strict "$TRICKY_LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects state.md symlink even when path contains 'finalize'"
+else
+    fail "Path contains finalize regression" "rejected" "accepted (symlink bypass)"
+fi
+rm -rf "$TEST_DIR/finalize-project"
+
+# Test 26: Path with "finalize" - finalize-state.md symlink also rejected
+echo ""
+echo "Test 26: Loop dir with 'finalize' in path - finalize-state.md symlink rejected"
+TRICKY_LOOP_DIR2="$TEST_DIR/finalize-test/loop"
+mkdir -p "$TRICKY_LOOP_DIR2"
+touch "$TRICKY_LOOP_DIR2/.cancel-requested"
+echo "real finalize" > "$TRICKY_LOOP_DIR2/real-finalize.md"
+ln -s "$TRICKY_LOOP_DIR2/real-finalize.md" "$TRICKY_LOOP_DIR2/finalize-state.md"
+COMMAND="mv \"$TRICKY_LOOP_DIR2/finalize-state.md\" \"$TRICKY_LOOP_DIR2/cancel-state.md\""
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+if ! is_cancel_authorized_strict "$TRICKY_LOOP_DIR2" "$COMMAND_LOWER"; then
+    pass "Rejects finalize-state.md symlink when path contains 'finalize'"
+else
+    fail "Finalize path regression" "rejected" "accepted (symlink bypass)"
+fi
+rm -rf "$TEST_DIR/finalize-test"
+
 # ========================================
 # Summary
 # ========================================
