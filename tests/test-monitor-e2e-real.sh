@@ -113,8 +113,9 @@ OUTPUT_FILE="$4"
 
 cd "$PROJECT_DIR"
 
-# Override HOME to use our fake home with cache
+# Override HOME and XDG_CACHE_HOME to use our fake home with cache
 export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
 
 # Create shim functions for terminal commands (non-interactive mode)
 tput() {
@@ -283,8 +284,9 @@ FAKE_HOME="$3"
 
 cd "$PROJECT_DIR"
 
-# Override HOME
+# Override HOME and XDG_CACHE_HOME
 export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
 
 # Create shim functions for terminal commands
 tput() {

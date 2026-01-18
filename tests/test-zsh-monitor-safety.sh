@@ -49,6 +49,10 @@ TEST_BASE="/tmp/test-zsh-humanize-$$"
 mkdir -p "$TEST_BASE"
 cd "$TEST_BASE"
 
+# Set up isolated cache directory to avoid permission issues
+export XDG_CACHE_HOME="$TEST_BASE/.cache"
+mkdir -p "$XDG_CACHE_HOME"
+
 cleanup() {
     cd "$PROJECT_ROOT"
     rm -rf "$TEST_BASE"
@@ -215,11 +219,11 @@ echo "Test 5: _find_latest_codex_log with empty cache dir"
 echo ""
 
 # Create a session but no cache log files
-mkdir -p "$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
+mkdir -p "$XDG_CACHE_HOME/humanize/test-project/2026-01-16_10-00-00"
 
 (
     loop_dir=".humanize/rlcr"
-    cache_dir="$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
+    cache_dir="$XDG_CACHE_HOME/humanize/test-project/2026-01-16_10-00-00"
 
     # Simulate the cache log iteration
     found_count=0
@@ -237,7 +241,7 @@ mkdir -p "$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
     fi
 ) && pass "_find_latest_codex_log with empty cache" || fail "_find_latest_codex_log with empty cache" "Got error"
 
-rm -rf "$HOME/.cache/humanize/test-project"
+rm -rf "$XDG_CACHE_HOME/humanize/test-project"
 
 # ========================================
 # Test 6: Full session directory iteration

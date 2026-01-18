@@ -588,8 +588,8 @@ OUTPUT=$("$MONITOR_TEST_DIR/run_narrow.sh" "$MONITOR_TEST_DIR/project2" "$PROJEC
 WRAPPER_EXIT=$?
 set -e
 
-# Extract actual monitor exit code from output
-MONITOR_EXIT=$(echo "$OUTPUT" | grep -oP 'MONITOR_EXIT:\K[0-9]+' | tail -1)
+# Extract actual monitor exit code from output (POSIX-compatible, no grep -P)
+MONITOR_EXIT=$(echo "$OUTPUT" | sed -n 's/.*MONITOR_EXIT:\([0-9][0-9]*\).*/\1/p' | tail -1)
 MONITOR_EXIT=${MONITOR_EXIT:-$WRAPPER_EXIT}
 
 # Should not crash (exit code < 128 means no signal crash)
@@ -675,7 +675,8 @@ OUTPUT=$("$MONITOR_TEST_DIR/run_ansi.sh" "$MONITOR_TEST_DIR/project3" "$PROJECT_
 WRAPPER_EXIT=$?
 set -e
 
-MONITOR_EXIT=$(echo "$OUTPUT" | grep -oP 'MONITOR_EXIT:\K[0-9]+' | tail -1)
+# POSIX-compatible extraction (no grep -P)
+MONITOR_EXIT=$(echo "$OUTPUT" | sed -n 's/.*MONITOR_EXIT:\([0-9][0-9]*\).*/\1/p' | tail -1)
 MONITOR_EXIT=${MONITOR_EXIT:-$WRAPPER_EXIT}
 
 if [[ $MONITOR_EXIT -lt 128 ]]; then
