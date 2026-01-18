@@ -1541,12 +1541,15 @@ MOCK_GIT
     local hook_stderr
     hook_stderr=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1 >/dev/null) || true
 
-    # Check that it reports using trigger timestamp (14:30), NOT started_at (10:00)
+    # Check that it reports using trigger timestamp for --after (not started_at)
+    # Must match the SPECIFIC log format: "Round 0: using trigger timestamp for --after: <timestamp>"
     # This proves last_trigger_at is prioritized even for round 0
-    if echo "$hook_stderr" | grep -q "using trigger timestamp.*14:30\|2026-01-18T14:30:00Z"; then
-        pass "T-E2E-4: Round 0 uses last_trigger_at (14:30) over started_at (10:00)"
+    if echo "$hook_stderr" | grep -q "Round 0: using trigger timestamp for --after: 2026-01-18T14:30:00Z"; then
+        pass "T-E2E-4: Round 0 uses last_trigger_at for --after (not started_at)"
     else
-        fail "T-E2E-4: Round 0 should use last_trigger_at" "14:30 timestamp used" "got: $hook_stderr"
+        fail "T-E2E-4: Round 0 should use last_trigger_at for --after" \
+            "Round 0: using trigger timestamp for --after: 2026-01-18T14:30:00Z" \
+            "got: $hook_stderr"
     fi
 
     unset CLAUDE_PROJECT_DIR
