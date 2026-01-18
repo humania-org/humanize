@@ -574,6 +574,7 @@ is_cancel_authorized() {
 #   3 - mixed quote styles
 #   4 - multiple trailing spaces
 #   5 - invalid command structure
+#   6 - source file is a symlink (filesystem check)
 is_cancel_authorized_strict() {
     local active_loop_dir="$1"
     local command_lower="$2"
@@ -721,6 +722,16 @@ is_cancel_authorized_strict() {
     local expected_dest="${loop_dir_lower}cancel-state.md"
     if [[ "$dest" != "$expected_dest" ]]; then
         return 5
+    fi
+
+    # SECURITY: Reject if source file is a symlink (filesystem check)
+    # Use original case-sensitive path for filesystem check
+    local src_original="${active_loop_dir}/state.md"
+    if [[ "$src" == *"finalize"* ]]; then
+        src_original="${active_loop_dir}/finalize-state.md"
+    fi
+    if [[ -L "$src_original" ]]; then
+        return 6  # Source is a symlink
     fi
 
     return 0

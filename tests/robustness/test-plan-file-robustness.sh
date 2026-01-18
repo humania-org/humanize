@@ -111,6 +111,7 @@ cd "$TEST_DIR"
 git init --quiet
 git config user.email "test@test.com"
 git config user.name "Test User"
+git config commit.gpgsign false
 echo "Initial" > README.md
 git add README.md
 git commit -m "Initial commit" --quiet
@@ -346,16 +347,17 @@ else
     fail "Large file size" ">1MB" "$SIZE bytes"
 fi
 
-# Test 8: Mixed line endings (CRLF/LF)
+# Test 8: Mixed line endings (CRLF/LF) - production validation
 echo ""
-echo "Test 8: Mixed line endings (CRLF/LF)"
-printf "# Plan\r\nLine with CRLF\r\n\nLine with LF\n\r\nMixed\n" > "$TEST_DIR/mixed-endings.md"
+echo "Test 8: Production accepts mixed line endings (CRLF/LF)"
+# Create plan with mixed line endings but sufficient content
+printf "# Plan\r\n## Goal\r\nImplement feature.\r\n\nTask one\nTask two\nTask three\n" > "$TEST_DIR/mixed-endings.md"
 
-LINE_COUNT=$(wc -l < "$TEST_DIR/mixed-endings.md")
-if [[ "$LINE_COUNT" -ge "3" ]]; then
-    pass "Mixed endings file readable ($LINE_COUNT lines)"
+if test_plan_validation "mixed-endings.md"; then
+    LINE_COUNT=$(wc -l < "$TEST_DIR/mixed-endings.md")
+    pass "Production accepts mixed endings plan ($LINE_COUNT lines)"
 else
-    fail "Mixed endings" ">= 3 lines" "$LINE_COUNT lines"
+    fail "Mixed endings acceptance" "accepted" "rejected"
 fi
 
 # Test 9: Plan with binary content

@@ -779,14 +779,16 @@ fi
 
 echo "Running Codex review for round $CURRENT_ROUND..." >&2
 
-# Debug log files go to $HOME/.cache/humanize/<project-path>/<timestamp>/ to avoid polluting project dir
+# Debug log files go to XDG_CACHE_HOME/humanize/<project-path>/<timestamp>/ to avoid polluting project dir
+# Respects XDG_CACHE_HOME for testability in restricted environments (falls back to $HOME/.cache)
 # This prevents Claude and Codex from reading these debug files during their work
 # The project path is sanitized to replace problematic characters with '-'
 LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
 # Sanitize project root path: replace / and other problematic chars with -
 # This matches Claude Code's convention (e.g., /home/sihao/github.com/foo -> -home-sihao-github-com-foo)
 SANITIZED_PROJECT_PATH=$(echo "$PROJECT_ROOT" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
-CACHE_DIR="$HOME/.cache/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
+CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
+CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 mkdir -p "$CACHE_DIR"
 
 CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.cmd"

@@ -254,11 +254,12 @@ _humanize_monitor_codex() {
 
     # Function to find the latest codex log file
     # Log files are now in $HOME/.cache/humanize/<sanitized-project-path>/<timestamp>/ to avoid context pollution
+    # Respects XDG_CACHE_HOME for testability in restricted environments
     _find_latest_codex_log() {
         local latest=""
         local latest_session=""
         local latest_round=-1
-        local cache_base="$HOME/.cache/humanize"
+        local cache_base="${XDG_CACHE_HOME:-$HOME/.cache}/humanize"
 
         # Get current project's absolute path and sanitize it
         # This matches the sanitization in loop-codex-stop-hook.sh

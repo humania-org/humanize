@@ -360,22 +360,57 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 22: Symlink in cancel source path
+# Test 22: Symlink in cancel source path (wrong filename)
 echo ""
-echo "Test 22: Symlink in cancel source path"
+echo "Test 22: Reject non-standard source file name"
 touch "$LOOP_DIR/.cancel-requested"
 ln -sf "$LOOP_DIR/state.md" "$LOOP_DIR/state-link.md" 2>/dev/null || true
 COMMAND="mv \"$LOOP_DIR/state-link.md\" \"$LOOP_DIR/cancel-state.md\""
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-# The function only validates command structure, not filesystem symlinks
-# Symlink rejection is done at the path level, not in cancel auth
+# Function validates only state.md or finalize-state.md as valid source names
 if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
     pass "Rejects non-standard source file name"
 else
-    # This is expected - function only validates state.md or finalize-state.md as source
-    pass "Rejects symlink source (wrong source name)"
+    fail "Non-standard source name" "rejected" "accepted"
 fi
 rm -f "$LOOP_DIR/.cancel-requested" "$LOOP_DIR/state-link.md"
+
+# Test 23: Filesystem symlink check (strict mode)
+echo ""
+echo "Test 23: Strict mode rejects state.md as symlink"
+touch "$LOOP_DIR/.cancel-requested"
+# Create a real file to point to
+echo "real state" > "$LOOP_DIR/real-state.md"
+# Replace state.md with a symlink
+rm -f "$LOOP_DIR/state.md"
+ln -s "$LOOP_DIR/real-state.md" "$LOOP_DIR/state.md"
+COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\""
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Strict mode rejects symlink state.md (exit: $?)"
+else
+    fail "Symlink state.md rejection" "rejected" "accepted"
+fi
+# Restore normal state.md
+rm -f "$LOOP_DIR/state.md" "$LOOP_DIR/real-state.md"
+touch "$LOOP_DIR/state.md"
+rm -f "$LOOP_DIR/.cancel-requested"
+
+# Test 24: Filesystem symlink check for finalize-state.md (strict mode)
+echo ""
+echo "Test 24: Strict mode rejects finalize-state.md as symlink"
+touch "$LOOP_DIR/.cancel-requested"
+# Create real file and symlink finalize-state.md
+echo "real finalize" > "$LOOP_DIR/real-finalize.md"
+ln -s "$LOOP_DIR/real-finalize.md" "$LOOP_DIR/finalize-state.md"
+COMMAND="mv \"$LOOP_DIR/finalize-state.md\" \"$LOOP_DIR/cancel-state.md\""
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Strict mode rejects symlink finalize-state.md"
+else
+    fail "Symlink finalize-state.md rejection" "rejected" "accepted"
+fi
+rm -f "$LOOP_DIR/finalize-state.md" "$LOOP_DIR/real-finalize.md" "$LOOP_DIR/.cancel-requested"
 
 # ========================================
 # Summary

@@ -76,6 +76,7 @@ init_test_repo() {
     git init -q
     git config user.email "test@test.com"
     git config user.name "Test User"
+    git config commit.gpgsign false
     echo "initial" > file.txt
     git add file.txt
     git commit -q -m "Initial commit"

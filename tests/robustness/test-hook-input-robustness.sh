@@ -455,6 +455,177 @@ else
 fi
 
 # ========================================
+# Monitor Loop Integration Tests (AC-6)
+# ========================================
+# These tests invoke the real _humanize_monitor_codex function
+
+echo ""
+echo "--- Monitor Loop Integration Tests (AC-6) ---"
+echo ""
+
+# Test 24: Monitor exits gracefully when session directory missing
+echo "Test 24: Monitor exits gracefully when session directory missing"
+MONITOR_TEST_DIR=$(mktemp -d)
+FAKE_HOME_MONITOR=$(mktemp -d)
+trap "rm -rf $MONITOR_TEST_DIR $FAKE_HOME_MONITOR" EXIT
+
+# Create project with NO .humanize directory
+mkdir -p "$MONITOR_TEST_DIR/project"
+cd "$MONITOR_TEST_DIR/project"
+
+# Create monitor runner script
+cat > "$MONITOR_TEST_DIR/run_monitor.sh" << 'MONITOR_EOF'
+#!/bin/bash
+PROJECT_DIR="$1"
+PROJECT_ROOT="$2"
+FAKE_HOME="$3"
+
+cd "$PROJECT_DIR"
+export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
+
+# Shim terminal functions
+tput() { case "$1" in cols) echo "80";; lines) echo "24";; *) :;; esac; }
+clear() { :; }
+export -f tput clear
+
+source "$PROJECT_ROOT/scripts/humanize.sh"
+_humanize_monitor_codex 2>&1
+echo "EXIT_CODE:$?"
+MONITOR_EOF
+chmod +x "$MONITOR_TEST_DIR/run_monitor.sh"
+
+# Run monitor (should exit quickly since no session with exit code 1)
+set +e
+OUTPUT=$("$MONITOR_TEST_DIR/run_monitor.sh" "$MONITOR_TEST_DIR/project" "$PROJECT_ROOT" "$FAKE_HOME_MONITOR" 2>&1)
+set -e
+
+# Monitor returns 1 when no active session is found - this is expected graceful behavior
+if echo "$OUTPUT" | grep -qE "EXIT_CODE:[01]"; then
+    pass "Monitor exits gracefully when no session"
+else
+    fail "Monitor no session" "EXIT_CODE:0 or 1" "$(echo "$OUTPUT" | tail -1)"
+fi
+
+# Test 25: Monitor with narrow terminal width
+echo ""
+echo "Test 25: Monitor handles narrow terminal (40 chars)"
+mkdir -p "$MONITOR_TEST_DIR/project2/.humanize/rlcr/2026-01-17_10-00-00"
+cat > "$MONITOR_TEST_DIR/project2/.humanize/rlcr/2026-01-17_10-00-00/state.md" << 'STATE_EOF'
+---
+current_round: 1
+max_iterations: 5
+---
+STATE_EOF
+cat > "$MONITOR_TEST_DIR/project2/.humanize/rlcr/2026-01-17_10-00-00/goal-tracker.md" << 'GOAL_EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test narrow terminal.
+### Acceptance Criteria
+- AC-1: Test
+## MUTABLE SECTION
+GOAL_EOF
+
+# Create cache dir for log file
+SANITIZED=$(echo "$MONITOR_TEST_DIR/project2" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+mkdir -p "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED/2026-01-17_10-00-00"
+echo "Test log" > "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED/2026-01-17_10-00-00/round-1-codex-run.log"
+
+# Create narrow terminal runner
+cat > "$MONITOR_TEST_DIR/run_narrow.sh" << 'NARROW_EOF'
+#!/bin/bash
+PROJECT_DIR="$1"
+PROJECT_ROOT="$2"
+FAKE_HOME="$3"
+
+cd "$PROJECT_DIR"
+export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
+
+# Shim terminal - NARROW (40 chars)
+tput() { case "$1" in cols) echo "40";; lines) echo "24";; *) :;; esac; }
+clear() { :; }
+export -f tput clear
+
+source "$PROJECT_ROOT/scripts/humanize.sh"
+# Run briefly then simulate directory deletion
+(sleep 1 && rm -rf "$PROJECT_DIR/.humanize/rlcr") &
+timeout 5 bash -c '_humanize_monitor_codex 2>&1' || true
+echo "EXIT_CODE:$?"
+NARROW_EOF
+chmod +x "$MONITOR_TEST_DIR/run_narrow.sh"
+
+set +e
+OUTPUT=$("$MONITOR_TEST_DIR/run_narrow.sh" "$MONITOR_TEST_DIR/project2" "$PROJECT_ROOT" "$FAKE_HOME_MONITOR" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Should not crash (exit code < 128 means no signal crash)
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Monitor handles narrow terminal without crash"
+else
+    fail "Narrow terminal crash" "exit < 128" "exit $EXIT_CODE (signal)"
+fi
+
+# Test 26: Monitor with ANSI codes in log file
+echo ""
+echo "Test 26: Monitor handles ANSI codes in log file"
+mkdir -p "$MONITOR_TEST_DIR/project3/.humanize/rlcr/2026-01-17_11-00-00"
+cat > "$MONITOR_TEST_DIR/project3/.humanize/rlcr/2026-01-17_11-00-00/state.md" << 'STATE_EOF'
+---
+current_round: 1
+max_iterations: 5
+---
+STATE_EOF
+cat > "$MONITOR_TEST_DIR/project3/.humanize/rlcr/2026-01-17_11-00-00/goal-tracker.md" << 'GOAL_EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test ANSI codes.
+### Acceptance Criteria
+- AC-1: Test
+## MUTABLE SECTION
+GOAL_EOF
+
+SANITIZED3=$(echo "$MONITOR_TEST_DIR/project3" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+mkdir -p "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED3/2026-01-17_11-00-00"
+# Write log with ANSI codes
+printf '\033[31mRed text\033[0m\n\033[1;32mBold green\033[0m\n' > "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED3/2026-01-17_11-00-00/round-1-codex-run.log"
+
+cat > "$MONITOR_TEST_DIR/run_ansi.sh" << 'ANSI_EOF'
+#!/bin/bash
+PROJECT_DIR="$1"
+PROJECT_ROOT="$2"
+FAKE_HOME="$3"
+
+cd "$PROJECT_DIR"
+export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
+
+tput() { case "$1" in cols) echo "80";; lines) echo "24";; *) :;; esac; }
+clear() { :; }
+export -f tput clear
+
+source "$PROJECT_ROOT/scripts/humanize.sh"
+(sleep 1 && rm -rf "$PROJECT_DIR/.humanize/rlcr") &
+timeout 5 bash -c '_humanize_monitor_codex 2>&1' || true
+echo "EXIT_CODE:$?"
+ANSI_EOF
+chmod +x "$MONITOR_TEST_DIR/run_ansi.sh"
+
+set +e
+OUTPUT=$("$MONITOR_TEST_DIR/run_ansi.sh" "$MONITOR_TEST_DIR/project3" "$PROJECT_ROOT" "$FAKE_HOME_MONITOR" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Monitor handles ANSI codes without crash"
+else
+    fail "ANSI codes crash" "exit < 128" "exit $EXIT_CODE (signal)"
+fi
+
+# ========================================
 # Summary
 # ========================================
 

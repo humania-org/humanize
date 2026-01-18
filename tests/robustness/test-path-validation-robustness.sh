@@ -42,6 +42,7 @@ cd "$TEST_DIR"
 git init --quiet
 git config user.email "test@test.com"
 git config user.name "Test User"
+git config commit.gpgsign false
 echo "Initial" > README.md
 git add README.md
 git commit -m "Initial commit" --quiet
