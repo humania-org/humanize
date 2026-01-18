@@ -64,10 +64,12 @@ validate_hook_input() {
 
     # Reject non-UTF8 bytes (security/consistency)
     # Check for bytes in 0x80-0xFF that are NOT part of valid UTF-8 sequences
-    # The iconv will fail on invalid UTF-8, allowing us to reject such input
-    if ! printf '%s' "$input" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
-        echo "Error: Input contains invalid UTF-8 sequences" >&2
-        return 1
+    # Skip if iconv is not available (common in minimal containers like Alpine)
+    if command -v iconv >/dev/null 2>&1; then
+        if ! printf '%s' "$input" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+            echo "Error: Input contains invalid UTF-8 sequences" >&2
+            return 1
+        fi
     fi
 
     # Validate JSON syntax with jq
@@ -426,149 +428,14 @@ is_finalize_summary_path() {
     echo "$path_lower" | grep -qE 'finalize-summary\.md$'
 }
 
-# Check if cancel operation is authorized via signal file
-# Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
-# Returns: 0 if cancel is authorized and command matches, 1 otherwise
-#
-# Security notes:
-# - Normalizes $loop_dir/${loop_dir} to actual path before validation
-# - Rejects $(cmd) command substitution and backticks
-# - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
-# - Enforces exactly two arguments: state.md or finalize-state.md source and cancel-state.md dest
-# - Rejects shell operators for command chaining
-is_cancel_authorized() {
-    local active_loop_dir="$1"
-    local command_lower="$2"
-
-    local cancel_signal="$active_loop_dir/.cancel-requested"
-
-    # Signal file must exist
-    if [[ ! -f "$cancel_signal" ]]; then
-        return 1
-    fi
-
-    # SECURITY: Reject command substitution and backticks FIRST
-    if echo "$command_lower" | grep -qE '\$\(|`'; then
-        return 1
-    fi
-
-    # Reject newlines (multi-command injection)
-    if [[ "$command_lower" == *$'\n'* ]]; then
-        return 1
-    fi
-
-    # Reject shell operators for command chaining
-    if echo "$command_lower" | grep -qE ';|&&|\|\||\|'; then
-        return 1
-    fi
-
-    # Normalize: Replace $loop_dir and ${loop_dir} with actual path
-    # This handles the documented cancel command format: mv "${LOOP_DIR}state.md" ...
-    # IMPORTANT: LOOP_DIR has a trailing slash (from `ls -1d */`), so ensure we preserve it
-    local normalized="$command_lower"
-    local loop_dir_lower
-    # Ensure trailing slash is present for proper path matching
-    loop_dir_lower="${active_loop_dir%/}/"
-    loop_dir_lower=$(echo "$loop_dir_lower" | tr '[:upper:]' '[:lower:]')
-
-    # Replace ${loop_dir} and $loop_dir patterns (case-insensitive after lowercasing)
-    normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
-    normalized="${normalized//\$loop_dir/$loop_dir_lower}"
-
-    # After normalization, reject any remaining $ (prevents hidden vars like ${IFS})
-    if echo "$normalized" | grep -qE '\$'; then
-        return 1
-    fi
-
-    # Must start with mv followed by space
-    if ! echo "$normalized" | grep -qE '^mv[[:space:]]+'; then
-        return 1
-    fi
-
-    # Extract arguments after "mv " - need to handle quoted args with spaces
-    local args
-    args=$(echo "$normalized" | sed 's/^mv[[:space:]]*//')
-
-    # Parse two arguments, respecting quotes
-    # Pattern matches: "quoted arg" or 'quoted arg' or unquoted-arg
-    # Use sed to extract first and second arguments
-    local src dest
-
-    # Try to match: "arg1" "arg2" or 'arg1' 'arg2' or "arg1" 'arg2' etc.
-    # First, check if we have quoted arguments
-    if echo "$args" | grep -qE "^[\"']"; then
-        # First arg is quoted - extract it
-        local quote_char
-        quote_char=$(echo "$args" | cut -c1)
-        if [[ "$quote_char" == '"' ]]; then
-            src=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
-            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
-        else
-            src=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
-            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
-        fi
-    else
-        # First arg is unquoted - take until whitespace
-        src=$(echo "$args" | sed 's/[[:space:]].*//')
-        args=$(echo "$args" | sed 's/^[^[:space:]]*[[:space:]]*//')
-    fi
-
-    # Now parse second argument
-    if echo "$args" | grep -qE "^[\"']"; then
-        local quote_char
-        quote_char=$(echo "$args" | cut -c1)
-        if [[ "$quote_char" == '"' ]]; then
-            dest=$(echo "$args" | sed -n 's/^"\([^"]*\)".*/\1/p')
-            args=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
-        else
-            dest=$(echo "$args" | sed -n "s/^'\\([^']*\\)'.*/\\1/p")
-            args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
-        fi
-    else
-        # Second arg is unquoted - take until whitespace or end
-        dest=$(echo "$args" | sed 's/[[:space:]].*//')
-        args=$(echo "$args" | sed 's/^[^[:space:]]*//')
-    fi
-
-    # Verify we got both arguments and nothing extra remains
-    if [[ -z "$src" ]] || [[ -z "$dest" ]]; then
-        return 1
-    fi
-
-    # Check for extra arguments (security: reject if anything remains)
-    args=$(echo "$args" | sed 's/^[[:space:]]*//')
-    if [[ -n "$args" ]]; then
-        return 1
-    fi
-
-    # Normalize paths by removing /./ and collapsing // to /
-    # This allows paths like /path/to/./state.md to match /path/to/state.md
-    local normalize_path
-    normalize_path() {
-        echo "$1" | sed 's|/\./|/|g; s|//|/|g'
-    }
-
-    # First arg must be exactly ${active_loop_dir}/state.md or ${active_loop_dir}/finalize-state.md (after normalization)
-    # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
-    src=$(normalize_path "$src")
-    local expected_src_state="${loop_dir_lower}state.md"
-    local expected_src_finalize="${loop_dir_lower}finalize-state.md"
-    if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
-        return 1
-    fi
-
-    # Second arg must be exactly ${active_loop_dir}/cancel-state.md (after normalization)
-    dest=$(normalize_path "$dest")
-    local expected_dest="${loop_dir_lower}cancel-state.md"
-    if [[ "$dest" != "$expected_dest" ]]; then
-        return 1
-    fi
-
-    return 0
+# Normalize paths by removing /./ and collapsing // to /
+# This allows paths like /path/to/./state.md to match /path/to/state.md
+_normalize_path() {
+    echo "$1" | sed 's|/\./|/|g; s|//|/|g'
 }
 
-# Strict cancel authorization that rejects mixed quotes and trailing spaces
-# Usage: is_cancel_authorized_strict "$active_loop_dir" "$command_lower"
+# Check if cancel operation is authorized via signal file
+# Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
 # Returns: 0 if authorized, non-zero otherwise
 #   1 - missing signal file
 #   2 - security violation (injection, command substitution, etc.)
@@ -576,7 +443,16 @@ is_cancel_authorized() {
 #   4 - multiple trailing spaces
 #   5 - invalid command structure
 #   6 - source file is a symlink (filesystem check)
-is_cancel_authorized_strict() {
+#
+# Security notes:
+# - Normalizes $loop_dir/${loop_dir} to actual path before validation
+# - Rejects $(cmd) command substitution and backticks
+# - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
+# - Enforces exactly two arguments: state.md or finalize-state.md source and cancel-state.md dest
+# - Rejects shell operators for command chaining
+# - Rejects mixed quote styles and multiple trailing spaces
+# - Rejects if source file is a symlink
+is_cancel_authorized() {
     local active_loop_dir="$1"
     local command_lower="$2"
 
@@ -602,7 +478,7 @@ is_cancel_authorized_strict() {
         return 2
     fi
 
-    # STRICT: Reject multiple trailing spaces (AC-10)
+    # Reject multiple trailing spaces
     if echo "$command_lower" | grep -qE '[[:space:]]{2,}$'; then
         return 4
     fi
@@ -630,7 +506,7 @@ is_cancel_authorized_strict() {
     local args
     args=$(echo "$normalized" | sed 's/^mv[[:space:]]*//')
 
-    # STRICT: Detect quote types used in both arguments (AC-10)
+    # Detect quote types used in both arguments
     # Check for mixed quotes by detecting if both ' and " are used as delimiters
     local has_single=false has_double=false
     local first_char
@@ -664,7 +540,7 @@ is_cancel_authorized_strict() {
         return 3
     fi
 
-    # Parse arguments (same logic as is_cancel_authorized)
+    # Parse arguments, respecting quotes
     local src dest
     if echo "$args" | grep -qE "^[\"']"; then
         local quote_char
@@ -706,20 +582,16 @@ is_cancel_authorized_strict() {
         return 5
     fi
 
-    # Normalize paths
-    local normalize_path
-    normalize_path() {
-        echo "$1" | sed 's|/\./|/|g; s|//|/|g'
-    }
-
-    src=$(normalize_path "$src")
+    # Normalize and validate source path
+    src=$(_normalize_path "$src")
     local expected_src_state="${loop_dir_lower}state.md"
     local expected_src_finalize="${loop_dir_lower}finalize-state.md"
     if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
         return 5
     fi
 
-    dest=$(normalize_path "$dest")
+    # Normalize and validate destination path
+    dest=$(_normalize_path "$dest")
     local expected_dest="${loop_dir_lower}cancel-state.md"
     if [[ "$dest" != "$expected_dest" ]]; then
         return 5

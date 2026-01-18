@@ -275,28 +275,16 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 19: Mixed quote styles (tolerant accepts, strict rejects)
+# Test 19: Mixed quote styles are rejected
 echo ""
-echo "Test 19a: Tolerant parser accepts mixed quote styles"
+echo "Test 19: Rejects mixed quote styles"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="mv \"$LOOP_DIR/state.md\" '$LOOP_DIR/cancel-state.md'"
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Tolerant parser accepts mixed quotes"
+if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects mixed quotes"
 else
-    fail "Tolerant mixed quotes" "authorized" "rejected"
-fi
-rm -f "$LOOP_DIR/.cancel-requested"
-
-echo ""
-echo "Test 19b: Strict parser rejects mixed quote styles"
-touch "$LOOP_DIR/.cancel-requested"
-COMMAND="mv \"$LOOP_DIR/state.md\" '$LOOP_DIR/cancel-state.md'"
-COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Strict parser rejects mixed quotes"
-else
-    fail "Strict mixed quotes rejection" "rejected" "authorized"
+    fail "Mixed quotes rejection" "rejected" "authorized"
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
@@ -313,28 +301,16 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 21: Multiple trailing spaces (tolerant accepts, strict rejects)
+# Test 21: Multiple trailing spaces are rejected
 echo ""
-echo "Test 21a: Tolerant parser accepts trailing spaces"
+echo "Test 21: Rejects multiple trailing spaces"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\"   "
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Tolerant parser accepts trailing spaces"
+if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects multiple trailing spaces"
 else
-    fail "Tolerant trailing spaces" "authorized" "rejected"
-fi
-rm -f "$LOOP_DIR/.cancel-requested"
-
-echo ""
-echo "Test 21b: Strict parser rejects multiple trailing spaces"
-touch "$LOOP_DIR/.cancel-requested"
-COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\"   "
-COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Strict parser rejects multiple trailing spaces"
-else
-    fail "Strict trailing spaces rejection" "rejected" "authorized"
+    fail "Trailing spaces rejection" "rejected" "authorized"
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
@@ -353,9 +329,9 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested" "$LOOP_DIR/state-link.md"
 
-# Test 23: Filesystem symlink check (strict mode)
+# Test 23: Filesystem symlink check
 echo ""
-echo "Test 23: Strict mode rejects state.md as symlink"
+echo "Test 23: Rejects state.md as symlink"
 touch "$LOOP_DIR/.cancel-requested"
 # Create a real file to point to
 echo "real state" > "$LOOP_DIR/real-state.md"
@@ -364,8 +340,8 @@ rm -f "$LOOP_DIR/state.md"
 ln -s "$LOOP_DIR/real-state.md" "$LOOP_DIR/state.md"
 COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\""
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Strict mode rejects symlink state.md (exit: $?)"
+if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects symlink state.md (exit: $?)"
 else
     fail "Symlink state.md rejection" "rejected" "accepted"
 fi
@@ -374,17 +350,17 @@ rm -f "$LOOP_DIR/state.md" "$LOOP_DIR/real-state.md"
 touch "$LOOP_DIR/state.md"
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 24: Filesystem symlink check for finalize-state.md (strict mode)
+# Test 24: Filesystem symlink check for finalize-state.md
 echo ""
-echo "Test 24: Strict mode rejects finalize-state.md as symlink"
+echo "Test 24: Rejects finalize-state.md as symlink"
 touch "$LOOP_DIR/.cancel-requested"
 # Create real file and symlink finalize-state.md
 echo "real finalize" > "$LOOP_DIR/real-finalize.md"
 ln -s "$LOOP_DIR/real-finalize.md" "$LOOP_DIR/finalize-state.md"
 COMMAND="mv \"$LOOP_DIR/finalize-state.md\" \"$LOOP_DIR/cancel-state.md\""
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Strict mode rejects symlink finalize-state.md"
+if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects symlink finalize-state.md"
 else
     fail "Symlink finalize-state.md rejection" "rejected" "accepted"
 fi
@@ -404,7 +380,7 @@ COMMAND="mv \"$TRICKY_LOOP_DIR/state.md\" \"$TRICKY_LOOP_DIR/cancel-state.md\""
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
 # Bug: substring match on *finalize* could misclassify state.md as finalize-state.md
 # The fix uses exact path matching instead
-if ! is_cancel_authorized_strict "$TRICKY_LOOP_DIR" "$COMMAND_LOWER"; then
+if ! is_cancel_authorized "$TRICKY_LOOP_DIR" "$COMMAND_LOWER"; then
     pass "Rejects state.md symlink even when path contains 'finalize'"
 else
     fail "Path contains finalize regression" "rejected" "accepted (symlink bypass)"
@@ -421,7 +397,7 @@ echo "real finalize" > "$TRICKY_LOOP_DIR2/real-finalize.md"
 ln -s "$TRICKY_LOOP_DIR2/real-finalize.md" "$TRICKY_LOOP_DIR2/finalize-state.md"
 COMMAND="mv \"$TRICKY_LOOP_DIR2/finalize-state.md\" \"$TRICKY_LOOP_DIR2/cancel-state.md\""
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if ! is_cancel_authorized_strict "$TRICKY_LOOP_DIR2" "$COMMAND_LOWER"; then
+if ! is_cancel_authorized "$TRICKY_LOOP_DIR2" "$COMMAND_LOWER"; then
     pass "Rejects finalize-state.md symlink when path contains 'finalize'"
 else
     fail "Finalize path regression" "rejected" "accepted (symlink bypass)"
