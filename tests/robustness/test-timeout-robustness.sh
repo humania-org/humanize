@@ -14,27 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_ROOT/scripts/portable-timeout.sh"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-pass() {
-    echo -e "${GREEN}PASS${NC}: $1"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-    echo -e "${RED}FAIL${NC}: $1"
-    echo "  Expected: $2"
-    echo "  Got: $3"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-}
+source "$SCRIPT_DIR/../test-helpers.sh"
 
 echo "========================================"
 echo "Timeout Robustness Tests (AC-11)"
@@ -295,19 +275,5 @@ fi
 # Summary
 # ========================================
 
-echo ""
-echo "========================================"
-echo "Timeout Robustness Test Summary"
-echo "========================================"
-echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
-echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
-
-if [[ $TESTS_FAILED -eq 0 ]]; then
-    echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
-else
-    echo ""
-    echo -e "${RED}Some tests failed!${NC}"
-    exit 1
-fi
+print_test_summary "Timeout Robustness Test Summary"
+exit $?

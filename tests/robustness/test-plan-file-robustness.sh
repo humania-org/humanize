@@ -81,30 +81,9 @@ test_plan_validation() {
     return $exit_code
 }
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+source "$SCRIPT_DIR/../test-helpers.sh"
 
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-pass() {
-    echo -e "${GREEN}PASS${NC}: $1"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-    echo -e "${RED}FAIL${NC}: $1"
-    echo "  Expected: $2"
-    echo "  Got: $3"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
-# Setup test directory
-TEST_DIR=$(mktemp -d)
-trap "rm -rf $TEST_DIR" EXIT
+setup_test_dir
 
 # Create a mock git repo in the test directory
 cd "$TEST_DIR"
@@ -549,19 +528,5 @@ fi
 # Summary
 # ========================================
 
-echo ""
-echo "========================================"
-echo "Plan File Robustness Test Summary"
-echo "========================================"
-echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
-echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
-
-if [[ $TESTS_FAILED -eq 0 ]]; then
-    echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
-else
-    echo ""
-    echo -e "${RED}Some tests failed!${NC}"
-    exit 1
-fi
+print_test_summary "Plan File Robustness Test Summary"
+exit $?

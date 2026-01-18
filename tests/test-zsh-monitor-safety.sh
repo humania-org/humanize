@@ -136,26 +136,19 @@ touch .humanize/rlcr/.hidden-file
 (
     loop_dir=".humanize/rlcr"
 
-    _find_latest_session_test() {
-        local latest_session=""
-        if [[ ! -d "$loop_dir" ]]; then
-            echo ""
-            return
-        fi
-        while IFS= read -r session_dir; do
-            [[ -z "$session_dir" ]] && continue
-            [[ ! -d "$session_dir" ]] && continue
-            local session_name=$(basename "$session_dir")
-            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
-                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
-                    latest_session="$session_dir"
-                fi
+    # Reuse the same function pattern from Test 2 (tests directory with only dotfiles)
+    result=""
+    while IFS= read -r session_dir; do
+        [[ -z "$session_dir" ]] && continue
+        [[ ! -d "$session_dir" ]] && continue
+        session_name=$(basename "$session_dir")
+        if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
+            if [[ -z "$result" ]] || [[ "$session_name" > "$(basename "$result")" ]]; then
+                result="$session_dir"
             fi
-        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        echo "$latest_session"
-    }
+        fi
+    done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
-    result=$(_find_latest_session_test 2>&1)
     if [[ "$result" == *"no matches found"* ]]; then
         echo "ERROR: $result"
         exit 1

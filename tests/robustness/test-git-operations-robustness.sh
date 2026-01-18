@@ -14,33 +14,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/../test-helpers.sh"
 source "$PROJECT_ROOT/scripts/portable-timeout.sh"
 source "$PROJECT_ROOT/scripts/humanize.sh"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-pass() {
-    echo -e "${GREEN}PASS${NC}: $1"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-    echo -e "${RED}FAIL${NC}: $1"
-    echo "  Expected: $2"
-    echo "  Got: $3"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
-# Setup test directory with git repo
-TEST_DIR=$(mktemp -d)
-trap "rm -rf $TEST_DIR" EXIT
+setup_test_dir
 
 echo "========================================"
 echo "Git Operations Robustness Tests (AC-5)"
@@ -525,19 +503,5 @@ cd - > /dev/null
 # Summary
 # ========================================
 
-echo ""
-echo "========================================"
-echo "Git Operations Robustness Test Summary"
-echo "========================================"
-echo -e "Passed: ${GREEN}$TESTS_PASSED${NC}"
-echo -e "Failed: ${RED}$TESTS_FAILED${NC}"
-
-if [[ $TESTS_FAILED -eq 0 ]]; then
-    echo ""
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
-else
-    echo ""
-    echo -e "${RED}Some tests failed!${NC}"
-    exit 1
-fi
+print_test_summary "Git Operations Robustness Test Summary"
+exit $?
