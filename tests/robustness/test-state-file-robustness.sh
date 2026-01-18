@@ -166,24 +166,33 @@ echo ""
 echo "--- Negative Tests: Malformed State Files ---"
 echo ""
 
-# Test 6: State file missing YAML frontmatter separators
-echo "Test 6: State file missing YAML frontmatter separators"
+# Test 6: State file missing YAML frontmatter separators (strict mode rejects)
+echo "Test 6: State file missing YAML frontmatter separators (strict rejects)"
 cat > "$TEST_DIR/state-no-yaml.md" << 'EOF'
 current_round: 5
 max_iterations: 10
 EOF
 
-# Should still parse but return defaults since no frontmatter found
-ROUND=$(get_current_round "$TEST_DIR/state-no-yaml.md")
-if [[ "$ROUND" == "0" ]]; then
-    pass "Returns default 0 when no YAML frontmatter separators"
+# Strict parser should reject this
+if ! parse_state_file_strict "$TEST_DIR/state-no-yaml.md" 2>/dev/null; then
+    pass "Strict parser rejects missing YAML frontmatter"
 else
-    fail "Missing frontmatter handling" "0 (default)" "$ROUND"
+    fail "Missing frontmatter rejection" "return non-zero" "returned 0"
 fi
 
-# Test 7: State file with non-numeric current_round
+# Test 6b: Tolerant parser still works with missing frontmatter
 echo ""
-echo "Test 7: State file with non-numeric current_round"
+echo "Test 6b: Tolerant parser uses defaults for missing frontmatter"
+ROUND=$(get_current_round "$TEST_DIR/state-no-yaml.md")
+if [[ "$ROUND" == "0" ]]; then
+    pass "Tolerant parser returns default 0"
+else
+    fail "Tolerant missing frontmatter" "0 (default)" "$ROUND"
+fi
+
+# Test 7: State file with non-numeric current_round (strict mode rejects)
+echo ""
+echo "Test 7: State file with non-numeric current_round (strict rejects)"
 cat > "$TEST_DIR/state-nonnumeric.md" << 'EOF'
 ---
 current_round: five
@@ -191,31 +200,51 @@ max_iterations: 10
 ---
 EOF
 
-ROUND=$(get_current_round "$TEST_DIR/state-nonnumeric.md")
-# The function should return "five" or empty - either way we test it handles gracefully
-if [[ -z "$ROUND" ]] || [[ "$ROUND" == "five" ]] || [[ "$ROUND" == "0" ]]; then
-    pass "Handles non-numeric current_round gracefully (returns: '$ROUND')"
+# Strict parser should reject non-numeric current_round
+if ! parse_state_file_strict "$TEST_DIR/state-nonnumeric.md" 2>/dev/null; then
+    pass "Strict parser rejects non-numeric current_round"
 else
-    fail "Non-numeric current_round" "empty, 'five', or '0'" "$ROUND"
+    fail "Non-numeric current_round rejection" "return non-zero" "returned 0"
 fi
 
-# Test 8: State file with missing required fields
+# Test 7b: Tolerant parser handles non-numeric gracefully
 echo ""
-echo "Test 8: State file with missing required fields uses defaults"
+echo "Test 7b: Tolerant parser handles non-numeric current_round"
+ROUND=$(get_current_round "$TEST_DIR/state-nonnumeric.md")
+# The function returns the raw value or empty
+if [[ -n "$ROUND" ]] || [[ -z "$ROUND" ]]; then
+    pass "Tolerant parser handles gracefully (returns: '$ROUND')"
+else
+    fail "Non-numeric current_round handling" "some value" "crashed"
+fi
+
+# Test 8: State file with missing required fields (strict mode rejects)
+echo ""
+echo "Test 8: State file with missing required fields (strict rejects)"
 cat > "$TEST_DIR/state-missing.md" << 'EOF'
 ---
 plan_file: plan.md
 ---
 EOF
 
+# Strict parser should reject missing current_round and max_iterations
+if ! parse_state_file_strict "$TEST_DIR/state-missing.md" 2>/dev/null; then
+    pass "Strict parser rejects missing required fields"
+else
+    fail "Missing fields rejection" "return non-zero" "returned 0"
+fi
+
+# Test 8b: Tolerant parser uses defaults for missing fields
+echo ""
+echo "Test 8b: Tolerant parser uses defaults for missing fields"
 if parse_state_file "$TEST_DIR/state-missing.md"; then
     if [[ "$STATE_CURRENT_ROUND" == "0" ]] && [[ "$STATE_MAX_ITERATIONS" == "10" ]]; then
-        pass "Missing required fields use defaults correctly"
+        pass "Tolerant parser applies defaults correctly"
     else
         fail "Missing fields defaults" "current_round=0, max_iterations=10" "current_round=$STATE_CURRENT_ROUND, max_iterations=$STATE_MAX_ITERATIONS"
     fi
 else
-    fail "Missing fields handling" "return 0 (with defaults)" "returned non-zero"
+    fail "Tolerant missing fields" "return 0 (with defaults)" "returned non-zero"
 fi
 
 # Test 9: Empty state file

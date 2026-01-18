@@ -90,50 +90,50 @@ else
     fail "Bash JSON parsing" "exit 0" "exit $EXIT_CODE: $RESULT"
 fi
 
-# Test 4: Invalid JSON syntax (should not crash)
+# Test 4: Invalid JSON syntax (should reject with non-zero exit)
 echo ""
-echo "Test 4: Hook handles invalid JSON syntax gracefully"
+echo "Test 4: Hook rejects invalid JSON syntax"
 INVALID_JSON='{"tool_name": "Read", invalid}'
-# The hook uses jq which will fail on invalid JSON, but shouldn't crash the script
+# The hook should reject invalid JSON and return non-zero exit code
 set +e
 RESULT=$(echo "$INVALID_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Exit code may be non-zero due to jq error, but script shouldn't crash with signal
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "Invalid JSON handled gracefully (exit: $EXIT_CODE)"
+# Should reject (non-zero) but not crash with signal
+if [[ $EXIT_CODE -ne 0 ]] && [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Invalid JSON rejected gracefully (exit: $EXIT_CODE)"
 else
-    fail "Invalid JSON" "exit < 128" "exit $EXIT_CODE (signal)"
+    fail "Invalid JSON rejection" "exit 1-127 (reject)" "exit $EXIT_CODE"
 fi
 
-# Test 5: Empty JSON object
+# Test 5: Empty JSON object (missing required tool_name field)
 echo ""
-echo "Test 5: Hook handles empty JSON object"
+echo "Test 5: Hook rejects empty JSON object (missing tool_name)"
 EMPTY_JSON='{}'
 set +e
 RESULT=$(echo "$EMPTY_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Should exit 0 because tool_name is empty (not "Read")
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Empty JSON handled (exit: 0)"
+# Should reject because tool_name is missing
+if [[ $EXIT_CODE -ne 0 ]] && [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Empty JSON rejected (exit: $EXIT_CODE)"
 else
-    fail "Empty JSON" "exit 0" "exit $EXIT_CODE"
+    fail "Empty JSON rejection" "exit 1-127 (reject)" "exit $EXIT_CODE"
 fi
 
-# Test 6: JSON with missing required fields
+# Test 6: JSON with missing required fields (tool_input.file_path for Read)
 echo ""
-echo "Test 6: Hook handles JSON with missing tool_input"
+echo "Test 6: Hook rejects JSON with missing tool_input.file_path"
 JSON='{"tool_name":"Read"}'
 set +e
 RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# jq will return empty string for missing .tool_input.file_path
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Missing tool_input handled (exit: 0)"
+# Should reject because file_path is required for Read tool
+if [[ $EXIT_CODE -ne 0 ]] && [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Missing tool_input.file_path rejected (exit: $EXIT_CODE)"
 else
-    fail "Missing fields" "exit 0" "exit $EXIT_CODE"
+    fail "Missing fields rejection" "exit 1-127 (reject)" "exit $EXIT_CODE"
 fi
 
 # Test 7: Extremely long command (10KB+)
@@ -196,9 +196,9 @@ else
     fail "Unknown tool" "exit 0" "exit $EXIT_CODE"
 fi
 
-# Test 10a: Deeply nested JSON structure
+# Test 10a: Deeply nested JSON structure (should be rejected)
 echo ""
-echo "Test 10a: Hook handles deeply nested JSON (50 levels)"
+echo "Test 10a: Hook rejects deeply nested JSON (50 levels)"
 # Create a deeply nested JSON structure
 NESTED_JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt","metadata":'
 for i in $(seq 1 50); do
@@ -213,11 +213,11 @@ set +e
 RESULT=$(echo "$NESTED_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# jq may fail on very deep nesting, but script should handle gracefully
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "Deeply nested JSON handled gracefully (exit: $EXIT_CODE)"
+# Should reject deeply nested JSON (depth > 30) with non-zero exit
+if [[ $EXIT_CODE -ne 0 ]] && [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Deeply nested JSON rejected (exit: $EXIT_CODE)"
 else
-    fail "Deep nesting" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
+    fail "Deep nesting rejection" "exit 1-127 (reject)" "exit $EXIT_CODE"
 fi
 
 # Test 10b: Non-UTF8 content in command (binary bytes)
@@ -237,17 +237,21 @@ else
 fi
 
 # Test 10c: Null bytes in JSON
+# Note: Bash strips null bytes during command substitution (see warning), so the hook
+# cannot detect them. This tests that the hook handles the stripped-null-byte case gracefully.
 echo ""
-echo "Test 10c: Hook handles null bytes in JSON"
+echo "Test 10c: Hook handles null bytes gracefully (bash strips them)"
 NULL_JSON=$(printf '{"tool_name":"Read","tool_input":{"file_path":"/tmp/test\x00.txt"}}')
 set +e
 RESULT=$(echo "$NULL_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
+# Bash strips null bytes before our code sees them, so the resulting JSON is valid
+# and the hook should accept it (or jq may produce parse errors on some versions)
 if [[ $EXIT_CODE -lt 128 ]]; then
     pass "Null bytes handled gracefully (exit: $EXIT_CODE)"
 else
-    fail "Null bytes" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
+    fail "Null bytes handling" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
 fi
 
 # ========================================

@@ -3,6 +3,160 @@
 # Part of rc.d configuration
 # Compatible with both bash and zsh
 
+# ========================================
+# Public helper functions (can be called directly for testing)
+# ========================================
+
+# Split pipe-delimited string into array (bash/zsh compatible)
+# Usage: humanize_split_to_array "output_array_name" "value1|value2|value3"
+humanize_split_to_array() {
+    local arr_name="$1"
+    local input="$2"
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # zsh: use parameter expansion to split on |
+        eval "$arr_name=(\"\${(@s:|:)input}\")"
+    else
+        # bash: use read -ra
+        eval "IFS='|' read -ra $arr_name <<< \"\$input\""
+    fi
+}
+
+# Parse goal-tracker.md and return summary values
+# Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
+humanize_parse_goal_tracker() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "0|0|0|0|0|0|No goal tracker"
+        return
+    fi
+
+    # Helper: count data rows in a markdown table section (total rows minus header and separator)
+    # Usage: _count_table_data_rows "section_start_pattern" "section_end_pattern"
+    _count_table_data_rows() {
+        local row_count
+        row_count=$(sed -n "/$1/,/$2/p" "$tracker_file" | grep -cE '^\|' || true)
+        row_count=${row_count:-0}
+        echo $((row_count > 2 ? row_count - 2 : 0))
+    }
+
+    # Count Acceptance Criteria (supports both table and list formats)
+    # Table format: | AC-1 | or | **AC-1** |
+    # List format: - **AC-1**: or - AC-1:
+    local total_acs
+    total_acs=$(sed -n '/### Acceptance Criteria/,/^---$/p' "$tracker_file" \
+        | grep -cE '(^\|\s*\*{0,2}AC-?[0-9]+|^-\s*\*{0,2}AC-?[0-9]+)' || true)
+    total_acs=${total_acs:-0}
+
+    # Count Active Tasks (tasks that are NOT completed AND NOT deferred)
+    # This counts tasks with status: pending, partial, in_progress, todo, etc.
+    local active_tasks
+    local total_active_section_rows
+    local completed_in_active
+    local deferred_in_active
+
+    # Count total table rows in Active Tasks section (includes header and separator)
+    total_active_section_rows=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
+        | grep -cE '^\|' || true)
+    total_active_section_rows=${total_active_section_rows:-0}
+    # Subtract header row and separator row (2 rows)
+    local total_active_data_rows=$((total_active_section_rows > 2 ? total_active_section_rows - 2 : 0))
+
+    # Count completed tasks in Active Tasks section (status column contains "completed")
+    completed_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
+        | sed 's/\*\*//g' \
+        | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*completed[[:space:]]*\|' || true)
+    completed_in_active=${completed_in_active:-0}
+
+    # Count deferred tasks in Active Tasks section (status column contains "deferred")
+    deferred_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
+        | sed 's/\*\*//g' \
+        | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*deferred[[:space:]]*\|' || true)
+    deferred_in_active=${deferred_in_active:-0}
+
+    # Active = total data rows - completed - deferred
+    active_tasks=$((total_active_data_rows - completed_in_active - deferred_in_active))
+    [[ "$active_tasks" -lt 0 ]] && active_tasks=0
+
+    # Count Completed tasks
+    local completed_tasks
+    completed_tasks=$(_count_table_data_rows '### Completed and Verified' '^###')
+
+    # Count verified ACs (unique AC entries in Completed section, handles | AC-1 | and | AC1 | formats)
+    local completed_acs
+    completed_acs=$(sed -n '/### Completed and Verified/,/^###/p' "$tracker_file" \
+        | grep -oE '^\|\s*AC-?[0-9]+' | sort -u | wc -l | tr -d ' ')
+    completed_acs=${completed_acs:-0}
+
+    # Count Deferred tasks
+    local deferred_tasks
+    deferred_tasks=$(_count_table_data_rows '### Explicitly Deferred' '^###')
+
+    # Count Open Issues
+    local open_issues
+    open_issues=$(_count_table_data_rows '### Open Issues' '^###')
+
+    # Extract Ultimate Goal summary (first content line after heading)
+    local goal_summary
+    goal_summary=$(sed -n '/### Ultimate Goal/,/^###/p' "$tracker_file" \
+        | grep -v '^###' | grep -v '^$' | grep -v '^\[To be' \
+        | head -1 | sed 's/^[[:space:]]*//' | cut -c1-60)
+    goal_summary="${goal_summary:-No goal defined}"
+
+    echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
+}
+
+# Parse git status and return summary values
+# Returns: modified|added|deleted|untracked|insertions|deletions
+humanize_parse_git_status() {
+    # Check if we're in a git repo
+    if ! git rev-parse --git-dir &>/dev/null 2>&1; then
+        echo "0|0|0|0|0|0|not a git repo"
+        return
+    fi
+
+    # Get porcelain status (fast, machine-readable)
+    local git_status_output=$(git status --porcelain 2>/dev/null)
+
+    # Count file states from status output
+    local modified=0 added=0 deleted=0 untracked=0
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local xy="${line:0:2}"
+        case "$xy" in
+            "??") ((untracked++)) ;;
+            "A "* | " A"* | "AM"*) ((added++)) ;;
+            "D "* | " D"*) ((deleted++)) ;;
+            "M "* | " M"* | "MM"*) ((modified++)) ;;
+            "R "* | " R"*) ((modified++)) ;;  # Renamed counts as modified
+            *)
+                # Handle other cases (staged + unstaged combinations)
+                [[ "${xy:0:1}" == "M" || "${xy:1:1}" == "M" ]] && ((modified++))
+                [[ "${xy:0:1}" == "A" ]] && ((added++))
+                [[ "${xy:0:1}" == "D" || "${xy:1:1}" == "D" ]] && ((deleted++))
+                ;;
+        esac
+    done <<< "$git_status_output"
+
+    # Get line changes (insertions/deletions) - diff of staged + unstaged
+    local diffstat=$(git diff --shortstat HEAD 2>/dev/null || git diff --shortstat 2>/dev/null)
+    local insertions=0 deletions=0
+
+    if [[ -n "$diffstat" ]]; then
+        # Parse: " 3 files changed, 45 insertions(+), 12 deletions(-)"
+        insertions=$(echo "$diffstat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
+        deletions=$(echo "$diffstat" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
+    fi
+    insertions=${insertions:-0}
+    deletions=${deletions:-0}
+
+    echo "${modified}|${added}|${deleted}|${untracked}|${insertions}|${deletions}"
+}
+
+# ========================================
+# Monitor function
+# ========================================
+
 # Monitor the latest Codex run log from .humanize/rlcr
 # Automatically switches to newer logs when they appear
 # Features a fixed status bar at the top showing session info
@@ -167,151 +321,11 @@ _humanize_monitor_codex() {
         echo "${current_round:-N/A}|${max_iterations:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}"
     }
 
-    # Parse goal-tracker.md and return summary values
-    # Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
-    _parse_goal_tracker() {
-        local tracker_file="$1"
-        if [[ ! -f "$tracker_file" ]]; then
-            echo "0|0|0|0|0|0|No goal tracker"
-            return
-        fi
-
-        # Helper: count data rows in a markdown table section (total rows minus header and separator)
-        # Usage: _count_table_data_rows "section_start_pattern" "section_end_pattern"
-        _count_table_data_rows() {
-            local row_count
-            row_count=$(sed -n "/$1/,/$2/p" "$tracker_file" | grep -cE '^\|' || true)
-            row_count=${row_count:-0}
-            echo $((row_count > 2 ? row_count - 2 : 0))
-        }
-
-        # Count Acceptance Criteria (supports both table and list formats)
-        # Table format: | AC-1 | or | **AC-1** |
-        # List format: - **AC-1**: or - AC-1:
-        local total_acs
-        total_acs=$(sed -n '/### Acceptance Criteria/,/^---$/p' "$tracker_file" \
-            | grep -cE '(^\|\s*\*{0,2}AC-?[0-9]+|^-\s*\*{0,2}AC-?[0-9]+)' || true)
-        total_acs=${total_acs:-0}
-
-        # Count Active Tasks (tasks that are NOT completed AND NOT deferred)
-        # This counts tasks with status: pending, partial, in_progress, todo, etc.
-        local active_tasks
-        local total_active_section_rows
-        local completed_in_active
-        local deferred_in_active
-
-        # Count total table rows in Active Tasks section (includes header and separator)
-        total_active_section_rows=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-            | grep -cE '^\|' || true)
-        total_active_section_rows=${total_active_section_rows:-0}
-        # Subtract header row and separator row (2 rows)
-        local total_active_data_rows=$((total_active_section_rows > 2 ? total_active_section_rows - 2 : 0))
-
-        # Count completed tasks in Active Tasks section (status column contains "completed")
-        completed_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-            | sed 's/\*\*//g' \
-            | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*completed[[:space:]]*\|' || true)
-        completed_in_active=${completed_in_active:-0}
-
-        # Count deferred tasks in Active Tasks section (status column contains "deferred")
-        deferred_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-            | sed 's/\*\*//g' \
-            | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*deferred[[:space:]]*\|' || true)
-        deferred_in_active=${deferred_in_active:-0}
-
-        # Active = total data rows - completed - deferred
-        active_tasks=$((total_active_data_rows - completed_in_active - deferred_in_active))
-        [[ "$active_tasks" -lt 0 ]] && active_tasks=0
-
-        # Count Completed tasks
-        local completed_tasks
-        completed_tasks=$(_count_table_data_rows '### Completed and Verified' '^###')
-
-        # Count verified ACs (unique AC entries in Completed section, handles | AC-1 | and | AC1 | formats)
-        local completed_acs
-        completed_acs=$(sed -n '/### Completed and Verified/,/^###/p' "$tracker_file" \
-            | grep -oE '^\|\s*AC-?[0-9]+' | sort -u | wc -l | tr -d ' ')
-        completed_acs=${completed_acs:-0}
-
-        # Count Deferred tasks
-        local deferred_tasks
-        deferred_tasks=$(_count_table_data_rows '### Explicitly Deferred' '^###')
-
-        # Count Open Issues
-        local open_issues
-        open_issues=$(_count_table_data_rows '### Open Issues' '^###')
-
-        # Extract Ultimate Goal summary (first content line after heading)
-        local goal_summary
-        goal_summary=$(sed -n '/### Ultimate Goal/,/^###/p' "$tracker_file" \
-            | grep -v '^###' | grep -v '^$' | grep -v '^\[To be' \
-            | head -1 | sed 's/^[[:space:]]*//' | cut -c1-60)
-        goal_summary="${goal_summary:-No goal defined}"
-
-        echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
-    }
-
-    # Parse git status and return summary values
-    # Returns: modified|added|deleted|untracked|insertions|deletions
-    _parse_git_status() {
-        # Check if we're in a git repo
-        if ! git rev-parse --git-dir &>/dev/null 2>&1; then
-            echo "0|0|0|0|0|0|not a git repo"
-            return
-        fi
-
-        # Get porcelain status (fast, machine-readable)
-        local git_status_output=$(git status --porcelain 2>/dev/null)
-
-        # Count file states from status output
-        local modified=0 added=0 deleted=0 untracked=0
-
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local xy="${line:0:2}"
-            case "$xy" in
-                "??") ((untracked++)) ;;
-                "A "* | " A"* | "AM"*) ((added++)) ;;
-                "D "* | " D"*) ((deleted++)) ;;
-                "M "* | " M"* | "MM"*) ((modified++)) ;;
-                "R "* | " R"*) ((modified++)) ;;  # Renamed counts as modified
-                *)
-                    # Handle other cases (staged + unstaged combinations)
-                    [[ "${xy:0:1}" == "M" || "${xy:1:1}" == "M" ]] && ((modified++))
-                    [[ "${xy:0:1}" == "A" ]] && ((added++))
-                    [[ "${xy:0:1}" == "D" || "${xy:1:1}" == "D" ]] && ((deleted++))
-                    ;;
-            esac
-        done <<< "$git_status_output"
-
-        # Get line changes (insertions/deletions) - diff of staged + unstaged
-        local diffstat=$(git diff --shortstat HEAD 2>/dev/null || git diff --shortstat 2>/dev/null)
-        local insertions=0 deletions=0
-
-        if [[ -n "$diffstat" ]]; then
-            # Parse: " 3 files changed, 45 insertions(+), 12 deletions(-)"
-            insertions=$(echo "$diffstat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
-            deletions=$(echo "$diffstat" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
-        fi
-        insertions=${insertions:-0}
-        deletions=${deletions:-0}
-
-        echo "${modified}|${added}|${deleted}|${untracked}|${insertions}|${deletions}"
-    }
-
-    # Split pipe-delimited string into array (bash/zsh compatible)
-    # Usage: _split_to_array "output_array_name" "value1|value2|value3"
-    _split_to_array() {
-        local arr_name="$1"
-        local input="$2"
-        if [[ -n "$ZSH_VERSION" ]]; then
-            # zsh: use parameter expansion to split on |
-            eval "$arr_name=(\"\${(@s:|:)input}\")"
-        else
-            # bash: use read -ra
-            eval "IFS='|' read -ra $arr_name <<< \"\$input\""
-        fi
-    }
+    # Internal wrappers that call top-level functions
+    # These maintain backward compatibility within _humanize_monitor_codex
+    _parse_goal_tracker() { humanize_parse_goal_tracker "$@"; }
+    _parse_git_status() { humanize_parse_git_status "$@"; }
+    _split_to_array() { humanize_split_to_array "$@"; }
 
     # Draw the status bar at the top
     _draw_status_bar() {

@@ -2,7 +2,7 @@
 #
 # Robustness tests for goal tracker parsing (AC-3)
 #
-# Tests production _parse_goal_tracker function from scripts/humanize.sh:
+# Tests production humanize_parse_goal_tracker function from scripts/humanize.sh:
 # - Standard table format
 # - Mixed AC formats
 # - Large AC counts
@@ -15,9 +15,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Source the production humanize.sh to get _parse_goal_tracker function
-# We need to extract just the parsing functions without running the full monitor
-source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+# Source the production humanize.sh to get humanizehumanize_parse_goal_tracker function
+source "$PROJECT_ROOT/scripts/humanize.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -53,83 +52,8 @@ echo ""
 # Production Function Under Test
 # ========================================
 
-# Extract _parse_goal_tracker from scripts/humanize.sh
+# Uses humanizehumanize_parse_goal_tracker from scripts/humanize.sh (sourced above)
 # The function returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
-# We source the parts we need
-
-_count_table_data_rows() {
-    local tracker_file="$1"
-    local start_pattern="$2"
-    local end_pattern="$3"
-    local row_count
-    row_count=$(sed -n "/$start_pattern/,/$end_pattern/p" "$tracker_file" | grep -cE '^\|' || true)
-    row_count=${row_count:-0}
-    echo $((row_count > 2 ? row_count - 2 : 0))
-}
-
-# Production _parse_goal_tracker function (copied from scripts/humanize.sh:172-252)
-_parse_goal_tracker() {
-    local tracker_file="$1"
-    if [[ ! -f "$tracker_file" ]]; then
-        echo "0|0|0|0|0|0|No goal tracker"
-        return
-    fi
-
-    # Count Acceptance Criteria (supports both table and list formats)
-    local total_acs
-    total_acs=$(sed -n '/### Acceptance Criteria/,/^---$/p' "$tracker_file" \
-        | grep -cE '(^\|\s*\*{0,2}AC-?[0-9]+|^-\s*\*{0,2}AC-?[0-9]+)' || true)
-    total_acs=${total_acs:-0}
-
-    # Count Active Tasks
-    local total_active_section_rows
-    total_active_section_rows=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-        | grep -cE '^\|' || true)
-    total_active_section_rows=${total_active_section_rows:-0}
-    local total_active_data_rows=$((total_active_section_rows > 2 ? total_active_section_rows - 2 : 0))
-
-    local completed_in_active
-    completed_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-        | sed 's/\*\*//g' \
-        | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*completed[[:space:]]*\|' || true)
-    completed_in_active=${completed_in_active:-0}
-
-    local deferred_in_active
-    deferred_in_active=$(sed -n '/#### Active Tasks/,/^###/p' "$tracker_file" \
-        | sed 's/\*\*//g' \
-        | grep -ciE '^\|[^|]+\|[^|]+\|[[:space:]]*deferred[[:space:]]*\|' || true)
-    deferred_in_active=${deferred_in_active:-0}
-
-    local active_tasks=$((total_active_data_rows - completed_in_active - deferred_in_active))
-    [[ "$active_tasks" -lt 0 ]] && active_tasks=0
-
-    # Count Completed tasks
-    local completed_tasks
-    completed_tasks=$(_count_table_data_rows "$tracker_file" '### Completed and Verified' '^###')
-
-    # Count verified ACs
-    local completed_acs
-    completed_acs=$(sed -n '/### Completed and Verified/,/^###/p' "$tracker_file" \
-        | grep -oE '^\|\s*AC-?[0-9]+' | sort -u | wc -l | tr -d ' ')
-    completed_acs=${completed_acs:-0}
-
-    # Count Deferred tasks
-    local deferred_tasks
-    deferred_tasks=$(_count_table_data_rows "$tracker_file" '### Explicitly Deferred' '^###')
-
-    # Count Open Issues
-    local open_issues
-    open_issues=$(_count_table_data_rows "$tracker_file" '### Open Issues' '^###')
-
-    # Extract Ultimate Goal summary
-    local goal_summary
-    goal_summary=$(sed -n '/### Ultimate Goal/,/^###/p' "$tracker_file" \
-        | grep -v '^###' | grep -v '^$' | grep -v '^\[To be' \
-        | head -1 | sed 's/^[[:space:]]*//' | cut -c1-60)
-    goal_summary="${goal_summary:-No goal defined}"
-
-    echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
-}
 
 # Helper to parse output
 parse_result() {
@@ -174,7 +98,7 @@ cat > "$TEST_DIR/goal-tracker.md" << 'EOF'
 | Task 2 | AC-2 | in_progress | - |
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" == "3" ]]; then
     pass "Counts 3 AC items in list format"
@@ -203,7 +127,7 @@ cat > "$TEST_DIR/goal-tracker-table.md" << 'EOF'
 | Task 1 | AC-1 | pending | - |
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-table.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-table.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" == "3" ]]; then
     pass "Counts 3 AC items in table format"
@@ -239,7 +163,7 @@ cat > "$TEST_DIR/goal-tracker-tasks.md" << 'EOF'
 |----|------|-----------------|----------------|----------|
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-tasks.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-tasks.md")
 ACTIVE_TASKS=$(parse_result "$RESULT" active_tasks)
 # 4 total rows - 1 completed - 1 deferred = 2 active
 if [[ "$ACTIVE_TASKS" == "2" ]]; then
@@ -278,7 +202,7 @@ cat > "$TEST_DIR/goal-tracker-completed.md" << 'EOF'
 ### Explicitly Deferred
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-completed.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-completed.md")
 COMPLETED_TASKS=$(parse_result "$RESULT" completed_tasks)
 COMPLETED_ACS=$(parse_result "$RESULT" completed_acs)
 if [[ "$COMPLETED_TASKS" == "3" ]]; then
@@ -314,7 +238,7 @@ Build a comprehensive testing framework for shell scripts.
 ---
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-goal.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-goal.md")
 GOAL=$(parse_result "$RESULT" goal_summary)
 if [[ "$GOAL" == *"comprehensive testing"* ]]; then
     pass "Extracts goal summary correctly"
@@ -332,7 +256,7 @@ echo ""
 
 # Test 7: Non-existent file returns defaults
 echo "Test 7: Non-existent file returns default values"
-RESULT=$(_parse_goal_tracker "$TEST_DIR/nonexistent.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/nonexistent.md")
 if [[ "$RESULT" == "0|0|0|0|0|0|No goal tracker" ]]; then
     pass "Returns default values for non-existent file"
 else
@@ -343,7 +267,7 @@ fi
 echo ""
 echo "Test 8: Empty file returns zero counts"
 : > "$TEST_DIR/goal-tracker-empty.md"
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-empty.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-empty.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" == "0" ]]; then
     pass "Returns 0 total_acs for empty file"
@@ -366,7 +290,7 @@ echo "Test 9: Handle large AC counts (60 items)"
     echo "---"
 } > "$TEST_DIR/goal-tracker-large.md"
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-large.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-large.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" == "60" ]]; then
     pass "Handles 60 AC items without overflow"
@@ -389,7 +313,7 @@ cat > "$TEST_DIR/goal-tracker-special.md" << 'EOF'
 ---
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-special.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-special.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" == "3" ]]; then
     pass "Handles special characters in descriptions"
@@ -412,7 +336,7 @@ Active Tasks
 Task 1 AC-1 pending
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-malformed.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-malformed.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 # Without proper ### headers, counts should be 0 (graceful handling)
 if [[ "$TOTAL_ACS" == "0" ]]; then
@@ -433,7 +357,7 @@ cat > "$TEST_DIR/goal-tracker-truncated.md" << 'EOF'
 - AC-2: Sec
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-truncated.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-truncated.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 # Should still count the AC items that are parseable
 if [[ "$TOTAL_ACS" -ge "1" ]]; then
@@ -458,7 +382,7 @@ echo "- AC-2: After binary" >> "$TEST_DIR/goal-tracker-binary.md"
 echo "" >> "$TEST_DIR/goal-tracker-binary.md"
 echo "---" >> "$TEST_DIR/goal-tracker-binary.md"
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-binary.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-binary.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 if [[ "$TOTAL_ACS" -ge "1" ]]; then
     pass "Handles binary content gracefully (found $TOTAL_ACS AC items)"
@@ -496,7 +420,7 @@ cat > "$TEST_DIR/goal-tracker-issues.md" << 'EOF'
 
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-issues.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-issues.md")
 OPEN_ISSUES=$(parse_result "$RESULT" open_issues)
 if [[ "$OPEN_ISSUES" == "2" ]]; then
     pass "Counts 2 open issues"
@@ -526,7 +450,7 @@ cat > "$TEST_DIR/goal-tracker-deferred.md" << 'EOF'
 ### Open Issues
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-deferred.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-deferred.md")
 DEFERRED_TASKS=$(parse_result "$RESULT" deferred_tasks)
 if [[ "$DEFERRED_TASKS" == "2" ]]; then
     pass "Counts 2 deferred tasks"
@@ -561,7 +485,7 @@ cat > "$TEST_DIR/goal-tracker-headers.md" << 'EOF'
 ### Open Issues
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-headers.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-headers.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 ACTIVE_TASKS=$(parse_result "$RESULT" active_tasks)
 if [[ "$TOTAL_ACS" == "0" ]] && [[ "$ACTIVE_TASKS" == "0" ]]; then
@@ -585,7 +509,7 @@ cat > "$TEST_DIR/goal-tracker-mixed.md" << 'EOF'
 ---
 EOF
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-mixed.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-mixed.md")
 TOTAL_ACS=$(parse_result "$RESULT" total_acs)
 # The regex matches AC-1 and **AC-2** but not AC-3.1 (has decimal)
 if [[ "$TOTAL_ACS" -ge "2" ]]; then
@@ -609,7 +533,7 @@ echo "Test 18: Very long goal summary truncation"
     echo "---"
 } > "$TEST_DIR/goal-tracker-longgoal.md"
 
-RESULT=$(_parse_goal_tracker "$TEST_DIR/goal-tracker-longgoal.md")
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-longgoal.md")
 GOAL=$(parse_result "$RESULT" goal_summary)
 GOAL_LEN=${#GOAL}
 # Goal summary should be truncated to 60 chars

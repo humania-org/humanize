@@ -2,7 +2,7 @@
 #
 # Robustness tests for git operation scripts (AC-5)
 #
-# Tests production _parse_git_status function from scripts/humanize.sh:
+# Tests production humanize_parse_git_status function from scripts/humanize.sh:
 # - Clean repository state
 # - Modified/added/deleted/untracked files
 # - Detached HEAD handling
@@ -15,6 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_ROOT/scripts/portable-timeout.sh"
+source "$PROJECT_ROOT/scripts/humanize.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -50,53 +51,8 @@ echo ""
 # Production Function Under Test
 # ========================================
 
-# Production _parse_git_status function (copied from scripts/humanize.sh:256-300)
+# Uses humanize_parse_git_status from scripts/humanize.sh (sourced above)
 # Returns: modified|added|deleted|untracked|insertions|deletions
-_parse_git_status() {
-    # Check if we're in a git repo
-    if ! git rev-parse --git-dir &>/dev/null 2>&1; then
-        echo "0|0|0|0|0|0|not a git repo"
-        return
-    fi
-
-    # Get porcelain status (fast, machine-readable)
-    local git_status_output=$(git status --porcelain 2>/dev/null)
-
-    # Count file states from status output
-    local modified=0 added=0 deleted=0 untracked=0
-
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        local xy="${line:0:2}"
-        case "$xy" in
-            "??") ((untracked++)) ;;
-            "A "* | " A"* | "AM"*) ((added++)) ;;
-            "D "* | " D"*) ((deleted++)) ;;
-            "M "* | " M"* | "MM"*) ((modified++)) ;;
-            "R "* | " R"*) ((modified++)) ;;  # Renamed counts as modified
-            *)
-                # Handle other cases (staged + unstaged combinations)
-                [[ "${xy:0:1}" == "M" || "${xy:1:1}" == "M" ]] && ((modified++))
-                [[ "${xy:0:1}" == "A" ]] && ((added++))
-                [[ "${xy:0:1}" == "D" || "${xy:1:1}" == "D" ]] && ((deleted++))
-                ;;
-        esac
-    done <<< "$git_status_output"
-
-    # Get line changes (insertions/deletions) - diff of staged + unstaged
-    local diffstat=$(git diff --shortstat HEAD 2>/dev/null || git diff --shortstat 2>/dev/null)
-    local insertions=0 deletions=0
-
-    if [[ -n "$diffstat" ]]; then
-        # Parse: " 3 files changed, 45 insertions(+), 12 deletions(-)"
-        insertions=$(echo "$diffstat" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
-        deletions=$(echo "$diffstat" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
-    fi
-    insertions=${insertions:-0}
-    deletions=${deletions:-0}
-
-    echo "${modified}|${added}|${deleted}|${untracked}|${insertions}|${deletions}"
-}
 
 # Helper to parse output
 parse_result() {
@@ -137,7 +93,7 @@ echo ""
 echo "Test 1: Detect clean repository state"
 init_test_repo "$TEST_DIR/repo1"
 cd "$TEST_DIR/repo1"
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 ADDED=$(parse_result "$RESULT" added)
 UNTRACKED=$(parse_result "$RESULT" untracked)
@@ -165,7 +121,7 @@ echo ""
 echo "Test 3: Count untracked files"
 cd "$TEST_DIR/repo1"
 echo "new file" > newfile.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 UNTRACKED=$(parse_result "$RESULT" untracked)
 if [[ "$UNTRACKED" == "1" ]]; then
     pass "Untracked file count: 1"
@@ -180,7 +136,7 @@ echo ""
 echo "Test 4: Count modified files"
 cd "$TEST_DIR/repo1"
 echo "modified content" >> file.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 if [[ "$MODIFIED" == "1" ]]; then
     pass "Modified file count: 1"
@@ -196,7 +152,7 @@ echo "Test 5: Count staged added files"
 cd "$TEST_DIR/repo1"
 echo "new staged" > staged.txt
 git add staged.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 ADDED=$(parse_result "$RESULT" added)
 if [[ "$ADDED" == "1" ]]; then
     pass "Added (staged) file count: 1"
@@ -212,7 +168,7 @@ echo ""
 echo "Test 6: Count line insertions"
 cd "$TEST_DIR/repo1"
 echo -e "line1\nline2\nline3" >> file.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 INSERTIONS=$(parse_result "$RESULT" insertions)
 if [[ "$INSERTIONS" -ge "3" ]]; then
     pass "Insertions counted: $INSERTIONS"
@@ -234,7 +190,7 @@ echo ""
 echo "Test 7: Handle non-git directory"
 mkdir -p "$TEST_DIR/not-a-repo"
 cd "$TEST_DIR/not-a-repo"
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 if [[ "$RESULT" == *"not a git repo"* ]]; then
     pass "Non-git directory detected"
 else
@@ -248,7 +204,7 @@ echo "Test 8: Parse status in detached HEAD state"
 cd "$TEST_DIR/repo1"
 COMMIT=$(git rev-parse HEAD)
 git checkout -q "$COMMIT"
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 # Should still parse status correctly in detached HEAD
 if [[ "$MODIFIED" == "0" ]]; then
@@ -266,7 +222,7 @@ cd "$TEST_DIR/repo1"
 echo "mod" >> file.txt                    # Modified
 echo "new" > new.txt                      # Untracked
 echo "staged" > staged.txt && git add staged.txt  # Added
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 ADDED=$(parse_result "$RESULT" added)
 UNTRACKED=$(parse_result "$RESULT" untracked)
@@ -285,7 +241,7 @@ echo ""
 echo "Test 10: Detect deleted files"
 cd "$TEST_DIR/repo1"
 rm file.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 DELETED=$(parse_result "$RESULT" deleted)
 if [[ "$DELETED" == "1" ]]; then
     pass "Deleted file count: 1"
@@ -301,7 +257,7 @@ echo "Test 11: Handle empty repository (no commits)"
 mkdir -p "$TEST_DIR/empty-repo"
 cd "$TEST_DIR/empty-repo"
 git init -q
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 # Should not crash, may return zeros or empty
 if [[ -n "$RESULT" ]]; then
     pass "Empty repo handled gracefully: $RESULT"
@@ -316,7 +272,7 @@ echo "Test 12: Feature branch status parsing"
 cd "$TEST_DIR/repo1"
 git checkout -q -b feature/test-branch
 echo "feature work" > feature.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 UNTRACKED=$(parse_result "$RESULT" untracked)
 if [[ "$UNTRACKED" == "1" ]]; then
     pass "Feature branch status parsed correctly"
@@ -332,7 +288,7 @@ echo ""
 echo "Test 13: Detect renamed file"
 cd "$TEST_DIR/repo1"
 git mv file.txt renamed.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 # Renamed counts as modified in our implementation
 if [[ "$MODIFIED" -ge "1" ]]; then
@@ -353,7 +309,7 @@ cd "$TEST_DIR/repo1"
 for i in $(seq 1 20); do
     echo "content $i" > "untracked$i.txt"
 done
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 UNTRACKED=$(parse_result "$RESULT" untracked)
 if [[ "$UNTRACKED" == "20" ]]; then
     pass "Counts 20 untracked files correctly"
@@ -368,7 +324,7 @@ echo ""
 echo "Test 15: Handle file with spaces in name"
 cd "$TEST_DIR/repo1"
 echo "content" > "file with spaces.txt"
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 UNTRACKED=$(parse_result "$RESULT" untracked)
 if [[ "$UNTRACKED" == "1" ]]; then
     pass "File with spaces counted correctly"
@@ -383,7 +339,7 @@ echo ""
 echo "Test 16: Handle binary file changes"
 cd "$TEST_DIR/repo1"
 printf '\x00\x01\x02\x03' > binary.bin
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 UNTRACKED=$(parse_result "$RESULT" untracked)
 if [[ "$UNTRACKED" == "1" ]]; then
     pass "Binary file counted as untracked"
@@ -400,7 +356,7 @@ cd "$TEST_DIR/repo1"
 echo "staged change" >> file.txt
 git add file.txt
 echo "unstaged change" >> file.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 MODIFIED=$(parse_result "$RESULT" modified)
 # MM status (staged + unstaged) should count as 1 modified
 if [[ "$MODIFIED" -ge "1" ]]; then
@@ -421,7 +377,7 @@ git add file.txt
 git commit -q -m "Add lines"
 # Now delete them
 git checkout -q HEAD~1 -- file.txt
-RESULT=$(_parse_git_status)
+RESULT=$(humanize_parse_git_status)
 DELETIONS=$(parse_result "$RESULT" deletions)
 if [[ "$DELETIONS" -ge "3" ]]; then
     pass "Deletions counted: $DELETIONS"

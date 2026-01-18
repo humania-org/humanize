@@ -297,17 +297,28 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 19: Mixed quote styles
+# Test 19: Mixed quote styles (tolerant accepts, strict rejects)
 echo ""
-echo "Test 19: Handle mixed quote styles"
+echo "Test 19a: Tolerant parser accepts mixed quote styles"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="mv \"$LOOP_DIR/state.md\" '$LOOP_DIR/cancel-state.md'"
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-# This should work - function handles both quote types
 if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Handles mixed quote styles"
+    pass "Tolerant parser accepts mixed quotes"
 else
-    fail "Mixed quotes" "authorized" "rejected"
+    fail "Tolerant mixed quotes" "authorized" "rejected"
+fi
+rm -f "$LOOP_DIR/.cancel-requested"
+
+echo ""
+echo "Test 19b: Strict parser rejects mixed quote styles"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv \"$LOOP_DIR/state.md\" '$LOOP_DIR/cancel-state.md'"
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Strict parser rejects mixed quotes"
+else
+    fail "Strict mixed quotes rejection" "rejected" "authorized"
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
@@ -324,17 +335,28 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
-# Test 21: Multiple trailing spaces after destination
+# Test 21: Multiple trailing spaces (tolerant accepts, strict rejects)
 echo ""
-echo "Test 21: Trailing spaces handling"
+echo "Test 21a: Tolerant parser accepts trailing spaces"
 touch "$LOOP_DIR/.cancel-requested"
 COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\"   "
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-# Trailing spaces should be ignored - command is still valid
 if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
-    pass "Handles trailing spaces (authorized)"
+    pass "Tolerant parser accepts trailing spaces"
 else
-    fail "Trailing spaces" "authorized" "rejected"
+    fail "Tolerant trailing spaces" "authorized" "rejected"
+fi
+rm -f "$LOOP_DIR/.cancel-requested"
+
+echo ""
+echo "Test 21b: Strict parser rejects multiple trailing spaces"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\"   "
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+if ! is_cancel_authorized_strict "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Strict parser rejects multiple trailing spaces"
+else
+    fail "Strict trailing spaces rejection" "rejected" "authorized"
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
