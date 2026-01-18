@@ -315,14 +315,16 @@ get_current_user() {
 
 # Find the most recent PR comment from CURRENT USER that contains bot mentions
 # This timestamp is used for --after filtering to catch fast bot replies
+# NOTE: Uses --paginate to handle PRs with >30 comments
 detect_trigger_comment() {
     local pr_num="$1"
     local current_user="$2"
 
-    # Fetch recent issue comments on the PR
+    # Fetch ALL issue comments on the PR (paginated to handle >30 comments)
+    # Using --paginate ensures we don't miss the latest @mention on large PRs
     local comments_json
     comments_json=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$pr_num/comments" \
-        --jq '[.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || return 1
+        --paginate --jq '[.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || return 1
 
     if [[ -z "$comments_json" || "$comments_json" == "[]" ]]; then
         return 1
@@ -339,8 +341,9 @@ detect_trigger_comment() {
     done
 
     # Find most recent trigger comment from CURRENT USER (sorted by created_at descending)
+    # The jq -s combines paginated results into single array before filtering
     local trigger_timestamp
-    trigger_timestamp=$(echo "$comments_json" | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
+    trigger_timestamp=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
         [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
         sort_by(.created_at) | reverse | .[0].created_at // empty
     ')
@@ -422,15 +425,36 @@ POLL_SCRIPT="$PLUGIN_ROOT/scripts/poll-pr-reviews.sh"
 # Consistent file naming: round-N files all refer to round N
 COMMENT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-comment.md"
 
-# Get timestamp for filtering - MUST use trigger timestamp to avoid stale comments
-# Round 0: use started_at (no trigger comment yet)
-# Round N>0: use last_trigger_at (REQUIRED - validated above)
-if [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
-    AFTER_TIMESTAMP="${PR_STARTED_AT}"
-    echo "Round 0: using started_at for --after: $AFTER_TIMESTAMP" >&2
-else
+# Get timestamp for filtering - ALWAYS prefer last_trigger_at when available
+# This ensures we use the most accurate timestamp regardless of round number
+# Fallback to started_at ONLY for round 0 when no trigger comment exists yet
+if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
+    # Always use trigger timestamp when available (including round 0)
     AFTER_TIMESTAMP="$PR_LAST_TRIGGER_AT"
     echo "Round $PR_CURRENT_ROUND: using trigger timestamp for --after: $AFTER_TIMESTAMP" >&2
+elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
+    # Round 0 fallback: use started_at if no trigger comment detected yet
+    AFTER_TIMESTAMP="${PR_STARTED_AT}"
+    echo "Round 0: using started_at for --after (no trigger yet): $AFTER_TIMESTAMP" >&2
+else
+    # Round N>0 with no trigger - this should have been blocked earlier
+    # but handle defensively by blocking here too
+    REASON="# Missing Trigger Comment
+
+No @bot mention comment found from you on this PR.
+
+Before polling for bot reviews, you must comment on the PR to trigger the bots.
+
+**Please run:**
+\`\`\`bash
+gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review the latest changes\"
+\`\`\`
+
+Then try exiting again."
+
+    jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
 fi
 
 # Convert trigger timestamp to epoch for timeout anchoring

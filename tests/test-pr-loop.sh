@@ -1039,24 +1039,46 @@ test_missing_trigger_blocks() {
     fi
 }
 
-# Test: Round 0 uses started_at (no trigger required)
-test_round0_uses_started_at() {
+# Test: Round 0 uses last_trigger_at when present, started_at as fallback
+test_round0_trigger_priority() {
+    local current_round=0
+    local started_at="2026-01-18T10:00:00Z"
+    local last_trigger_at="2026-01-18T11:00:00Z"
+
+    # Simulate the timestamp selection from stop hook (updated logic)
+    # ALWAYS prefer last_trigger_at when available
+    local after_timestamp
+    if [[ -n "$last_trigger_at" ]]; then
+        after_timestamp="$last_trigger_at"
+    elif [[ "$current_round" -eq 0 ]]; then
+        after_timestamp="$started_at"
+    fi
+
+    if [[ "$after_timestamp" == "$last_trigger_at" ]]; then
+        pass "T-HOOK-4: Round 0 uses last_trigger_at when present (not started_at)"
+    else
+        fail "T-HOOK-4: Round 0 should prefer last_trigger_at" "$last_trigger_at" "got $after_timestamp"
+    fi
+}
+
+# Test: Round 0 falls back to started_at when no trigger
+test_round0_started_at_fallback() {
     local current_round=0
     local started_at="2026-01-18T10:00:00Z"
     local last_trigger_at=""
 
     # Simulate the timestamp selection from stop hook
     local after_timestamp
-    if [[ "$current_round" -eq 0 ]]; then
-        after_timestamp="$started_at"
-    else
+    if [[ -n "$last_trigger_at" ]]; then
         after_timestamp="$last_trigger_at"
+    elif [[ "$current_round" -eq 0 ]]; then
+        after_timestamp="$started_at"
     fi
 
     if [[ "$after_timestamp" == "$started_at" ]]; then
-        pass "T-HOOK-4: Round 0 uses started_at for --after timestamp"
+        pass "T-HOOK-4b: Round 0 falls back to started_at when no trigger"
     else
-        fail "T-HOOK-4: Round 0 should use started_at" "$started_at" "got $after_timestamp"
+        fail "T-HOOK-4b: Round 0 should fall back to started_at" "$started_at" "got $after_timestamp"
     fi
 }
 
@@ -1143,10 +1165,222 @@ test_round_file_naming() {
 test_trigger_user_filter
 test_trigger_refresh
 test_missing_trigger_blocks
-test_round0_uses_started_at
+test_round0_trigger_priority
+test_round0_started_at_fallback
 test_timeout_anchored_to_trigger
 test_state_has_configured_bots
 test_round_file_naming
+
+# ========================================
+# Stop Hook End-to-End Tests (Execute Hook with Mocked gh/codex)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Stop Hook End-to-End Execution"
+echo "========================================"
+echo ""
+
+# Test: Stop hook blocks when no resolve file exists
+test_e2e_missing_resolve_blocks() {
+    local test_subdir="$TEST_DIR/e2e_resolve_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T12:00:00Z
+last_trigger_at:
+---
+EOF
+
+    # Create mock binaries
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            echo '{"login": "testuser"}'
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse) echo "/tmp/git" ;;
+    status) echo "" ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    # Run stop hook with mocked environment
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_output
+    hook_output=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1) || true
+
+    # Check for block decision about missing resolve file
+    if echo "$hook_output" | grep -q "Resolution Summary Missing\|resolution summary\|round-0-pr-resolve"; then
+        pass "T-E2E-1: Stop hook blocks when resolve file missing"
+    else
+        fail "T-E2E-1: Stop hook should block for missing resolve" "block message" "got: $hook_output"
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
+# Test: Stop hook detects trigger comment and updates state
+test_e2e_trigger_detection() {
+    local test_subdir="$TEST_DIR/e2e_trigger_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file with empty last_trigger_at
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T12:00:00Z
+last_trigger_at:
+---
+EOF
+
+    # Create resolve file
+    echo "# Resolution Summary" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    # Create mock binaries that return trigger comment
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    # Mock gh that properly returns jq-parsed user and trigger comments
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            # gh api user --jq '.login' returns just the login string
+            if [[ "$*" == *"--jq"* ]]; then
+                echo "testuser"
+            else
+                echo '{"login": "testuser"}'
+            fi
+            exit 0
+        fi
+        if [[ "$2" == *"/issues/"*"/comments"* ]]; then
+            # Return comment with trigger @mention
+            # --jq extracts specific fields, --paginate is handled
+            echo '[{"id": 1, "author": "testuser", "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}]'
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse) echo "/tmp/git" ;;
+    status) echo "" ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    # Run stop hook
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    # Capture stderr for debug messages
+    local hook_stderr
+    hook_stderr=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1 >/dev/null) || true
+
+    # Check for trigger detection message OR that last_trigger_at is being used
+    # (which indicates the trigger was detected and persisted)
+    if echo "$hook_stderr" | grep -q "Found trigger comment at:\|using trigger timestamp"; then
+        pass "T-E2E-2: Stop hook detects and reports trigger comment"
+    else
+        fail "T-E2E-2: Stop hook should detect trigger" "trigger detected" "got: $hook_stderr"
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
+# Test: Stop hook pagination flag is used
+test_e2e_pagination_flag() {
+    # Verify the stop hook code includes --paginate
+    if grep -q '\-\-paginate' "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"; then
+        pass "T-E2E-3: Stop hook uses --paginate for trigger detection"
+    else
+        fail "T-E2E-3: Stop hook should use --paginate" "--paginate present" "not found"
+    fi
+}
+
+# Test: Stop hook always prefers last_trigger_at over started_at
+test_e2e_trigger_priority_code() {
+    # Verify the stop hook code checks last_trigger_at first
+    if grep -q 'if \[\[ -n "\$PR_LAST_TRIGGER_AT" \]\]' "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"; then
+        pass "T-E2E-4: Stop hook checks last_trigger_at before round number"
+    else
+        fail "T-E2E-4: Stop hook should check last_trigger_at first" "trigger priority" "not found"
+    fi
+}
+
+# Run end-to-end tests
+test_e2e_missing_resolve_blocks
+test_e2e_trigger_detection
+test_e2e_pagination_flag
+test_e2e_trigger_priority_code
 
 # ========================================
 # Summary
