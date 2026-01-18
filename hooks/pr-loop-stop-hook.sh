@@ -106,36 +106,53 @@ parse_pr_loop_state() {
     PR_STARTED_AT=$(echo "$STATE_FRONTMATTER" | grep "^started_at:" | sed "s/started_at: *//" || true)
     PR_LAST_TRIGGER_AT=$(echo "$STATE_FRONTMATTER" | grep "^last_trigger_at:" | sed "s/last_trigger_at: *//" || true)
 
-    # Parse active_bots as YAML list (lines starting with "  - ")
-    # Extract lines between "active_bots:" and next field, then parse list items
+    # Parse configured_bots and active_bots as YAML lists
+    # configured_bots: never changes, used for polling all bots (allows re-add)
+    # active_bots: current bots with issues, shrinks as bots approve
+    declare -g -a PR_CONFIGURED_BOTS_ARRAY=()
     declare -g -a PR_ACTIVE_BOTS_ARRAY=()
-    local in_active_bots=false
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^active_bots: ]]; then
-            in_active_bots=true
-            # Check if it's inline format: active_bots: value
-            local inline_value="${line#*: }"
-            if [[ -n "$inline_value" && "$inline_value" != "active_bots:" ]]; then
-                # Old comma-separated format for backwards compatibility
-                IFS=',' read -ra PR_ACTIVE_BOTS_ARRAY <<< "$inline_value"
-                in_active_bots=false
-            fi
-            continue
-        fi
-        if [[ "$in_active_bots" == "true" ]]; then
-            if [[ "$line" =~ ^[[:space:]]+-[[:space:]]+ ]]; then
-                # Extract bot name from "  - botname"
-                local bot_name="${line#*- }"
-                bot_name=$(echo "$bot_name" | tr -d ' ')
-                if [[ -n "$bot_name" ]]; then
-                    PR_ACTIVE_BOTS_ARRAY+=("$bot_name")
+
+    # Parse YAML list helper function
+    parse_yaml_list() {
+        local field_name="$1"
+        local -n result_array="$2"
+        local in_field=false
+
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^${field_name}: ]]; then
+                in_field=true
+                # Check if it's inline format: field: value
+                local inline_value="${line#*: }"
+                if [[ -n "$inline_value" && "$inline_value" != "${field_name}:" ]]; then
+                    # Old comma-separated format for backwards compatibility
+                    IFS=',' read -ra result_array <<< "$inline_value"
+                    in_field=false
                 fi
-            elif [[ "$line" =~ ^[a-zA-Z_] ]]; then
-                # New field started, stop parsing active_bots
-                in_active_bots=false
+                continue
             fi
-        fi
-    done <<< "$STATE_FRONTMATTER"
+            if [[ "$in_field" == "true" ]]; then
+                if [[ "$line" =~ ^[[:space:]]+-[[:space:]]+ ]]; then
+                    # Extract bot name from "  - botname"
+                    local bot_name="${line#*- }"
+                    bot_name=$(echo "$bot_name" | tr -d ' ')
+                    if [[ -n "$bot_name" ]]; then
+                        result_array+=("$bot_name")
+                    fi
+                elif [[ "$line" =~ ^[a-zA-Z_] ]]; then
+                    # New field started, stop parsing
+                    in_field=false
+                fi
+            fi
+        done <<< "$STATE_FRONTMATTER"
+    }
+
+    parse_yaml_list "configured_bots" PR_CONFIGURED_BOTS_ARRAY
+    parse_yaml_list "active_bots" PR_ACTIVE_BOTS_ARRAY
+
+    # Backwards compatibility: if configured_bots is empty, use active_bots
+    if [[ ${#PR_CONFIGURED_BOTS_ARRAY[@]} -eq 0 ]]; then
+        PR_CONFIGURED_BOTS_ARRAY=("${PR_ACTIVE_BOTS_ARRAY[@]}")
+    fi
 
     # Apply defaults
     PR_CURRENT_ROUND="${PR_CURRENT_ROUND:-0}"
@@ -151,8 +168,11 @@ parse_pr_loop_state "$STATE_FILE"
 
 # Build display string and mention string from active bots array
 PR_ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${PR_ACTIVE_BOTS_ARRAY[*]}")
+PR_CONFIGURED_BOTS_DISPLAY=$(IFS=', '; echo "${PR_CONFIGURED_BOTS_ARRAY[*]}")
+
+# Build mention string from configured bots (for detecting trigger comments)
 PR_BOT_MENTION_STRING=""
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     if [[ -n "$PR_BOT_MENTION_STRING" ]]; then
         PR_BOT_MENTION_STRING="${PR_BOT_MENTION_STRING} @${bot}"
     else
@@ -285,17 +305,82 @@ if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
 fi
 
 # ========================================
+# Detect Trigger Comment and Update last_trigger_at
+# ========================================
+
+# Find the most recent PR comment that contains bot mentions
+# This timestamp is used for --after filtering to catch fast bot replies
+detect_trigger_comment() {
+    local pr_num="$1"
+    local bot_mention="$2"
+
+    # Fetch recent issue comments on the PR
+    local comments_json
+    comments_json=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$pr_num/comments" \
+        --jq '[.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || return 1
+
+    if [[ -z "$comments_json" || "$comments_json" == "[]" ]]; then
+        return 1
+    fi
+
+    # Find the most recent comment containing ANY of the configured bot mentions
+    # Build pattern to match any @bot mention
+    local bot_pattern=""
+    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+        if [[ -n "$bot_pattern" ]]; then
+            bot_pattern="${bot_pattern}|@${bot}"
+        else
+            bot_pattern="@${bot}"
+        fi
+    done
+
+    # Find most recent trigger comment (sorted by created_at descending)
+    local trigger_timestamp
+    trigger_timestamp=$(echo "$comments_json" | jq -r --arg pattern "$bot_pattern" '
+        [.[] | select(.body | test($pattern; "i"))] |
+        sort_by(.created_at) | reverse | .[0].created_at // empty
+    ')
+
+    if [[ -n "$trigger_timestamp" && "$trigger_timestamp" != "null" ]]; then
+        echo "$trigger_timestamp"
+        return 0
+    fi
+
+    return 1
+}
+
+# Try to detect and persist trigger timestamp if not already set
+if [[ -z "$PR_LAST_TRIGGER_AT" ]]; then
+    echo "Detecting trigger comment timestamp..." >&2
+    DETECTED_TRIGGER_AT=$(detect_trigger_comment "$PR_NUMBER" "$PR_BOT_MENTION_STRING") || true
+
+    if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
+        echo "Found trigger comment at: $DETECTED_TRIGGER_AT" >&2
+        PR_LAST_TRIGGER_AT="$DETECTED_TRIGGER_AT"
+
+        # Persist to state file
+        TEMP_FILE="${STATE_FILE}.trigger.$$"
+        sed "s/^last_trigger_at:.*/last_trigger_at: $DETECTED_TRIGGER_AT/" "$STATE_FILE" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$STATE_FILE"
+    fi
+fi
+
+# ========================================
 # Poll for New Bot Reviews (per-bot tracking)
 # ========================================
 
+# Poll ALL configured bots, not just active - allows re-adding approved bots if they post new issues
 echo "Polling for new bot reviews on PR #$PR_NUMBER..." >&2
+echo "Configured bots: $PR_CONFIGURED_BOTS_DISPLAY" >&2
 echo "Active bots: $PR_ACTIVE_BOTS_DISPLAY" >&2
 echo "Poll interval: ${PR_POLL_INTERVAL}s, Timeout: ${PR_POLL_TIMEOUT}s per bot" >&2
 
 POLL_SCRIPT="$PLUGIN_ROOT/scripts/poll-pr-reviews.sh"
 
-# Use correct file naming: round-(N+1)-pr-comment.md for NEW comments this round
-# The current round's pr-comment already exists from setup/previous feedback
+# Consistent file naming: round-N files all refer to round N
+# Comment file: round-${NEXT_ROUND}-pr-comment.md (polled comments for next round)
+# Check file: round-${NEXT_ROUND}-pr-check.md (Codex analysis for next round)
+# Feedback file: round-${NEXT_ROUND}-pr-feedback.md (instructions for next round)
 COMMENT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-comment.md"
 
 # Get timestamp for filtering
@@ -316,10 +401,12 @@ fi
 echo "Using after_timestamp: $AFTER_TIMESTAMP" >&2
 
 # Track which bots have responded and their individual timeouts
+# IMPORTANT: Poll ALL configured bots (not just active) so we can detect when
+# previously approved bots post new issues and re-add them to active_bots
 declare -A BOTS_RESPONDED
 declare -A BOTS_TIMEOUT_START
 POLL_START_EPOCH=$(date +%s)
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     BOTS_RESPONDED["$bot"]="false"
     BOTS_TIMEOUT_START["$bot"]="$POLL_START_EPOCH"
 done
@@ -331,12 +418,12 @@ ALL_NEW_COMMENTS="[]"
 while true; do
     CURRENT_TIME=$(date +%s)
 
-    # Check if all bots have responded OR timed out (per-bot 15min timeout)
+    # Check if all configured bots have responded OR timed out (per-bot 15min timeout)
     ALL_DONE=true
     WAITING_BOTS=""
     TIMED_OUT_BOTS=""
 
-    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
         if [[ "${BOTS_RESPONDED[$bot]}" == "true" ]]; then
             continue  # Bot already responded
         fi
@@ -366,7 +453,7 @@ while true; do
         if [[ -n "$TIMED_OUT_BOTS" ]]; then
             echo "Polling complete. Timed out bots: $TIMED_OUT_BOTS" >&2
         else
-            echo "All active bots have responded!" >&2
+            echo "All configured bots have responded!" >&2
         fi
         break
     fi
@@ -387,12 +474,12 @@ while true; do
         continue
     }
 
-    # Check which bots responded
+    # Check which bots responded (check all configured bots)
     RESPONDED_BOTS=$(echo "$POLL_RESULT" | jq -r '.bots_responded[]' 2>/dev/null || true)
     for responded_bot in $RESPONDED_BOTS; do
         # Normalize bot name (remove [bot] suffix if present)
         responded_bot_clean=$(echo "$responded_bot" | sed 's/\[bot\]$//')
-        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+        for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
             if [[ "$responded_bot_clean" == "$bot" || "$responded_bot" == "${bot}[bot]" ]]; then
                 if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
                     BOTS_RESPONDED["$bot"]="true"
@@ -433,9 +520,9 @@ COMMENT_COUNT=$(echo "$ALL_NEW_COMMENTS" | jq 'length' 2>/dev/null || echo "0")
 if [[ "$COMMENT_COUNT" == "0" ]]; then
     echo "No new bot reviews received." >&2
 
-    # Build list of bots that didn't respond
+    # Build list of bots that didn't respond (check all configured bots)
     MISSING_BOTS=""
-    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
         if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
             if [[ -n "$MISSING_BOTS" ]]; then
                 MISSING_BOTS="${MISSING_BOTS}, ${bot}"
@@ -473,19 +560,21 @@ fi
 # Save New Comments (correct file naming)
 # ========================================
 
-# Format comments grouped by bot
+# Format comments grouped by bot (use configured bots for completeness)
 cat > "$COMMENT_FILE" << EOF
-# Bot Reviews (Round $PR_CURRENT_ROUND)
+# Bot Reviews (Round $NEXT_ROUND)
 
 Fetched at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-Bots expected: $PR_ACTIVE_BOTS_DISPLAY
+Configured bots: $PR_CONFIGURED_BOTS_DISPLAY
+Currently active: $PR_ACTIVE_BOTS_DISPLAY
 
 ---
 
 EOF
 
-# Group comments by bot
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+# Group comments by ALL configured bots (not just active)
+# This allows Codex to see when previously approved bots post new issues
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     BOT_COMMENTS=$(echo "$ALL_NEW_COMMENTS" | jq -r --arg bot "$bot" --arg botfull "${bot}[bot]" '
         [.[] | select(.author == $bot or .author == $botfull)]
     ')
@@ -520,20 +609,19 @@ echo "Comments saved to: $COMMENT_FILE" >&2
 # Run Local Codex Review of Bot Feedback
 # ========================================
 
-# Check file uses current round (analysis of this round's bot responses)
-# Feedback file uses NEXT round (instructions for the next iteration)
-CHECK_FILE="$LOOP_DIR/round-${PR_CURRENT_ROUND}-pr-check.md"
+# Consistent file naming: all round-N files refer to round N
+CHECK_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-check.md"
 FEEDBACK_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-feedback.md"
 
 echo "Running local Codex review of bot feedback..." >&2
 
 # Build Codex prompt with per-bot analysis
-CODEX_PROMPT_FILE="$LOOP_DIR/round-${PR_CURRENT_ROUND}-codex-prompt.md"
+CODEX_PROMPT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-codex-prompt.md"
 BOT_REVIEW_CONTENT=$(cat "$COMMENT_FILE")
 
-# Build list of expected bots for Codex
+# Build list of expected bots for Codex (all configured bots)
 EXPECTED_BOTS_LIST=""
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     EXPECTED_BOTS_LIST="${EXPECTED_BOTS_LIST}- ${bot}\n"
 done
 
@@ -681,10 +769,11 @@ APPROVED_SECTION=$(sed -n '/### Approved Bots/,/^###/p' "$CHECK_FILE" | grep -v 
 ISSUES_SECTION=$(sed -n '/### Per-Bot Status/,/^###/p' "$CHECK_FILE" || true)
 
 # Build new active_bots array with re-add logic
-# 1. Remove bots that are approved
-# 2. Re-add bots that have new issues (even if previously removed)
+# IMPORTANT: Process ALL configured bots, not just currently active ones
+# This allows re-adding bots that were previously approved but now have new issues
 declare -a NEW_ACTIVE_BOTS=()
 declare -A BOTS_WITH_ISSUES=()
+declare -A BOTS_APPROVED=()
 
 # First, identify bots with issues from Codex output
 while IFS= read -r line; do
@@ -695,21 +784,46 @@ while IFS= read -r line; do
             BOTS_WITH_ISSUES["$BOT_WITH_ISSUE"]="true"
         fi
     fi
+    if echo "$line" | grep -qiE '\|[[:space:]]*APPROVE[[:space:]]*\|'; then
+        # Extract bot name from table row: | botname | APPROVE | summary |
+        BOT_APPROVED=$(echo "$line" | sed 's/|/\n/g' | sed -n '2p' | tr -d ' ')
+        if [[ -n "$BOT_APPROVED" ]]; then
+            BOTS_APPROVED["$BOT_APPROVED"]="true"
+        fi
+    fi
 done <<< "$ISSUES_SECTION"
 
-# Process each currently active bot
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-    if echo "$APPROVED_SECTION" | grep -qi "$bot"; then
-        # Bot is approved - but check if it also has new issues (re-add)
-        if [[ "${BOTS_WITH_ISSUES[$bot]:-}" == "true" ]]; then
-            echo "Bot '$bot' was approved but has new issues - keeping active" >&2
-            NEW_ACTIVE_BOTS+=("$bot")
+# Process ALL configured bots (not just currently active)
+# This allows re-adding previously approved bots if they post new issues
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    if [[ "${BOTS_WITH_ISSUES[$bot]:-}" == "true" ]]; then
+        # Bot has issues - add to active list
+        if [[ "${BOTS_APPROVED[$bot]:-}" == "true" ]]; then
+            echo "Bot '$bot' was previously approved but has new issues - re-adding to active" >&2
         else
-            echo "Removing '$bot' from active_bots (approved)" >&2
+            echo "Bot '$bot' has issues - keeping active" >&2
         fi
-    else
-        # Bot not approved - keep it
         NEW_ACTIVE_BOTS+=("$bot")
+    elif [[ "${BOTS_APPROVED[$bot]:-}" == "true" ]]; then
+        # Bot approved with no new issues - remove from active
+        echo "Removing '$bot' from active_bots (approved)" >&2
+    elif echo "$APPROVED_SECTION" | grep -qi "$bot"; then
+        # Bot mentioned in approved section - remove
+        echo "Removing '$bot' from active_bots (in approved section)" >&2
+    else
+        # Bot not mentioned in ISSUES or APPROVE - check if was active
+        WAS_ACTIVE=false
+        for active_bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+            if [[ "$bot" == "$active_bot" ]]; then
+                WAS_ACTIVE=true
+                break
+            fi
+        done
+        if [[ "$WAS_ACTIVE" == "true" ]]; then
+            # Was active, not mentioned - keep active (NO_RESPONSE case)
+            echo "Bot '$bot' not mentioned - keeping active" >&2
+            NEW_ACTIVE_BOTS+=("$bot")
+        fi
     fi
 done
 
@@ -723,6 +837,13 @@ for bot in "${NEW_ACTIVE_BOTS[@]}"; do
   - ${bot}"
 done
 
+# Build YAML list for configured_bots (never changes)
+CONFIGURED_BOTS_YAML=""
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    CONFIGURED_BOTS_YAML="${CONFIGURED_BOTS_YAML}
+  - ${bot}"
+done
+
 # Create updated state file (with last_trigger_at cleared - will be set when next @mention posted)
 {
     echo "---"
@@ -730,6 +851,7 @@ done
     echo "max_iterations: $PR_MAX_ITERATIONS"
     echo "pr_number: $PR_NUMBER"
     echo "start_branch: $PR_START_BRANCH"
+    echo "configured_bots:${CONFIGURED_BOTS_YAML}"
     echo "active_bots:${NEW_ACTIVE_BOTS_YAML}"
     echo "codex_model: $PR_CODEX_MODEL"
     echo "codex_effort: $PR_CODEX_EFFORT"

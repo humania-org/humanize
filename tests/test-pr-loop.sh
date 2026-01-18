@@ -686,7 +686,7 @@ echo "Testing Gate-keeper Logic"
 echo "========================================"
 echo ""
 
-# Test: Comment deduplication by ID
+# Test: Comment deduplication by ID (unit test)
 test_comment_deduplication() {
     # Test that jq unique_by works for deduplication
     local deduped_output
@@ -703,75 +703,185 @@ test_comment_deduplication() {
     fi
 }
 
-# Test: Per-bot timeout calculation
-test_per_bot_timeout() {
-    # Each bot should have its own 15-minute (900s) timeout
-    # Not a total timeout multiplied by bot count
-    local poll_timeout=900
-    local bot_count=2
+# Test: YAML list parsing for configured_bots
+test_configured_bots_parsing() {
+    local test_state="---
+current_round: 0
+configured_bots:
+  - claude
+  - chatgpt-codex-connector
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+---"
 
-    # Correct: per-bot timeout is 900s each, checked independently
-    # Wrong: total timeout of 1800s shared between all bots
-    local correct_per_bot_timeout=$poll_timeout
+    # Extract configured_bots using same logic as stop hook
+    local configured_bots=""
+    local in_field=false
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^configured_bots: ]]; then
+            in_field=true
+            continue
+        fi
+        if [[ "$in_field" == "true" ]]; then
+            if [[ "$line" =~ ^[[:space:]]+-[[:space:]]+ ]]; then
+                local bot_name="${line#*- }"
+                bot_name=$(echo "$bot_name" | tr -d ' ')
+                configured_bots="${configured_bots}${bot_name},"
+            elif [[ "$line" =~ ^[a-zA-Z_] ]]; then
+                in_field=false
+            fi
+        fi
+    done <<< "$test_state"
 
-    if [[ $correct_per_bot_timeout -eq 900 ]]; then
-        pass "T-GATE-2: Per-bot timeout is 15 minutes (900s) each"
+    if [[ "$configured_bots" == "claude,chatgpt-codex-connector," ]]; then
+        pass "T-GATE-2: configured_bots YAML list is parsed correctly"
     else
-        fail "T-GATE-2: Per-bot timeout should be 900s" "900" "got $correct_per_bot_timeout"
+        fail "T-GATE-2: configured_bots parsing failed" "claude,chatgpt-codex-connector," "got $configured_bots"
     fi
 }
 
-# Test: WAITING_FOR_BOTS does not advance round
-test_waiting_for_bots_no_advance() {
-    # WAITING_FOR_BOTS should block exit without advancing round counter
-    # This is a logic test - verify the stop hook behavior
-    local marker="WAITING_FOR_BOTS"
-    local should_advance="false"
+# Test: Bot status extraction from Codex output
+test_bot_status_extraction() {
+    local codex_output="### Per-Bot Status
+| Bot | Status | Summary |
+|-----|--------|---------|
+| claude | APPROVE | No issues found |
+| chatgpt-codex-connector | ISSUES | Found bug in line 42 |
 
-    # Per the implementation: WAITING_FOR_BOTS blocks exit and does NOT advance round
-    if [[ "$should_advance" == "false" ]]; then
-        pass "T-GATE-3: WAITING_FOR_BOTS blocks exit without advancing round"
+### Approved Bots
+- claude"
+
+    # Extract bots with ISSUES status using same logic as stop hook
+    local bots_with_issues=""
+    while IFS= read -r line; do
+        if echo "$line" | grep -qiE '\|[[:space:]]*ISSUES[[:space:]]*\|'; then
+            local bot=$(echo "$line" | sed 's/|/\n/g' | sed -n '2p' | tr -d ' ')
+            bots_with_issues="${bots_with_issues}${bot},"
+        fi
+    done <<< "$codex_output"
+
+    if [[ "$bots_with_issues" == "chatgpt-codex-connector," ]]; then
+        pass "T-GATE-3: Bots with ISSUES status are correctly identified"
     else
-        fail "T-GATE-3: WAITING_FOR_BOTS should not advance round" "no advance" "advances"
+        fail "T-GATE-3: Bot status extraction failed" "chatgpt-codex-connector," "got $bots_with_issues"
     fi
 }
 
-# Test: Bot re-add logic when approved bot has new issues
-test_bot_readd_on_new_issues() {
-    # If a bot was approved but now has ISSUES, it should be re-added to active_bots
-    local issues_section='| claude | ISSUES | Found new bug |'
-    local approved_section='claude'
+# Test: Bot re-add logic when previously approved bot has new issues
+test_bot_readd_logic() {
+    # Simulate: claude was approved (removed from active), but now has ISSUES
+    local configured_bots=("claude" "chatgpt-codex-connector")
+    local active_bots=("chatgpt-codex-connector")  # claude was removed (approved)
 
-    # Bot should stay active (re-added) because it has issues despite approval
-    local bot="claude"
-    local has_issues=$(echo "$issues_section" | grep -qi "ISSUES" && echo "true" || echo "false")
-    local was_approved=$(echo "$approved_section" | grep -qi "$bot" && echo "true" || echo "false")
+    # Codex output shows claude now has issues
+    declare -A bots_with_issues
+    bots_with_issues["claude"]="true"
 
-    # Re-add logic: if approved but has issues, keep active
-    if [[ "$has_issues" == "true" && "$was_approved" == "true" ]]; then
-        pass "T-GATE-4: Bot with new issues is kept active despite approval"
+    declare -A bots_approved
+    # No bots approved this round
+
+    # Re-add logic: process ALL configured bots
+    local new_active=()
+    for bot in "${configured_bots[@]}"; do
+        if [[ "${bots_with_issues[$bot]:-}" == "true" ]]; then
+            new_active+=("$bot")
+        fi
+    done
+
+    # claude should be re-added because it has issues
+    local found_claude=false
+    for bot in "${new_active[@]}"; do
+        if [[ "$bot" == "claude" ]]; then
+            found_claude=true
+            break
+        fi
+    done
+
+    if [[ "$found_claude" == "true" ]]; then
+        pass "T-GATE-4: Previously approved bot is re-added when it has new issues"
     else
-        fail "T-GATE-4: Bot with new issues should be kept active" "re-added" "removed"
+        fail "T-GATE-4: Bot re-add logic failed" "claude in new_active" "not found"
     fi
 }
 
-# Test: APPROVE marker ends loop
-test_approve_ends_loop() {
-    local marker="APPROVE"
+# Test: Trigger comment timestamp detection pattern
+test_trigger_comment_detection() {
+    local comments='[
+        {"id": 1, "body": "Just a regular comment", "created_at": "2026-01-18T10:00:00Z"},
+        {"id": 2, "body": "@claude @chatgpt-codex-connector please review", "created_at": "2026-01-18T11:00:00Z"},
+        {"id": 3, "body": "Another comment", "created_at": "2026-01-18T12:00:00Z"}
+    ]'
 
-    if [[ "$marker" == "APPROVE" ]]; then
-        pass "T-GATE-5: APPROVE marker is recognized for loop completion"
+    # Build pattern for @bot mentions
+    local bot_pattern="@claude|@chatgpt-codex-connector"
+
+    # Find most recent trigger comment
+    local trigger_ts
+    trigger_ts=$(echo "$comments" | jq -r --arg pattern "$bot_pattern" '
+        [.[] | select(.body | test($pattern; "i"))] |
+        sort_by(.created_at) | reverse | .[0].created_at // empty
+    ')
+
+    if [[ "$trigger_ts" == "2026-01-18T11:00:00Z" ]]; then
+        pass "T-GATE-5: Trigger comment timestamp is correctly detected"
     else
-        fail "T-GATE-5: APPROVE should end loop" "APPROVE" "got $marker"
+        fail "T-GATE-5: Trigger timestamp detection failed" "2026-01-18T11:00:00Z" "got $trigger_ts"
+    fi
+}
+
+# Test: APPROVE marker detection in Codex output
+test_approve_marker_detection() {
+    local codex_output="### Per-Bot Status
+| Bot | Status | Summary |
+|-----|--------|---------|
+| claude | APPROVE | LGTM |
+
+### Final Recommendation
+All bots have approved.
+
+APPROVE"
+
+    local last_line
+    last_line=$(echo "$codex_output" | grep -v '^[[:space:]]*$' | tail -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    if [[ "$last_line" == "APPROVE" ]]; then
+        pass "T-GATE-6: APPROVE marker is correctly recognized"
+    else
+        fail "T-GATE-6: APPROVE marker detection failed" "APPROVE" "got $last_line"
+    fi
+}
+
+# Test: WAITING_FOR_BOTS marker detection
+test_waiting_for_bots_marker() {
+    local codex_output="### Per-Bot Status
+| Bot | Status | Summary |
+|-----|--------|---------|
+| claude | NO_RESPONSE | Bot did not respond |
+
+### Final Recommendation
+Some bots have not responded yet.
+
+WAITING_FOR_BOTS"
+
+    local last_line
+    last_line=$(echo "$codex_output" | grep -v '^[[:space:]]*$' | tail -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    if [[ "$last_line" == "WAITING_FOR_BOTS" ]]; then
+        pass "T-GATE-7: WAITING_FOR_BOTS marker is correctly recognized"
+    else
+        fail "T-GATE-7: WAITING_FOR_BOTS marker detection failed" "WAITING_FOR_BOTS" "got $last_line"
     fi
 }
 
 # Run gate-keeper tests
 test_comment_deduplication
-test_per_bot_timeout
-test_waiting_for_bots_no_advance
-test_bot_readd_on_new_issues
-test_approve_ends_loop
+test_configured_bots_parsing
+test_bot_status_extraction
+test_bot_readd_logic
+test_trigger_comment_detection
+test_approve_marker_detection
+test_waiting_for_bots_marker
 
 # ========================================
 # Summary

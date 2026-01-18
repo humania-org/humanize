@@ -334,12 +334,16 @@ BOTS_COMMA_LIST=$(IFS=','; echo "${ACTIVE_BOTS_ARRAY[*]}")
 # Create State File
 # ========================================
 
-# Build YAML list for active_bots
+# Build YAML list for active_bots and configured_bots
 ACTIVE_BOTS_YAML=""
 for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
     ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}
   - ${bot}"
 done
+
+# configured_bots is identical to active_bots at start, but never changes
+# This allows re-polling previously approved bots if they post new issues
+CONFIGURED_BOTS_YAML="$ACTIVE_BOTS_YAML"
 
 cat > "$LOOP_DIR/state.md" << EOF
 ---
@@ -347,6 +351,7 @@ current_round: 0
 max_iterations: $MAX_ITERATIONS
 pr_number: $PR_NUMBER
 start_branch: $START_BRANCH
+configured_bots:${CONFIGURED_BOTS_YAML}
 active_bots:${ACTIVE_BOTS_YAML}
 codex_model: $CODEX_MODEL
 codex_effort: $CODEX_EFFORT
@@ -354,6 +359,7 @@ codex_timeout: $CODEX_TIMEOUT
 poll_interval: $POLL_INTERVAL
 poll_timeout: $POLL_TIMEOUT
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+last_trigger_at:
 ---
 EOF
 
