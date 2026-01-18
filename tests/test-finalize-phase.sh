@@ -41,6 +41,10 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $1 - $2"; TESTS_SKIPPED=$((TESTS_SKIPPED +
 TEST_DIR=$(mktemp -d)
 trap "rm -rf $TEST_DIR" EXIT
 
+# Set up isolated cache directory to avoid permission issues in sandboxed environments
+export XDG_CACHE_HOME="$TEST_DIR/.cache"
+mkdir -p "$XDG_CACHE_HOME"
+
 # Source the loop-common.sh to get helper functions
 source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
 
@@ -102,13 +106,14 @@ Test the RLCR loop
 - Requirement 2
 - Requirement 3
 EOF
-        # Add .humanize and bin to gitignore (they are created by tests)
+        # Add .humanize, bin, and .cache to gitignore (they are created by tests)
         cat >> .gitignore << 'GITIGNORE'
 plans/
 .humanize/
 .humanize*
 bin/
 transcript.jsonl
+.cache/
 GITIGNORE
         git add .gitignore
         git -c commit.gpgsign=false commit -q -m "Add gitignore"
