@@ -40,6 +40,95 @@ readonly EXIT_STOP="stop"
 readonly EXIT_UNEXPECTED="unexpected"
 
 # ========================================
+# JSON Input Validation
+# ========================================
+
+# Validate JSON input and extract tool_name
+# Usage: validate_hook_input "$json_input"
+# Returns: 0 if valid JSON with tool_name, 1 if invalid
+# Sets: VALIDATED_TOOL_NAME, VALIDATED_TOOL_INPUT
+#
+# Non-UTF8 handling behavior (AC-7):
+# - Null bytes (0x00): Rejected with exit 1
+# - Invalid UTF-8 sequences (0x80-0xFF outside valid UTF-8): Rejected by jq as invalid JSON
+# - Valid UTF-8 non-ASCII characters: Accepted (jq handles Unicode correctly)
+validate_hook_input() {
+    local input="$1"
+
+    # Reject null bytes (security) - portable check without grep -P (BSD incompatible)
+    # tr -cd '\0' keeps only null bytes, wc -c counts them
+    if [[ $(printf '%s' "$input" | tr -cd '\0' | wc -c) -gt 0 ]]; then
+        echo "Error: Input contains null bytes" >&2
+        return 1
+    fi
+
+    # Reject non-UTF8 bytes (security/consistency)
+    # Check for bytes in 0x80-0xFF that are NOT part of valid UTF-8 sequences
+    # Skip if iconv is not available (common in minimal containers like Alpine)
+    if command -v iconv >/dev/null 2>&1; then
+        if ! printf '%s' "$input" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+            echo "Error: Input contains invalid UTF-8 sequences" >&2
+            return 1
+        fi
+    fi
+
+    # Validate JSON syntax with jq
+    if ! printf '%s' "$input" | jq -e '.' >/dev/null 2>&1; then
+        echo "Error: Invalid JSON syntax" >&2
+        return 1
+    fi
+
+    # Extract tool_name (required)
+    VALIDATED_TOOL_NAME=$(printf '%s' "$input" | jq -r '.tool_name // empty')
+    if [[ -z "$VALIDATED_TOOL_NAME" ]]; then
+        echo "Error: Missing required field: tool_name" >&2
+        return 1
+    fi
+
+    # Extract tool_input (required for Read/Write/Bash)
+    VALIDATED_TOOL_INPUT=$(printf '%s' "$input" | jq -r '.tool_input // empty')
+
+    return 0
+}
+
+# Validate that a specific field exists in tool_input
+# Usage: require_tool_input_field "$json_input" "field_name"
+# Returns: 0 if field exists and is non-empty, 1 otherwise
+require_tool_input_field() {
+    local input="$1"
+    local field="$2"
+
+    local value
+    value=$(printf '%s' "$input" | jq -r ".tool_input.$field // empty")
+
+    if [[ -z "$value" ]]; then
+        echo "Error: Missing required field: tool_input.$field" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Check if JSON is deeply nested (potential DoS)
+# Usage: is_deeply_nested "$json_input" [max_depth]
+# Returns: 0 if too deeply nested, 1 otherwise
+is_deeply_nested() {
+    local input="$1"
+    local max_depth="${2:-30}"
+
+    # Use jq to check depth - getpath on recursive descent gives us depth
+    local actual_depth
+    actual_depth=$(printf '%s' "$input" | jq '[paths | length] | max // 0' 2>/dev/null || echo "0")
+
+    if [[ "$actual_depth" -gt "$max_depth" ]]; then
+        echo "Error: JSON structure exceeds maximum depth of $max_depth (actual: $actual_depth)" >&2
+        return 0
+    fi
+
+    return 1
+}
+
+# ========================================
 # Library Setup
 # ========================================
 
@@ -95,7 +184,7 @@ get_current_round() {
     echo "${current_round:-0}"
 }
 
-# Parse state file frontmatter and set variables
+# Parse state file frontmatter and set variables (tolerant mode with defaults)
 # Usage: parse_state_file "$STATE_FILE"
 # Sets the following variables (caller must declare them):
 #   STATE_FRONTMATTER - raw frontmatter content
@@ -109,6 +198,7 @@ get_current_round() {
 #   STATE_CODEX_EFFORT - codex effort level
 #   STATE_CODEX_TIMEOUT - codex timeout in seconds
 # Returns: 0 on success, 1 if file not found
+# Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
     local state_file="$1"
 
@@ -133,6 +223,73 @@ parse_state_file() {
     # Apply defaults
     STATE_CURRENT_ROUND="${STATE_CURRENT_ROUND:-0}"
     STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
+    STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
+
+    return 0
+}
+
+# Strict state file parser that rejects malformed files
+# Usage: parse_state_file_strict "$STATE_FILE"
+# Sets the same variables as parse_state_file()
+# Returns: 0 on success, non-zero on validation failure
+#   1 - file not found
+#   2 - missing YAML frontmatter separators
+#   3 - missing required field (current_round or max_iterations)
+#   4 - non-numeric current_round value
+#   5 - non-numeric max_iterations value
+parse_state_file_strict() {
+    local state_file="$1"
+
+    if [[ ! -f "$state_file" ]]; then
+        echo "Error: State file not found: $state_file" >&2
+        return 1
+    fi
+
+    # Check for YAML frontmatter separators (must have at least two --- lines)
+    local separator_count
+    separator_count=$(grep -c '^---$' "$state_file" 2>/dev/null || echo "0")
+    if [[ "$separator_count" -lt 2 ]]; then
+        echo "Error: Missing YAML frontmatter separators (---)" >&2
+        return 2
+    fi
+
+    # Extract frontmatter
+    STATE_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+
+    # Parse fields
+    STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
+    STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
+    STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
+    STATE_PUSH_EVERY_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PUSH_EVERY_ROUND}:" | sed "s/${FIELD_PUSH_EVERY_ROUND}: *//" | tr -d ' ' || true)
+    STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
+    STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
+    STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+
+    # Validate required fields exist
+    if [[ -z "$STATE_CURRENT_ROUND" ]]; then
+        echo "Error: Missing required field: current_round" >&2
+        return 3
+    fi
+    if [[ -z "$STATE_MAX_ITERATIONS" ]]; then
+        echo "Error: Missing required field: max_iterations" >&2
+        return 3
+    fi
+
+    # Validate current_round is numeric (including 0 and negative)
+    if ! [[ "$STATE_CURRENT_ROUND" =~ ^-?[0-9]+$ ]]; then
+        echo "Error: Non-numeric current_round value: $STATE_CURRENT_ROUND" >&2
+        return 4
+    fi
+
+    # Validate max_iterations is numeric
+    if ! [[ "$STATE_MAX_ITERATIONS" =~ ^-?[0-9]+$ ]]; then
+        echo "Error: Non-numeric max_iterations value: $STATE_MAX_ITERATIONS" >&2
+        return 5
+    fi
+
+    # Apply defaults for optional fields only
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
 
     return 0
@@ -271,9 +428,21 @@ is_finalize_summary_path() {
     echo "$path_lower" | grep -qE 'finalize-summary\.md$'
 }
 
+# Normalize paths by removing /./ and collapsing // to /
+# This allows paths like /path/to/./state.md to match /path/to/state.md
+_normalize_path() {
+    echo "$1" | sed 's|/\./|/|g; s|//|/|g'
+}
+
 # Check if cancel operation is authorized via signal file
 # Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
-# Returns: 0 if cancel is authorized and command matches, 1 otherwise
+# Returns: 0 if authorized, non-zero otherwise
+#   1 - missing signal file
+#   2 - security violation (injection, command substitution, etc.)
+#   3 - mixed quote styles
+#   4 - multiple trailing spaces
+#   5 - invalid command structure
+#   6 - source file is a symlink (filesystem check)
 #
 # Security notes:
 # - Normalizes $loop_dir/${loop_dir} to actual path before validation
@@ -281,6 +450,8 @@ is_finalize_summary_path() {
 # - Rejects any remaining $ after normalization (prevents hidden vars like ${IFS})
 # - Enforces exactly two arguments: state.md or finalize-state.md source and cancel-state.md dest
 # - Rejects shell operators for command chaining
+# - Rejects mixed quote styles and multiple trailing spaces
+# - Rejects if source file is a symlink
 is_cancel_authorized() {
     local active_loop_dir="$1"
     local command_lower="$2"
@@ -292,57 +463,86 @@ is_cancel_authorized() {
         return 1
     fi
 
-    # SECURITY: Reject command substitution and backticks FIRST
+    # SECURITY: Reject command substitution and backticks
     if echo "$command_lower" | grep -qE '\$\(|`'; then
-        return 1
+        return 2
     fi
 
     # Reject newlines (multi-command injection)
     if [[ "$command_lower" == *$'\n'* ]]; then
-        return 1
+        return 2
     fi
 
     # Reject shell operators for command chaining
     if echo "$command_lower" | grep -qE ';|&&|\|\||\|'; then
-        return 1
+        return 2
+    fi
+
+    # Reject multiple trailing spaces
+    if echo "$command_lower" | grep -qE '[[:space:]]{2,}$'; then
+        return 4
     fi
 
     # Normalize: Replace $loop_dir and ${loop_dir} with actual path
-    # This handles the documented cancel command format: mv "${LOOP_DIR}state.md" ...
-    # IMPORTANT: LOOP_DIR has a trailing slash (from `ls -1d */`), so ensure we preserve it
     local normalized="$command_lower"
     local loop_dir_lower
-    # Ensure trailing slash is present for proper path matching
     loop_dir_lower="${active_loop_dir%/}/"
     loop_dir_lower=$(echo "$loop_dir_lower" | tr '[:upper:]' '[:lower:]')
 
-    # Replace ${loop_dir} and $loop_dir patterns (case-insensitive after lowercasing)
     normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
     normalized="${normalized//\$loop_dir/$loop_dir_lower}"
 
     # After normalization, reject any remaining $ (prevents hidden vars like ${IFS})
     if echo "$normalized" | grep -qE '\$'; then
-        return 1
+        return 2
     fi
 
     # Must start with mv followed by space
     if ! echo "$normalized" | grep -qE '^mv[[:space:]]+'; then
-        return 1
+        return 5
     fi
 
-    # Extract arguments after "mv " - need to handle quoted args with spaces
+    # Extract arguments after "mv "
     local args
     args=$(echo "$normalized" | sed 's/^mv[[:space:]]*//')
 
-    # Parse two arguments, respecting quotes
-    # Pattern matches: "quoted arg" or 'quoted arg' or unquoted-arg
-    # Use sed to extract first and second arguments
-    local src dest
+    # Detect quote types used in both arguments
+    # Check for mixed quotes by detecting if both ' and " are used as delimiters
+    local has_single=false has_double=false
+    local first_char
+    first_char=$(echo "$args" | cut -c1)
+    if [[ "$first_char" == '"' ]]; then
+        has_double=true
+    elif [[ "$first_char" == "'" ]]; then
+        has_single=true
+    fi
 
-    # Try to match: "arg1" "arg2" or 'arg1' 'arg2' or "arg1" 'arg2' etc.
-    # First, check if we have quoted arguments
+    # Skip first argument to check second
+    local args_after_first
+    if [[ "$first_char" == '"' ]]; then
+        args_after_first=$(echo "$args" | sed 's/^"[^"]*"[[:space:]]*//')
+    elif [[ "$first_char" == "'" ]]; then
+        args_after_first=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
+    else
+        args_after_first=$(echo "$args" | sed 's/^[^[:space:]]*[[:space:]]*//')
+    fi
+
+    local second_char
+    second_char=$(echo "$args_after_first" | cut -c1)
+    if [[ "$second_char" == '"' ]]; then
+        has_double=true
+    elif [[ "$second_char" == "'" ]]; then
+        has_single=true
+    fi
+
+    # Reject mixed quote styles
+    if [[ "$has_single" == "true" ]] && [[ "$has_double" == "true" ]]; then
+        return 3
+    fi
+
+    # Parse arguments, respecting quotes
+    local src dest
     if echo "$args" | grep -qE "^[\"']"; then
-        # First arg is quoted - extract it
         local quote_char
         quote_char=$(echo "$args" | cut -c1)
         if [[ "$quote_char" == '"' ]]; then
@@ -353,12 +553,10 @@ is_cancel_authorized() {
             args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
         fi
     else
-        # First arg is unquoted - take until whitespace
         src=$(echo "$args" | sed 's/[[:space:]].*//')
         args=$(echo "$args" | sed 's/^[^[:space:]]*[[:space:]]*//')
     fi
 
-    # Now parse second argument
     if echo "$args" | grep -qE "^[\"']"; then
         local quote_char
         quote_char=$(echo "$args" | cut -c1)
@@ -370,43 +568,46 @@ is_cancel_authorized() {
             args=$(echo "$args" | sed "s/^'[^']*'[[:space:]]*//")
         fi
     else
-        # Second arg is unquoted - take until whitespace or end
         dest=$(echo "$args" | sed 's/[[:space:]].*//')
         args=$(echo "$args" | sed 's/^[^[:space:]]*//')
     fi
 
-    # Verify we got both arguments and nothing extra remains
     if [[ -z "$src" ]] || [[ -z "$dest" ]]; then
-        return 1
+        return 5
     fi
 
-    # Check for extra arguments (security: reject if anything remains)
+    # Check for extra arguments
     args=$(echo "$args" | sed 's/^[[:space:]]*//')
     if [[ -n "$args" ]]; then
-        return 1
+        return 5
     fi
 
-    # Normalize paths by removing /./ and collapsing // to /
-    # This allows paths like /path/to/./state.md to match /path/to/state.md
-    local normalize_path
-    normalize_path() {
-        echo "$1" | sed 's|/\./|/|g; s|//|/|g'
-    }
-
-    # First arg must be exactly ${active_loop_dir}/state.md or ${active_loop_dir}/finalize-state.md (after normalization)
-    # This prevents bypasses like mv /tmp/state.md /tmp/cancel-state.md
-    src=$(normalize_path "$src")
+    # Normalize and validate source path
+    src=$(_normalize_path "$src")
     local expected_src_state="${loop_dir_lower}state.md"
     local expected_src_finalize="${loop_dir_lower}finalize-state.md"
     if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
-        return 1
+        return 5
     fi
 
-    # Second arg must be exactly ${active_loop_dir}/cancel-state.md (after normalization)
-    dest=$(normalize_path "$dest")
+    # Normalize and validate destination path
+    dest=$(_normalize_path "$dest")
     local expected_dest="${loop_dir_lower}cancel-state.md"
     if [[ "$dest" != "$expected_dest" ]]; then
-        return 1
+        return 5
+    fi
+
+    # SECURITY: Reject if source file is a symlink (filesystem check)
+    # Determine source file by comparing against expected paths (not substring match)
+    # This avoids vulnerability when loop directory path contains "finalize"
+    local src_original
+    if [[ "$src" == "$expected_src_finalize" ]]; then
+        src_original="${active_loop_dir}/finalize-state.md"
+    else
+        src_original="${active_loop_dir}/state.md"
+    fi
+    if [[ -L "$src_original" ]]; then
+        return 6  # Source is a symlink
     fi
 
     return 0

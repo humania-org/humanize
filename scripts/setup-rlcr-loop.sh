@@ -250,7 +250,7 @@ fi
 # Build full path
 FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
-# Reject symlinks
+# Reject symlinks (file itself)
 if [[ -L "$FULL_PLAN_PATH" ]]; then
     echo "Error: Plan file cannot be a symbolic link" >&2
     exit 1
@@ -261,6 +261,29 @@ PLAN_DIR="$(dirname "$FULL_PLAN_PATH")"
 if [[ ! -d "$PLAN_DIR" ]]; then
     echo "Error: Plan file directory not found: $(dirname "$PLAN_FILE")" >&2
     exit 1
+fi
+
+# Reject symlinks in parent directory path (walk each segment)
+# This prevents symlink-based path traversal attacks
+CHECK_PATH="$PROJECT_ROOT"
+# Split PLAN_FILE by / and check each parent directory segment
+# Use parameter expansion for portability (works in bash and zsh)
+REMAINING_PATH="${PLAN_FILE%/*}"
+if [[ "$REMAINING_PATH" != "$PLAN_FILE" ]]; then
+    # There are parent directories to check
+    IFS='/' read -ra PATH_SEGMENTS <<< "$REMAINING_PATH"
+    for segment in "${PATH_SEGMENTS[@]}"; do
+        if [[ -z "$segment" ]]; then
+            continue
+        fi
+        CHECK_PATH="$CHECK_PATH/$segment"
+        if [[ -L "$CHECK_PATH" ]]; then
+            echo "Error: Plan file path contains a symbolic link in parent directory" >&2
+            echo "  Symlink found at: $segment" >&2
+            echo "  Plan file paths must not traverse symbolic links" >&2
+            exit 1
+        fi
+    done
 fi
 
 # Check file exists
@@ -502,7 +525,6 @@ EOF
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
-PLAN_CONTENT=$(cat "$FULL_PLAN_PATH")
 
 cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 # Goal Tracker
@@ -601,6 +623,7 @@ GOAL_TRACKER_EOF
 
 SUMMARY_PATH="$LOOP_DIR/round-0-summary.md"
 
+# Write prompt header
 cat > "$LOOP_DIR/round-0-prompt.md" << EOF
 Read and execute below with ultrathink
 
@@ -623,7 +646,13 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 For all tasks that need to be completed, please create Todos to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Todos for ALL discovered issues and attempt to resolve each one.
 
-$(cat "$LOOP_DIR/plan.md")
+EOF
+
+# Append plan content directly (avoids command substitution size limits for large files)
+cat "$LOOP_DIR/plan.md" >> "$LOOP_DIR/round-0-prompt.md"
+
+# Write prompt footer
+cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 
 ---
 

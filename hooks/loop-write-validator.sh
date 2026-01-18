@@ -21,10 +21,26 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 # ========================================
 
 HOOK_INPUT=$(cat)
-TOOL_NAME=$(echo "$HOOK_INPUT" | jq -r '.tool_name // ""')
+
+# Validate JSON input structure
+if ! validate_hook_input "$HOOK_INPUT"; then
+    exit 1
+fi
+
+# Check for deeply nested JSON (potential DoS)
+if is_deeply_nested "$HOOK_INPUT" 30; then
+    exit 1
+fi
+
+TOOL_NAME="$VALIDATED_TOOL_NAME"
 
 if [[ "$TOOL_NAME" != "Write" ]]; then
     exit 0
+fi
+
+# Require file_path for Write tool
+if ! require_tool_input_field "$HOOK_INPUT" "file_path"; then
+    exit 1
 fi
 
 FILE_PATH=$(echo "$HOOK_INPUT" | jq -r '.tool_input.file_path // ""')
@@ -93,8 +109,11 @@ if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
     STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalize-state.md"
 fi
 
-# Parse state file using shared function
-parse_state_file "$STATE_FILE_TO_PARSE"
+# Parse state file using strict validation (fail closed on malformed state)
+if ! parse_state_file_strict "$STATE_FILE_TO_PARSE" 2>/dev/null; then
+    echo "Error: Malformed state file, blocking operation for safety" >&2
+    exit 1
+fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================

@@ -49,6 +49,10 @@ TEST_BASE="/tmp/test-zsh-humanize-$$"
 mkdir -p "$TEST_BASE"
 cd "$TEST_BASE"
 
+# Set up isolated cache directory to avoid permission issues
+export XDG_CACHE_HOME="$TEST_BASE/.cache"
+mkdir -p "$XDG_CACHE_HOME"
+
 cleanup() {
     cd "$PROJECT_ROOT"
     rm -rf "$TEST_BASE"
@@ -132,26 +136,19 @@ touch .humanize/rlcr/.hidden-file
 (
     loop_dir=".humanize/rlcr"
 
-    _find_latest_session_test() {
-        local latest_session=""
-        if [[ ! -d "$loop_dir" ]]; then
-            echo ""
-            return
-        fi
-        while IFS= read -r session_dir; do
-            [[ -z "$session_dir" ]] && continue
-            [[ ! -d "$session_dir" ]] && continue
-            local session_name=$(basename "$session_dir")
-            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
-                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
-                    latest_session="$session_dir"
-                fi
+    # Reuse the same function pattern from Test 2 (tests directory with only dotfiles)
+    result=""
+    while IFS= read -r session_dir; do
+        [[ -z "$session_dir" ]] && continue
+        [[ ! -d "$session_dir" ]] && continue
+        session_name=$(basename "$session_dir")
+        if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
+            if [[ -z "$result" ]] || [[ "$session_name" > "$(basename "$result")" ]]; then
+                result="$session_dir"
             fi
-        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        echo "$latest_session"
-    }
+        fi
+    done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
-    result=$(_find_latest_session_test 2>&1)
     if [[ "$result" == *"no matches found"* ]]; then
         echo "ERROR: $result"
         exit 1
@@ -215,11 +212,11 @@ echo "Test 5: _find_latest_codex_log with empty cache dir"
 echo ""
 
 # Create a session but no cache log files
-mkdir -p "$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
+mkdir -p "$XDG_CACHE_HOME/humanize/test-project/2026-01-16_10-00-00"
 
 (
     loop_dir=".humanize/rlcr"
-    cache_dir="$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
+    cache_dir="$XDG_CACHE_HOME/humanize/test-project/2026-01-16_10-00-00"
 
     # Simulate the cache log iteration
     found_count=0
@@ -237,7 +234,7 @@ mkdir -p "$HOME/.cache/humanize/test-project/2026-01-16_10-00-00"
     fi
 ) && pass "_find_latest_codex_log with empty cache" || fail "_find_latest_codex_log with empty cache" "Got error"
 
-rm -rf "$HOME/.cache/humanize/test-project"
+rm -rf "$XDG_CACHE_HOME/humanize/test-project"
 
 # ========================================
 # Test 6: Full session directory iteration

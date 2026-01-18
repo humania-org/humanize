@@ -20,10 +20,26 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 # ========================================
 
 HOOK_INPUT=$(cat)
-TOOL_NAME=$(echo "$HOOK_INPUT" | jq -r '.tool_name // ""')
+
+# Validate JSON input structure
+if ! validate_hook_input "$HOOK_INPUT"; then
+    exit 1
+fi
+
+# Check for deeply nested JSON (potential DoS)
+if is_deeply_nested "$HOOK_INPUT" 30; then
+    exit 1
+fi
+
+TOOL_NAME="$VALIDATED_TOOL_NAME"
 
 if [[ "$TOOL_NAME" != "Bash" ]]; then
     exit 0
+fi
+
+# Require command for Bash tool
+if ! require_tool_input_field "$HOOK_INPUT" "command"; then
+    exit 1
 fi
 
 COMMAND=$(echo "$HOOK_INPUT" | jq -r '.tool_input.command // ""')
@@ -48,8 +64,11 @@ if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
     STATE_FILE="$ACTIVE_LOOP_DIR/finalize-state.md"
 fi
 
-# Parse state file using shared function to get current round
-parse_state_file "$STATE_FILE"
+# Parse state file using strict validation (fail closed on malformed state)
+if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
+    echo "Error: Malformed state file, blocking operation for safety" >&2
+    exit 1
+fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
