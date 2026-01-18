@@ -274,10 +274,13 @@ test_cancel_help() {
 # Test: No loop returns NO_LOOP
 test_cancel_no_loop() {
     cd "$TEST_DIR"
+    # Export CLAUDE_PROJECT_DIR to ensure cancel script looks in test dir
+    export CLAUDE_PROJECT_DIR="$TEST_DIR"
     local output
     local exit_code
     output=$("$CANCEL_SCRIPT" 2>&1) || exit_code=$?
     exit_code=${exit_code:-0}
+    unset CLAUDE_PROJECT_DIR
 
     if [[ $exit_code -eq 1 ]] && echo "$output" | grep -q "NO_LOOP"; then
         pass "T-NEG-4: No active loop returns NO_LOOP"
@@ -290,6 +293,8 @@ test_cancel_no_loop() {
 # Test: Cancel works with active loop
 test_cancel_active_loop() {
     cd "$TEST_DIR"
+    # Export CLAUDE_PROJECT_DIR to ensure cancel script looks in test dir
+    export CLAUDE_PROJECT_DIR="$TEST_DIR"
 
     # Create mock loop directory
     local timestamp="2026-01-18_12-00-00"
@@ -308,6 +313,7 @@ EOF
     local exit_code
     output=$("$CANCEL_SCRIPT" 2>&1) || exit_code=$?
     exit_code=${exit_code:-0}
+    unset CLAUDE_PROJECT_DIR
 
     if [[ $exit_code -eq 0 ]] && echo "$output" | grep -q "CANCELLED"; then
         if [[ -f "$loop_dir/cancel-state.md" ]] && [[ ! -f "$loop_dir/state.md" ]]; then
@@ -1356,31 +1362,201 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
-# Test: Stop hook pagination flag is used
-test_e2e_pagination_flag() {
-    # Verify the stop hook code includes --paginate
-    if grep -q '\-\-paginate' "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"; then
-        pass "T-E2E-3: Stop hook uses --paginate for trigger detection"
+# Test: Stop hook handles paginated API response (multi-page trigger detection)
+test_e2e_pagination_runtime() {
+    local test_subdir="$TEST_DIR/e2e_pagination_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at:
+---
+EOF
+
+    # Create resolve file
+    echo "# Resolution Summary" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    # Mock gh that simulates paginated response (returns multiple JSON arrays)
+    # The trigger comment is on page 2 (second array) - only visible if pagination works
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            if [[ "$*" == *"--jq"* ]]; then
+                echo "testuser"
+            else
+                echo '{"login": "testuser"}'
+            fi
+            exit 0
+        fi
+        if [[ "$2" == *"/issues/"*"/comments"* ]]; then
+            # Simulate paginated output: two JSON arrays that need jq -s 'add' to combine
+            # Page 1: old comment without trigger
+            # Page 2: newer comment WITH trigger - must combine to find it
+            if [[ "$*" == *"--paginate"* ]]; then
+                # --paginate flag present: output multiple arrays (simulating pagination)
+                echo '[{"id": 1, "author": "other", "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
+                echo '[{"id": 2, "author": "testuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review the pagination fix"}]'
+            else
+                # No pagination: only first page (trigger NOT found)
+                echo '[{"id": 1, "author": "other", "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
+            fi
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse) echo "/tmp/git" ;;
+    status) echo "" ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    # Run stop hook
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_stderr
+    hook_stderr=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1 >/dev/null) || true
+
+    # Check that trigger was found (proving pagination worked to combine arrays)
+    if echo "$hook_stderr" | grep -q "Found trigger comment at:\|using trigger timestamp"; then
+        pass "T-E2E-3: Pagination combines arrays and finds trigger on page 2"
     else
-        fail "T-E2E-3: Stop hook should use --paginate" "--paginate present" "not found"
+        fail "T-E2E-3: Pagination should find trigger on page 2" "trigger detected" "got: $hook_stderr"
     fi
+
+    unset CLAUDE_PROJECT_DIR
 }
 
-# Test: Stop hook always prefers last_trigger_at over started_at
-test_e2e_trigger_priority_code() {
-    # Verify the stop hook code checks last_trigger_at first
-    if grep -q 'if \[\[ -n "\$PR_LAST_TRIGGER_AT" \]\]' "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"; then
-        pass "T-E2E-4: Stop hook checks last_trigger_at before round number"
+# Test: Stop hook uses last_trigger_at when present (even for round 0)
+test_e2e_trigger_priority_runtime() {
+    local test_subdir="$TEST_DIR/e2e_priority_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file with BOTH started_at and last_trigger_at set
+    # The trigger timestamp is LATER than started_at - if priority works,
+    # the hook should use the trigger timestamp (not started_at)
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at: 2026-01-18T14:30:00Z
+---
+EOF
+
+    # Create resolve file
+    echo "# Resolution Summary" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            if [[ "$*" == *"--jq"* ]]; then
+                echo "testuser"
+            fi
+            exit 0
+        fi
+        if [[ "$2" == *"/issues/"*"/comments"* ]]; then
+            echo '[{"id": 1, "author": "testuser", "created_at": "2026-01-18T14:30:00Z", "body": "@claude review"}]'
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse) echo "/tmp/git" ;;
+    status) echo "" ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_stderr
+    hook_stderr=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1 >/dev/null) || true
+
+    # Check that it reports using trigger timestamp (14:30), NOT started_at (10:00)
+    # This proves last_trigger_at is prioritized even for round 0
+    if echo "$hook_stderr" | grep -q "using trigger timestamp.*14:30\|2026-01-18T14:30:00Z"; then
+        pass "T-E2E-4: Round 0 uses last_trigger_at (14:30) over started_at (10:00)"
     else
-        fail "T-E2E-4: Stop hook should check last_trigger_at first" "trigger priority" "not found"
+        fail "T-E2E-4: Round 0 should use last_trigger_at" "14:30 timestamp used" "got: $hook_stderr"
     fi
+
+    unset CLAUDE_PROJECT_DIR
 }
 
 # Run end-to-end tests
 test_e2e_missing_resolve_blocks
 test_e2e_trigger_detection
-test_e2e_pagination_flag
-test_e2e_trigger_priority_code
+test_e2e_pagination_runtime
+test_e2e_trigger_priority_runtime
 
 # ========================================
 # Summary
