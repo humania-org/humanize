@@ -85,8 +85,11 @@ fi
 # Parse State File (using shared function)
 # ========================================
 
-# Use shared parsing function from loop-common.sh
-parse_state_file "$STATE_FILE"
+# Use shared strict parsing function from loop-common.sh (fail closed on malformed state)
+if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
+    echo "Error: Malformed state file, allowing exit for safety" >&2
+    exit 0
+fi
 
 # Map STATE_* variables to local names for backward compatibility
 PLAN_TRACKED="$STATE_PLAN_TRACKED"

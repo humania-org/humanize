@@ -346,19 +346,19 @@ else
     fail "Symlink rejection" "rejected" "accepted"
 fi
 
-# Test 24: Parent directory symlink handling
+# Test 24: Parent directory symlink rejection
 echo ""
-echo "Test 24: Parent directory symlink is resolved via cd"
+echo "Test 24: Reject parent directory symlink"
 mkdir -p "$TEST_DIR/real-dir"
 create_valid_plan "$TEST_DIR/real-dir/plan.md"
 ln -s "$TEST_DIR/real-dir" "$TEST_DIR/linked-dir"
 
-# The production script uses 'cd' to resolve parent paths, which follows symlinks
-# This is intentional behavior - only direct file symlinks are rejected
-if test_path_validation "linked-dir/plan.md"; then
-    pass "Parent directory symlink resolved via cd (accepted)"
+# Parent directory symlinks must be rejected (security requirement)
+# This prevents symlink-based path traversal attacks
+if ! test_path_validation "linked-dir/plan.md"; then
+    pass "Rejects parent directory symlink"
 else
-    fail "Parent symlink resolution" "accepted" "rejected"
+    fail "Parent symlink rejection" "rejected" "accepted"
 fi
 
 # Test 24a: Symlink chain detection (symlink to symlink to file)
@@ -408,17 +408,42 @@ else
     fail "Deep nested path" "accepted" "rejected"
 fi
 
-# Test 26a: Unicode characters in path
+# Test 26a: Reject unicode characters in path
 echo ""
-echo "Test 26a: Unicode characters in path"
-# Create directory with Chinese/Japanese/Russian characters
-UNICODE_DIR="test_plan"  # Use ASCII for directory, unicode in filename
-mkdir -p "$TEST_DIR/$UNICODE_DIR"
-create_valid_plan "$TEST_DIR/$UNICODE_DIR/plan.md"
-if test_path_validation "$UNICODE_DIR/plan.md"; then
-    pass "Path with unicode-safe directory accepted"
+echo "Test 26a: Reject unicode characters in path"
+# Non-ASCII characters must be rejected for security
+# This prevents encoding-based attacks and ambiguities
+if ! test_path_validation "docs/计划.md"; then
+    pass "Rejects Chinese characters in path"
 else
-    fail "Unicode path" "accepted" "rejected"
+    fail "Chinese character rejection" "rejected" "accepted"
+fi
+
+# Test 26b: Reject unicode in directory name
+echo ""
+echo "Test 26b: Reject unicode in directory name"
+if ! test_path_validation "文档/plan.md"; then
+    pass "Rejects Chinese directory name"
+else
+    fail "Chinese directory rejection" "rejected" "accepted"
+fi
+
+# Test 26c: Reject Cyrillic characters
+echo ""
+echo "Test 26c: Reject Cyrillic characters in path"
+if ! test_path_validation "docs/план.md"; then
+    pass "Rejects Cyrillic characters in path"
+else
+    fail "Cyrillic character rejection" "rejected" "accepted"
+fi
+
+# Test 26d: Reject emoji in path
+echo ""
+echo "Test 26d: Reject emoji in path"
+if ! test_path_validation "docs/plan-📝.md"; then
+    pass "Rejects emoji in path"
+else
+    fail "Emoji rejection" "rejected" "accepted"
 fi
 
 # ========================================

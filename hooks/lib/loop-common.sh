@@ -47,12 +47,25 @@ readonly EXIT_UNEXPECTED="unexpected"
 # Usage: validate_hook_input "$json_input"
 # Returns: 0 if valid JSON with tool_name, 1 if invalid
 # Sets: VALIDATED_TOOL_NAME, VALIDATED_TOOL_INPUT
+#
+# Non-UTF8 handling behavior (AC-7):
+# - Null bytes (0x00): Rejected with exit 1
+# - Invalid UTF-8 sequences (0x80-0xFF outside valid UTF-8): Rejected by jq as invalid JSON
+# - Valid UTF-8 non-ASCII characters: Accepted (jq handles Unicode correctly)
 validate_hook_input() {
     local input="$1"
 
     # Reject null bytes (security) - use grep for reliable detection
     if printf '%s' "$input" | grep -qP '\x00'; then
         echo "Error: Input contains null bytes" >&2
+        return 1
+    fi
+
+    # Reject non-UTF8 bytes (security/consistency)
+    # Check for bytes in 0x80-0xFF that are NOT part of valid UTF-8 sequences
+    # The iconv will fail on invalid UTF-8, allowing us to reject such input
+    if ! printf '%s' "$input" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+        echo "Error: Input contains invalid UTF-8 sequences" >&2
         return 1
     fi
 

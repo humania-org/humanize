@@ -388,6 +388,139 @@ git checkout -q file.txt
 cd - > /dev/null
 
 # ========================================
+# Git State Detection Tests (AC-5)
+# ========================================
+
+echo ""
+echo "--- Git State Detection Tests (AC-5) ---"
+echo ""
+
+# Test 19: Detect normal state
+echo "Test 19: Detect normal git state"
+cd "$TEST_DIR/repo1"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "normal" ]]; then
+    pass "Normal state detected correctly"
+else
+    fail "Normal state" "normal" "$STATE"
+fi
+cd - > /dev/null
+
+# Test 20: Detect detached HEAD state
+echo ""
+echo "Test 20: Detect detached HEAD state"
+cd "$TEST_DIR/repo1"
+COMMIT=$(git rev-parse HEAD)
+git checkout -q "$COMMIT"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "detached" ]]; then
+    pass "Detached HEAD state detected"
+else
+    fail "Detached HEAD detection" "detached" "$STATE"
+fi
+git checkout -q master 2>/dev/null || git checkout -q main
+cd - > /dev/null
+
+# Test 21: Detect rebase in progress
+echo ""
+echo "Test 21: Detect rebase in progress"
+cd "$TEST_DIR/repo1"
+# Create a rebase scenario
+git checkout -q -b test-rebase-branch
+echo "change1" > rebase-file.txt
+git add rebase-file.txt
+git commit -q -m "Rebase test commit"
+git checkout -q master 2>/dev/null || git checkout -q main
+echo "conflict" > rebase-file.txt
+git add rebase-file.txt
+git commit -q -m "Main conflict commit"
+# Start rebase that will need manual resolution
+git checkout -q test-rebase-branch
+# Create the rebase-merge directory to simulate rebase in progress
+mkdir -p "$(git rev-parse --git-dir)/rebase-merge"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "rebase" ]]; then
+    pass "Rebase in progress detected"
+else
+    fail "Rebase detection" "rebase" "$STATE"
+fi
+# Cleanup
+rm -rf "$(git rev-parse --git-dir)/rebase-merge"
+git checkout -q master 2>/dev/null || git checkout -q main
+git branch -D test-rebase-branch 2>/dev/null || true
+rm -f rebase-file.txt
+git checkout -q . 2>/dev/null || true
+cd - > /dev/null
+
+# Test 22: Detect merge in progress
+echo ""
+echo "Test 22: Detect merge in progress"
+cd "$TEST_DIR/repo1"
+# Create MERGE_HEAD to simulate merge in progress
+echo "dummy" > "$(git rev-parse --git-dir)/MERGE_HEAD"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "merge" ]]; then
+    pass "Merge in progress detected"
+else
+    fail "Merge detection" "merge" "$STATE"
+fi
+# Cleanup
+rm -f "$(git rev-parse --git-dir)/MERGE_HEAD"
+cd - > /dev/null
+
+# Test 23: Detect shallow clone
+echo ""
+echo "Test 23: Detect shallow clone"
+cd "$TEST_DIR/repo1"
+# Create shallow file to simulate shallow clone
+touch "$(git rev-parse --git-dir)/shallow"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "shallow" ]]; then
+    pass "Shallow clone detected"
+else
+    fail "Shallow detection" "shallow" "$STATE"
+fi
+# Cleanup
+rm -f "$(git rev-parse --git-dir)/shallow"
+cd - > /dev/null
+
+# Test 24: Detect non-git directory state
+echo ""
+echo "Test 24: Detect non-git directory"
+cd "$TEST_DIR/not-a-repo"
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "not_a_repo" ]]; then
+    pass "Non-git directory detected"
+else
+    fail "Non-git detection" "not_a_repo" "$STATE"
+fi
+cd - > /dev/null
+
+# Test 25: Detect permission error (simulated)
+echo ""
+echo "Test 25: Detect permission error scenario"
+# Create a directory with .git that we can't read
+mkdir -p "$TEST_DIR/perm-test"
+cd "$TEST_DIR/perm-test"
+mkdir .git
+chmod 000 .git
+STATE=$(humanize_detect_git_state)
+if [[ "$STATE" == "permission_error" ]]; then
+    pass "Permission error detected"
+else
+    # May return not_a_repo on some systems - acceptable
+    if [[ "$STATE" == "not_a_repo" ]]; then
+        pass "Permission handled gracefully (returned: $STATE)"
+    else
+        fail "Permission detection" "permission_error or not_a_repo" "$STATE"
+    fi
+fi
+# Cleanup
+chmod 755 .git
+rm -rf .git
+cd - > /dev/null
+
+# ========================================
 # Summary
 # ========================================
 

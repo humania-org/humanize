@@ -41,8 +41,11 @@ if [[ -f "$LOOP_DIR/finalize-state.md" ]]; then
     STATE_FILE="$LOOP_DIR/finalize-state.md"
 fi
 
-# Parse state file using shared function
-parse_state_file "$STATE_FILE"
+# Parse state file using strict validation (fail closed on malformed state)
+if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
+    echo "Error: Malformed state file, blocking operation for safety" >&2
+    exit 1
+fi
 
 # Map STATE_* variables to local names for backward compatibility
 PLAN_TRACKED="$STATE_PLAN_TRACKED"

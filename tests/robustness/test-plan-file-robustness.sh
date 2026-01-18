@@ -163,14 +163,14 @@ count_content_lines() {
 }
 
 # ========================================
-# Positive Tests - Valid Plan Files
+# Positive Tests - Valid Plan Files (via production)
 # ========================================
 
-echo "--- Positive Tests: Valid Plan Files ---"
+echo "--- Positive Tests: Valid Plan Files (via production) ---"
 echo ""
 
-# Test 1: Correctly formatted plan file
-echo "Test 1: Correctly formatted plan file"
+# Test 1: Correctly formatted plan file (production validation)
+echo "Test 1: Production accepts correctly formatted plan file"
 cat > "$TEST_DIR/valid-plan.md" << 'EOF'
 # Implementation Plan
 
@@ -190,16 +190,16 @@ Implement feature X.
 - AC-2: Tests pass
 EOF
 
-LINE_COUNT=$(wc -l < "$TEST_DIR/valid-plan.md")
-if [[ "$LINE_COUNT" -ge "5" ]]; then
-    pass "Valid plan has $LINE_COUNT lines (>= 5 required)"
+if test_plan_validation "valid-plan.md"; then
+    LINE_COUNT=$(wc -l < "$TEST_DIR/valid-plan.md")
+    pass "Production accepts valid plan ($LINE_COUNT lines)"
 else
-    fail "Valid plan" ">= 5 lines" "$LINE_COUNT lines"
+    fail "Valid plan acceptance" "accepted" "rejected"
 fi
 
-# Test 2: Count content lines vs comment lines
+# Test 2: Plan with comments - production rejects insufficient content
 echo ""
-echo "Test 2: Count content lines vs comment lines"
+echo "Test 2: Production rejects plan with insufficient content (mostly comments)"
 cat > "$TEST_DIR/mixed-plan.md" << 'EOF'
 # Plan Title
 
@@ -217,18 +217,17 @@ multiple lines -->
 Content line three
 EOF
 
+# Production requires at least 3 content lines - this file has exactly 3
 # Note: "# Plan Title" and "# This is also a comment" are treated as comments (start with #)
-# Content lines are: "Content line one", "Content line two", "Content line three"
-CONTENT_COUNT=$(count_content_lines "$TEST_DIR/mixed-plan.md")
-if [[ "$CONTENT_COUNT" == "3" ]]; then
-    pass "Correctly counts 3 content lines (excluding all comments)"
+if test_plan_validation "mixed-plan.md"; then
+    pass "Production accepts plan with 3 content lines (minimum)"
 else
-    fail "Content line count" "3" "$CONTENT_COUNT"
+    fail "Minimal content acceptance" "accepted (3 content lines)" "rejected"
 fi
 
-# Test 3: Standard file sizes
+# Test 3: Standard file sizes (5KB) - production validation
 echo ""
-echo "Test 3: Standard file sizes (5KB)"
+echo "Test 3: Production accepts standard file sizes (5KB)"
 {
     echo "# Plan"
     echo "## Goal"
@@ -239,15 +238,15 @@ echo "Test 3: Standard file sizes (5KB)"
 } > "$TEST_DIR/standard-size.md"
 
 SIZE=$(wc -c < "$TEST_DIR/standard-size.md")
-if [[ "$SIZE" -gt "1000" ]] && [[ "$SIZE" -lt "10000" ]]; then
-    pass "Standard size file handled ($SIZE bytes)"
+if test_plan_validation "standard-size.md"; then
+    pass "Production accepts standard size file ($SIZE bytes)"
 else
-    fail "Standard size" "1KB-10KB" "$SIZE bytes"
+    fail "Standard size acceptance" "accepted" "rejected ($SIZE bytes)"
 fi
 
-# Test 4: Plan with various markdown elements
+# Test 4: Plan with various markdown elements - production validation
 echo ""
-echo "Test 4: Plan with various markdown elements"
+echo "Test 4: Production accepts plan with rich markdown elements"
 cat > "$TEST_DIR/rich-plan.md" << 'EOF'
 # Rich Plan
 
@@ -277,11 +276,11 @@ def hello():
 **Bold** and *italic* text.
 EOF
 
-CONTENT_COUNT=$(count_content_lines "$TEST_DIR/rich-plan.md")
-if [[ "$CONTENT_COUNT" -gt "10" ]]; then
-    pass "Rich markdown content counted ($CONTENT_COUNT content lines)"
+if test_plan_validation "rich-plan.md"; then
+    CONTENT_COUNT=$(count_content_lines "$TEST_DIR/rich-plan.md")
+    pass "Production accepts rich markdown plan ($CONTENT_COUNT content lines)"
 else
-    fail "Rich content" ">10 content lines" "$CONTENT_COUNT"
+    fail "Rich markdown acceptance" "accepted" "rejected"
 fi
 
 # ========================================

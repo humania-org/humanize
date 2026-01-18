@@ -247,10 +247,21 @@ if [[ "$PLAN_FILE" == *[\;\&\|\$\`\<\>\(\)\{\}\[\]\!\#\~\*\?\\]* ]]; then
     exit 1
 fi
 
+# Reject non-ASCII characters (prevents encoding ambiguities and potential bypass)
+# Use LC_ALL=C to ensure byte-level comparison
+# Check if any character has high bit set (non-ASCII)
+NON_ASCII_CHECK=$(echo "$PLAN_FILE" | LC_ALL=C tr -d '[:print:]')
+if [[ -n "$NON_ASCII_CHECK" ]]; then
+    echo "Error: Plan file path contains non-ASCII characters" >&2
+    echo "  Got: $PLAN_FILE" >&2
+    echo "  Rename the file to use only ASCII characters" >&2
+    exit 1
+fi
+
 # Build full path
 FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 
-# Reject symlinks
+# Reject symlinks (file itself)
 if [[ -L "$FULL_PLAN_PATH" ]]; then
     echo "Error: Plan file cannot be a symbolic link" >&2
     exit 1
@@ -261,6 +272,29 @@ PLAN_DIR="$(dirname "$FULL_PLAN_PATH")"
 if [[ ! -d "$PLAN_DIR" ]]; then
     echo "Error: Plan file directory not found: $(dirname "$PLAN_FILE")" >&2
     exit 1
+fi
+
+# Reject symlinks in parent directory path (walk each segment)
+# This prevents symlink-based path traversal attacks
+CHECK_PATH="$PROJECT_ROOT"
+# Split PLAN_FILE by / and check each parent directory segment
+# Use parameter expansion for portability (works in bash and zsh)
+REMAINING_PATH="${PLAN_FILE%/*}"
+if [[ "$REMAINING_PATH" != "$PLAN_FILE" ]]; then
+    # There are parent directories to check
+    IFS='/' read -ra PATH_SEGMENTS <<< "$REMAINING_PATH"
+    for segment in "${PATH_SEGMENTS[@]}"; do
+        if [[ -z "$segment" ]]; then
+            continue
+        fi
+        CHECK_PATH="$CHECK_PATH/$segment"
+        if [[ -L "$CHECK_PATH" ]]; then
+            echo "Error: Plan file path contains a symbolic link in parent directory" >&2
+            echo "  Symlink found at: $segment" >&2
+            echo "  Plan file paths must not traverse symbolic links" >&2
+            exit 1
+        fi
+    done
 fi
 
 # Check file exists

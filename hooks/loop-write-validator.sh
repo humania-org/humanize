@@ -109,8 +109,11 @@ if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
     STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalize-state.md"
 fi
 
-# Parse state file using shared function
-parse_state_file "$STATE_FILE_TO_PARSE"
+# Parse state file using strict validation (fail closed on malformed state)
+if ! parse_state_file_strict "$STATE_FILE_TO_PARSE" 2>/dev/null; then
+    echo "Error: Malformed state file, blocking operation for safety" >&2
+    exit 1
+fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================

@@ -105,6 +105,56 @@ humanize_parse_goal_tracker() {
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
 }
 
+# Detect special git repository states
+# Returns: state_name (one of: normal, detached, rebase, merge, shallow, permission_error)
+humanize_detect_git_state() {
+    local git_dir
+
+    # Check if we're in a git repo and can access it
+    git_dir=$(git rev-parse --git-dir 2>/dev/null) || {
+        # Check if it's a permission issue vs not a repo
+        if [[ -d ".git" ]] && ! [[ -r ".git" ]]; then
+            echo "permission_error"
+        else
+            echo "not_a_repo"
+        fi
+        return
+    }
+
+    # Check for permission errors on git dir
+    if ! [[ -r "$git_dir" ]]; then
+        echo "permission_error"
+        return
+    fi
+
+    # Check for rebase in progress
+    if [[ -d "$git_dir/rebase-merge" ]] || [[ -d "$git_dir/rebase-apply" ]]; then
+        echo "rebase"
+        return
+    fi
+
+    # Check for merge in progress
+    if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+        echo "merge"
+        return
+    fi
+
+    # Check for shallow clone
+    if [[ -f "$git_dir/shallow" ]]; then
+        echo "shallow"
+        return
+    fi
+
+    # Check for detached HEAD
+    local head_ref
+    head_ref=$(git symbolic-ref HEAD 2>/dev/null) || {
+        echo "detached"
+        return
+    }
+
+    echo "normal"
+}
+
 # Parse git status and return summary values
 # Returns: modified|added|deleted|untracked|insertions|deletions
 humanize_parse_git_status() {

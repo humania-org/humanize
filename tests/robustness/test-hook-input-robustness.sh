@@ -220,20 +220,22 @@ else
     fail "Deep nesting rejection" "exit 1-127 (reject)" "exit $EXIT_CODE"
 fi
 
-# Test 10b: Non-UTF8 content in command (binary bytes)
+# Test 10b: Non-UTF8 content in command (binary bytes) - MUST reject
 echo ""
-echo "Test 10b: Hook handles non-UTF8 binary content"
+echo "Test 10b: Hook rejects non-UTF8 binary content (AC-7)"
 # Create JSON with embedded binary/non-UTF8 bytes using hex escape
 BINARY_JSON=$(printf '{"tool_name":"Bash","tool_input":{"command":"echo \x80\x81\x82\xff"}}')
 set +e
 RESULT=$(echo "$BINARY_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Script should handle gracefully (jq may reject or pass depending on version)
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "Non-UTF8 content handled gracefully (exit: $EXIT_CODE)"
+# Script MUST reject non-UTF8 input with non-zero exit (1 = validation failure)
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "Non-UTF8 content rejected (exit: $EXIT_CODE)"
+elif [[ $EXIT_CODE -lt 128 ]]; then
+    fail "Non-UTF8 rejection" "exit 1 (reject)" "exit $EXIT_CODE (accepted or other error)"
 else
-    fail "Non-UTF8" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
+    fail "Non-UTF8" "exit 1 (reject)" "exit $EXIT_CODE (signal crash)"
 fi
 
 # Test 10c: Null bytes in JSON
@@ -387,6 +389,69 @@ if command_modifies_file "$COMMAND_LOWER" "output\.txt"; then
     pass "Detects redirect modification"
 else
     fail "Redirect detection" "detected" "not detected"
+fi
+
+# ========================================
+# Monitor Helper Integration Tests (AC-6)
+# ========================================
+# These tests verify the production helper functions used by monitor are available
+
+echo ""
+echo "--- Monitor Helper Integration Tests (AC-6) ---"
+echo ""
+
+# Test 21: Production goal tracker parser is available and works
+echo "Test 21: Production goal tracker parser function available"
+# Source humanize.sh to get production functions
+source "$PROJECT_ROOT/scripts/humanize.sh"
+
+# Create a test goal-tracker.md file
+cat > "$TEST_DIR/goal-tracker.md" << 'GOAL_EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test the monitor integration.
+### Acceptance Criteria
+- AC-1: Works correctly
+## MUTABLE SECTION
+### Completed and Verified
+| AC | Task | Completed | Verified |
+|----|------|-----------|----------|
+| AC-1 | Test task | 1 | 1 |
+GOAL_EOF
+
+# Call production function directly (this is what monitor calls internally)
+RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker.md" 2>/dev/null || echo "error")
+# Expected format: total_ac|verified_ac|pending_tasks|completed_tasks|open_issues|deferred_tasks|goal_text
+if [[ "$RESULT" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\| ]]; then
+    pass "Production goal tracker parser works (output: ${RESULT:0:30}...)"
+else
+    fail "Goal tracker parser" "pipe-delimited output" "$RESULT"
+fi
+
+# Test 22: Production git status parser is available and works
+echo ""
+echo "Test 22: Production git status parser function available"
+cd "$TEST_DIR"
+
+# Call production function directly (this is what monitor calls internally)
+RESULT=$(humanize_parse_git_status 2>/dev/null || echo "error")
+# Expected format: staged|unstaged|untracked|conflict|ahead|behind|branch_or_status
+if [[ "$RESULT" =~ ^[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\|[0-9]+\| ]]; then
+    pass "Production git status parser works (output: ${RESULT:0:30}...)"
+else
+    fail "Git status parser" "pipe-delimited output" "$RESULT"
+fi
+
+# Test 23: Production git state detection is available
+echo ""
+echo "Test 23: Production git state detection function available"
+# Verify humanize_detect_git_state is callable
+STATE=$(humanize_detect_git_state 2>/dev/null || echo "error")
+if [[ "$STATE" == "normal" ]] || [[ "$STATE" == "not_a_repo" ]] || [[ "$STATE" == "detached" ]]; then
+    pass "Git state detection function callable (state: $STATE)"
+else
+    fail "Git state detection" "normal/not_a_repo/detached" "$STATE"
 fi
 
 # ========================================
