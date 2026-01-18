@@ -50,18 +50,15 @@ Execute the validation script with the provided arguments:
 After IO validation passes, check if the draft is relevant to this repository.
 
 1. Read the input draft file to get its content
-2. Use the Task tool to invoke the `draft-relevance-checker` agent (haiku model):
+2. Use the Task tool to invoke the `humanize:draft-relevance-checker` agent (haiku model):
    ```
    Task tool parameters:
-   - subagent_type: "draft-relevance-checker"
    - model: "haiku"
    - prompt: Include the draft content and ask the agent to:
      1. Explore the repository structure (README, CLAUDE.md, main files)
      2. Analyze if the draft content relates to this repository
      3. Return either `RELEVANT: <reason>` or `NOT_RELEVANT: <reason>`
    ```
-
-   The `draft-relevance-checker` agent is defined in `agents/draft-relevance-checker.md` and is specifically designed for this purpose.
 
 3. **If NOT_RELEVANT**:
    - Report: "The draft content does not appear to be related to this repository."
