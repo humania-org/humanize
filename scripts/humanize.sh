@@ -879,10 +879,16 @@ humanize() {
                 rlcr)
                     _humanize_monitor_codex
                     ;;
+                pr)
+                    _humanize_monitor_pr
+                    ;;
                 *)
-                    echo "Usage: humanize monitor rlcr"
+                    echo "Usage: humanize monitor <rlcr|pr>"
                     echo ""
-                    echo "Monitor the latest RLCR loop log from .humanize/rlcr"
+                    echo "Subcommands:"
+                    echo "  rlcr    Monitor the latest RLCR loop log from .humanize/rlcr"
+                    echo "  pr      Monitor the latest PR loop from .humanize/pr-loop"
+                    echo ""
                     echo "Features:"
                     echo "  - Fixed status bar showing session info, round progress, model config"
                     echo "  - Goal tracker summary: Ultimate Goal, AC progress, task status"
@@ -897,7 +903,123 @@ humanize() {
             echo ""
             echo "Commands:"
             echo "  monitor rlcr    Monitor the latest RLCR loop log"
+            echo "  monitor pr      Monitor the latest PR loop"
             return 1
             ;;
     esac
+}
+
+# ========================================
+# PR Loop Monitor Function
+# ========================================
+
+# Monitor the latest PR loop from .humanize/pr-loop
+_humanize_monitor_pr() {
+    local loop_dir=".humanize/pr-loop"
+
+    # Find the newest loop directory
+    local session_dir
+    session_dir=$(ls -1d "$loop_dir"/*/ 2>/dev/null | sort -r | head -1) || true
+
+    if [[ -z "$session_dir" ]]; then
+        echo "No PR loop sessions found in $loop_dir"
+        return 1
+    fi
+
+    session_dir="${session_dir%/}"
+    local state_file="$session_dir/state.md"
+
+    # Check for active state
+    local loop_status="unknown"
+    if [[ -f "$state_file" ]]; then
+        loop_status="active"
+    elif [[ -f "$session_dir/complete-state.md" ]]; then
+        loop_status="completed"
+        state_file="$session_dir/complete-state.md"
+    elif [[ -f "$session_dir/cancel-state.md" ]]; then
+        loop_status="cancelled"
+        state_file="$session_dir/cancel-state.md"
+    elif [[ -f "$session_dir/maxiter-state.md" ]]; then
+        loop_status="max-iterations"
+        state_file="$session_dir/maxiter-state.md"
+    else
+        echo "No state file found in $session_dir"
+        return 1
+    fi
+
+    # Parse state file
+    local frontmatter
+    frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+
+    local current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
+    local max_iterations=$(echo "$frontmatter" | grep "^max_iterations:" | sed "s/max_iterations: *//" | tr -d ' ')
+    local pr_number=$(echo "$frontmatter" | grep "^pr_number:" | sed "s/pr_number: *//" | tr -d ' ')
+    local start_branch=$(echo "$frontmatter" | grep "^start_branch:" | sed "s/start_branch: *//" || true)
+    local active_bots=$(echo "$frontmatter" | grep "^active_bots:" | sed "s/active_bots: *//" || true)
+    local codex_model=$(echo "$frontmatter" | grep "^codex_model:" | sed "s/codex_model: *//" | tr -d ' ')
+    local codex_effort=$(echo "$frontmatter" | grep "^codex_effort:" | sed "s/codex_effort: *//" | tr -d ' ')
+    local started_at=$(echo "$frontmatter" | grep "^started_at:" | sed "s/started_at: *//" || true)
+
+    # Set defaults
+    current_round=${current_round:-0}
+    max_iterations=${max_iterations:-42}
+    pr_number=${pr_number:-"?"}
+    codex_model=${codex_model:-"gpt-5.2-codex"}
+    codex_effort=${codex_effort:-"medium"}
+
+    # Print status
+    echo "=========================================="
+    echo " PR Loop Monitor"
+    echo "=========================================="
+    echo ""
+    echo "Session: $(basename "$session_dir")"
+    echo "Status:  $loop_status"
+    echo ""
+    echo "PR Number:     #$pr_number"
+    echo "Branch:        $start_branch"
+    echo "Active Bots:   ${active_bots:-none}"
+    echo ""
+    echo "Round:         $current_round / $max_iterations"
+    echo "Codex:         $codex_model:$codex_effort"
+    echo "Started:       $started_at"
+    echo ""
+    echo "=========================================="
+    echo " Recent Files"
+    echo "=========================================="
+    echo ""
+
+    # List recent round files
+    ls -lt "$session_dir"/round-*.md 2>/dev/null | head -10 | while read -r line; do
+        echo "  $line"
+    done
+
+    echo ""
+    echo "=========================================="
+    echo " Latest Activity"
+    echo "=========================================="
+    echo ""
+
+    # Show latest resolve or comment file
+    local latest_resolve=$(ls -t "$session_dir"/round-*-pr-resolve.md 2>/dev/null | head -1)
+    local latest_comment=$(ls -t "$session_dir"/round-*-pr-comment.md 2>/dev/null | head -1)
+    local latest_check=$(ls -t "$session_dir"/round-*-pr-check.md 2>/dev/null | head -1)
+
+    if [[ -n "$latest_check" && -f "$latest_check" ]]; then
+        echo "Latest Check ($latest_check):"
+        echo "----------------------------------------"
+        tail -20 "$latest_check"
+        echo ""
+    elif [[ -n "$latest_resolve" && -f "$latest_resolve" ]]; then
+        echo "Latest Resolve ($latest_resolve):"
+        echo "----------------------------------------"
+        tail -20 "$latest_resolve"
+        echo ""
+    elif [[ -n "$latest_comment" && -f "$latest_comment" ]]; then
+        echo "Latest Comments ($latest_comment):"
+        echo "----------------------------------------"
+        tail -20 "$latest_comment"
+        echo ""
+    fi
+
+    echo "=========================================="
 }
