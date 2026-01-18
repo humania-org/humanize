@@ -992,10 +992,14 @@ _humanize_monitor_pr() {
     echo "=========================================="
     echo ""
 
-    # List recent round files
-    ls -lt "$session_dir"/round-*.md 2>/dev/null | head -10 | while read -r line; do
-        echo "  $line"
-    done
+    # List recent round files (use find to avoid zsh glob errors)
+    local round_files
+    round_files=$(find "$session_dir" -maxdepth 1 -name 'round-*.md' -type f 2>/dev/null)
+    if [[ -n "$round_files" ]]; then
+        echo "$round_files" | xargs ls -lt 2>/dev/null | head -10 | while read -r line; do
+            echo "  $line"
+        done
+    fi
 
     echo ""
     echo "=========================================="
@@ -1004,9 +1008,10 @@ _humanize_monitor_pr() {
     echo ""
 
     # Show latest resolve or comment file
-    local latest_resolve=$(ls -t "$session_dir"/round-*-pr-resolve.md 2>/dev/null | head -1)
-    local latest_comment=$(ls -t "$session_dir"/round-*-pr-comment.md 2>/dev/null | head -1)
-    local latest_check=$(ls -t "$session_dir"/round-*-pr-check.md 2>/dev/null | head -1)
+    # Use find instead of glob to avoid zsh "no matches found" errors
+    local latest_resolve=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-resolve.md' -type f 2>/dev/null | sort -r | head -1)
+    local latest_comment=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-comment.md' -type f 2>/dev/null | sort -r | head -1)
+    local latest_check=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null | sort -r | head -1)
 
     if [[ -n "$latest_check" && -f "$latest_check" ]]; then
         echo "Latest Check ($latest_check):"
