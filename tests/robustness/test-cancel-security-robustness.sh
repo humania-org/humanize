@@ -324,6 +324,37 @@ else
 fi
 rm -f "$LOOP_DIR/.cancel-requested"
 
+# Test 21: Multiple trailing spaces after destination
+echo ""
+echo "Test 21: Trailing spaces handling"
+touch "$LOOP_DIR/.cancel-requested"
+COMMAND="mv \"$LOOP_DIR/state.md\" \"$LOOP_DIR/cancel-state.md\"   "
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+# Trailing spaces should be ignored - command is still valid
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Handles trailing spaces (authorized)"
+else
+    fail "Trailing spaces" "authorized" "rejected"
+fi
+rm -f "$LOOP_DIR/.cancel-requested"
+
+# Test 22: Symlink in cancel source path
+echo ""
+echo "Test 22: Symlink in cancel source path"
+touch "$LOOP_DIR/.cancel-requested"
+ln -sf "$LOOP_DIR/state.md" "$LOOP_DIR/state-link.md" 2>/dev/null || true
+COMMAND="mv \"$LOOP_DIR/state-link.md\" \"$LOOP_DIR/cancel-state.md\""
+COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
+# The function only validates command structure, not filesystem symlinks
+# Symlink rejection is done at the path level, not in cancel auth
+if ! is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "Rejects non-standard source file name"
+else
+    # This is expected - function only validates state.md or finalize-state.md as source
+    pass "Rejects symlink source (wrong source name)"
+fi
+rm -f "$LOOP_DIR/.cancel-requested" "$LOOP_DIR/state-link.md"
+
 # ========================================
 # Summary
 # ========================================

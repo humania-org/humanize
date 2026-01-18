@@ -168,18 +168,18 @@ else
     fail "Special chars" "exit 0" "exit $EXIT_CODE"
 fi
 
-# Test 9: JSON with Unicode content
+# Test 9: JSON with actual Unicode content in file path
 echo ""
-echo "Test 9: Hook handles Unicode in JSON"
-JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt"}}'
+echo "Test 9: Hook handles Unicode characters in JSON"
+JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/\u6d4b\u8bd5_\u30c6\u30b9\u30c8_\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430.txt"}}'
 set +e
 RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Unicode handled (exit: 0)"
+    pass "Unicode in path handled (exit: 0)"
 else
-    fail "Unicode" "exit 0" "exit $EXIT_CODE"
+    fail "Unicode path" "exit 0" "exit $EXIT_CODE"
 fi
 
 # Test 10: Unrecognized tool name passes through
@@ -194,6 +194,60 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "Unknown tool ignored (exit: 0)"
 else
     fail "Unknown tool" "exit 0" "exit $EXIT_CODE"
+fi
+
+# Test 10a: Deeply nested JSON structure
+echo ""
+echo "Test 10a: Hook handles deeply nested JSON (50 levels)"
+# Create a deeply nested JSON structure
+NESTED_JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt","metadata":'
+for i in $(seq 1 50); do
+    NESTED_JSON="${NESTED_JSON}{\"level$i\":"
+done
+NESTED_JSON="${NESTED_JSON}\"deep\""
+for i in $(seq 1 50); do
+    NESTED_JSON="${NESTED_JSON}}"
+done
+NESTED_JSON="${NESTED_JSON}}}"
+set +e
+RESULT=$(echo "$NESTED_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# jq may fail on very deep nesting, but script should handle gracefully
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Deeply nested JSON handled gracefully (exit: $EXIT_CODE)"
+else
+    fail "Deep nesting" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
+fi
+
+# Test 10b: Non-UTF8 content in command (binary bytes)
+echo ""
+echo "Test 10b: Hook handles non-UTF8 binary content"
+# Create JSON with embedded binary/non-UTF8 bytes using hex escape
+BINARY_JSON=$(printf '{"tool_name":"Bash","tool_input":{"command":"echo \x80\x81\x82\xff"}}')
+set +e
+RESULT=$(echo "$BINARY_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Script should handle gracefully (jq may reject or pass depending on version)
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Non-UTF8 content handled gracefully (exit: $EXIT_CODE)"
+else
+    fail "Non-UTF8" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
+fi
+
+# Test 10c: Null bytes in JSON
+echo ""
+echo "Test 10c: Hook handles null bytes in JSON"
+NULL_JSON=$(printf '{"tool_name":"Read","tool_input":{"file_path":"/tmp/test\x00.txt"}}')
+set +e
+RESULT=$(echo "$NULL_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Null bytes handled gracefully (exit: $EXIT_CODE)"
+else
+    fail "Null bytes" "exit < 128 (no signal)" "exit $EXIT_CODE (signal crash)"
 fi
 
 # ========================================

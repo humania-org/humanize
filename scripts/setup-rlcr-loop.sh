@@ -502,7 +502,6 @@ EOF
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
-PLAN_CONTENT=$(cat "$FULL_PLAN_PATH")
 
 cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 # Goal Tracker
@@ -530,7 +529,8 @@ GOAL_TRACKER_EOF
 GOAL_LINE=$(grep -i -m1 '^##[[:space:]]*\(goal\|objective\|purpose\)' "$FULL_PLAN_PATH" 2>/dev/null || echo "")
 if [[ -n "$GOAL_LINE" ]]; then
     # Get the content after the heading
-    GOAL_SECTION=$(sed -n '/^##[[:space:]]*[Gg]oal\|^##[[:space:]]*[Oo]bjective\|^##[[:space:]]*[Pp]urpose/,/^##/p' "$FULL_PLAN_PATH" | head -20 | tail -n +2 | head -10)
+    # Note: sed | head may cause SIGPIPE for large files, which is harmless - suppress pipefail
+    GOAL_SECTION=$(set +o pipefail; sed -n '/^##[[:space:]]*[Gg]oal\|^##[[:space:]]*[Oo]bjective\|^##[[:space:]]*[Pp]urpose/,/^##/p' "$FULL_PLAN_PATH" | head -20 | tail -n +2 | head -10)
     echo "$GOAL_SECTION" >> "$GOAL_TRACKER_FILE"
 else
     # Use first non-empty, non-heading paragraph as goal description
@@ -549,7 +549,8 @@ GOAL_TRACKER_EOF
 
 # Extract acceptance criteria from plan file (look for ## Acceptance, ## Criteria, ## Requirements)
 # Use ^## without leading whitespace - markdown headers should start at column 0
-AC_SECTION=$(sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria\|^##[[:space:]]*[Rr]equirements/,/^##/p' "$FULL_PLAN_PATH" 2>/dev/null | head -30 | tail -n +2 | head -25)
+# Note: sed | head may cause SIGPIPE for large files, which is harmless - suppress pipefail
+AC_SECTION=$(set +o pipefail; sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria\|^##[[:space:]]*[Rr]equirements/,/^##/p' "$FULL_PLAN_PATH" 2>/dev/null | head -30 | tail -n +2 | head -25)
 if [[ -n "$AC_SECTION" ]]; then
     echo "$AC_SECTION" >> "$GOAL_TRACKER_FILE"
 else
@@ -599,6 +600,7 @@ GOAL_TRACKER_EOF
 
 SUMMARY_PATH="$LOOP_DIR/round-0-summary.md"
 
+# Write prompt header
 cat > "$LOOP_DIR/round-0-prompt.md" << EOF
 Read and execute below with ultrathink
 
@@ -621,7 +623,13 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 For all tasks that need to be completed, please create Todos to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Todos for ALL discovered issues and attempt to resolve each one.
 
-$(cat "$LOOP_DIR/plan.md")
+EOF
+
+# Append plan content directly (avoids command substitution size limits for large files)
+cat "$LOOP_DIR/plan.md" >> "$LOOP_DIR/round-0-prompt.md"
+
+# Write prompt footer
+cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 
 ---
 

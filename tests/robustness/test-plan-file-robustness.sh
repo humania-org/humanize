@@ -317,24 +317,23 @@ else
     fail "Comments-only rejection" "rejected" "accepted"
 fi
 
-# Test 7: Large plan file (25KB+) - production validation
-# Note: Production script has heredoc size limits around 25-30KB due to
-# embedding plan content in round-0-prompt.md. Testing with ~25KB validates
-# that large-but-processable files work.
+# Test 7: Large plan file (1MB+) - production validation
+# Tests that production script handles very large plan files correctly.
+# The SIGPIPE issue in sed|head pipelines was fixed to allow 1MB+ files.
 echo ""
-echo "Test 7: Large plan file (25KB) accepted by production"
+echo "Test 7: Large plan file (1MB+) accepted by production"
 {
     echo "# Large Plan"
     echo "## Goal"
     echo "Very large implementation."
-    # Generate ~25KB of content (1000 lines)
-    for i in $(seq 1 1000); do
-        echo "Task $i: This is a task description that adds content"
+    # Generate ~1MB of content (20000 lines)
+    for i in $(seq 1 20000); do
+        echo "Task $i: This is a very detailed task description."
     done
 } > "$TEST_DIR/large-plan.md"
 
 SIZE=$(wc -c < "$TEST_DIR/large-plan.md")
-if [[ "$SIZE" -gt "20000" ]]; then
+if [[ "$SIZE" -gt "1000000" ]]; then
     # Test production validation handles large files
     START=$(date +%s%N)
     if test_plan_validation "large-plan.md"; then
@@ -345,7 +344,7 @@ if [[ "$SIZE" -gt "20000" ]]; then
         fail "Large file validation" "accepted" "rejected"
     fi
 else
-    fail "Large file size" ">20KB" "$SIZE bytes"
+    fail "Large file size" ">1MB" "$SIZE bytes"
 fi
 
 # Test 8: Mixed line endings (CRLF/LF)
@@ -517,6 +516,32 @@ if [[ "$LINE_COUNT" != "error" ]]; then
     pass "Null bytes handled (line count: $LINE_COUNT)"
 else
     fail "Null bytes" "readable" "error"
+fi
+
+# Test 19: Plan file that disappears mid-validation
+echo ""
+echo "Test 19: Plan file disappearance during validation"
+# Create a valid plan file
+cat > "$TEST_DIR/disappear-plan.md" << 'EOF'
+# Disappearing Plan
+
+## Goal
+
+This plan will disappear.
+
+## Tasks
+
+1. Task one
+2. Task two
+3. Task three
+EOF
+
+# Immediately delete it and try to validate
+rm "$TEST_DIR/disappear-plan.md"
+if ! test_plan_validation "disappear-plan.md"; then
+    pass "Production rejects missing plan file"
+else
+    fail "Missing plan rejection" "rejected" "accepted"
 fi
 
 # ========================================
