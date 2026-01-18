@@ -1562,6 +1562,279 @@ test_e2e_pagination_runtime
 test_e2e_trigger_priority_runtime
 
 # ========================================
+# Approval-Only Review Tests (AC-4, AC-7)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Approval-Only Review Handling"
+echo "========================================"
+echo ""
+
+# Test: Empty-body PR reviews are captured with state placeholder
+test_approval_only_review_captured() {
+    # Simulate PR review with APPROVED state but empty body
+    local reviews='[
+        {"id": 1, "user": {"login": "claude[bot]"}, "state": "APPROVED", "body": null, "submitted_at": "2026-01-18T12:00:00Z"},
+        {"id": 2, "user": {"login": "claude[bot]"}, "state": "APPROVED", "body": "", "submitted_at": "2026-01-18T12:01:00Z"},
+        {"id": 3, "user": {"login": "claude[bot]"}, "state": "CHANGES_REQUESTED", "body": "Fix bug", "submitted_at": "2026-01-18T12:02:00Z"}
+    ]'
+
+    # Apply the same jq logic as poll-pr-reviews.sh (fixed version)
+    local processed
+    processed=$(echo "$reviews" | jq '[.[] | {
+        id: .id,
+        author: .user.login,
+        state: .state,
+        body: (if .body == null or .body == "" then "[Review state: \(.state)]" else .body end)
+    }]')
+
+    local count
+    count=$(echo "$processed" | jq 'length')
+
+    if [[ "$count" == "3" ]]; then
+        pass "T-APPROVE-1: Empty-body PR reviews are captured (count=3)"
+    else
+        fail "T-APPROVE-1: All reviews should be captured including empty-body" "3" "got $count"
+    fi
+
+    # Check that empty body gets placeholder
+    local placeholder_count
+    placeholder_count=$(echo "$processed" | jq '[.[] | select(.body | test("\\[Review state:"))] | length')
+
+    if [[ "$placeholder_count" == "2" ]]; then
+        pass "T-APPROVE-2: Empty-body reviews get state placeholder"
+    else
+        fail "T-APPROVE-2: Empty-body reviews should get placeholder" "2" "got $placeholder_count"
+    fi
+}
+
+# Test: Approval-only reviews match bot patterns for polling
+test_approval_polls_correctly() {
+    local bot_pattern="claude\\[bot\\]"
+    local reviews='[
+        {"type": "pr_review", "author": "claude[bot]", "state": "APPROVED", "body": "[Review state: APPROVED]", "created_at": "2026-01-18T12:00:00Z"}
+    ]'
+
+    local filtered
+    filtered=$(echo "$reviews" | jq --arg pattern "$bot_pattern" '[.[] | select(.author | test($pattern; "i"))]')
+    local count
+    count=$(echo "$filtered" | jq 'length')
+
+    if [[ "$count" == "1" ]]; then
+        pass "T-APPROVE-3: Approval-only reviews match bot pattern for polling"
+    else
+        fail "T-APPROVE-3: Approval-only review should match bot" "1" "got $count"
+    fi
+}
+
+# Run approval-only review tests
+test_approval_only_review_captured
+test_approval_polls_correctly
+
+# ========================================
+# Wrong-Round Validation Tests (AC-3)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Wrong-Round Validation"
+echo "========================================"
+echo ""
+
+# Test: Wrong-round pr-resolve write is blocked
+test_wrong_round_pr_resolve_blocked() {
+    cd "$TEST_DIR"
+
+    local timestamp="2026-01-18_15-00-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    # State says current_round is 2
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 2
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Try to write to round-0 (wrong round)
+    local hook_input='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/round-0-pr-resolve.md", "content": "wrong round"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 2 ]] && echo "$output" | grep -qi "wrong round"; then
+        pass "T-ROUND-1: Wrong-round pr-resolve write is blocked"
+    else
+        fail "T-ROUND-1: Wrong-round pr-resolve should be blocked" "exit=2, wrong round" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Test: Correct-round pr-resolve write is allowed
+test_correct_round_pr_resolve_allowed() {
+    cd "$TEST_DIR"
+
+    local timestamp="2026-01-18_15-01-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    # State says current_round is 2
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 2
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Write to round-2 (correct round)
+    local hook_input='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/round-2-pr-resolve.md", "content": "correct round"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 0 ]]; then
+        pass "T-ROUND-2: Correct-round pr-resolve write is allowed"
+    else
+        fail "T-ROUND-2: Correct-round pr-resolve should be allowed" "exit=0" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Test: Wrong-round pr-resolve edit is blocked
+test_wrong_round_pr_resolve_edit_blocked() {
+    cd "$TEST_DIR"
+
+    local timestamp="2026-01-18_15-02-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 3
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Try to edit round-1 (wrong round)
+    local hook_input='{"tool_name": "Edit", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/round-1-pr-resolve.md", "old_string": "x", "new_string": "y"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 2 ]] && echo "$output" | grep -qi "wrong round"; then
+        pass "T-ROUND-3: Wrong-round pr-resolve edit is blocked"
+    else
+        fail "T-ROUND-3: Wrong-round pr-resolve edit should be blocked" "exit=2, wrong round" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Run wrong-round validation tests
+test_wrong_round_pr_resolve_blocked
+test_correct_round_pr_resolve_allowed
+test_wrong_round_pr_resolve_edit_blocked
+
+# ========================================
+# Monitor PR Active Bots Tests (AC-10)
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Monitor PR Active Bots Display"
+echo "========================================"
+echo ""
+
+# Test: Monitor parses YAML list for active_bots
+test_monitor_yaml_list_parsing() {
+    local test_subdir="$TEST_DIR/monitor_yaml_test"
+    mkdir -p "$test_subdir"
+
+    # Use helper script to create state file (avoids validator blocking)
+    "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" yaml_list >/dev/null
+
+    # Source the humanize script and run monitor from test subdirectory
+    cd "$test_subdir"
+    local output
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    cd "$SCRIPT_DIR"
+
+    # Check that active bots are displayed correctly (comma-separated)
+    if echo "$output" | grep -q "Active Bots:.*claude.*codex\|Active Bots:.*codex.*claude"; then
+        pass "T-MONITOR-1: Monitor parses and displays YAML list active_bots"
+    else
+        # Also accept claude,codex format
+        if echo "$output" | grep -q "Active Bots:.*claude,codex\|Active Bots:.*codex,claude"; then
+            pass "T-MONITOR-1: Monitor parses and displays YAML list active_bots"
+        else
+            fail "T-MONITOR-1: Monitor should display active bots from YAML list" "claude,codex" "got: $output"
+        fi
+    fi
+}
+
+# Test: Monitor shows configured_bots separately
+test_monitor_configured_bots() {
+    local test_subdir="$TEST_DIR/monitor_configured_test"
+    mkdir -p "$test_subdir"
+
+    # Use helper script to create state file (avoids validator blocking)
+    "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" configured >/dev/null
+
+    # Source the humanize script and run monitor from test subdirectory
+    cd "$test_subdir"
+    local output
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    cd "$SCRIPT_DIR"
+
+    # Check that both configured and active bots are displayed
+    if echo "$output" | grep -q "Configured Bots:.*claude.*codex\|Configured Bots:.*codex.*claude\|Configured Bots:.*claude,codex\|Configured Bots:.*codex,claude"; then
+        pass "T-MONITOR-2: Monitor displays configured_bots"
+    else
+        fail "T-MONITOR-2: Monitor should display configured bots" "claude,codex" "got: $output"
+    fi
+}
+
+# Test: Monitor shows 'none' when active_bots is empty
+test_monitor_empty_active_bots() {
+    local test_subdir="$TEST_DIR/monitor_empty_test"
+    mkdir -p "$test_subdir"
+
+    # Use helper script to create state file (avoids validator blocking)
+    "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" empty >/dev/null
+
+    # Source the humanize script and run monitor from test subdirectory
+    cd "$test_subdir"
+    local output
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    cd "$SCRIPT_DIR"
+
+    # Check that active bots shows 'none'
+    if echo "$output" | grep -q "Active Bots:.*none"; then
+        pass "T-MONITOR-3: Monitor shows 'none' for empty active_bots"
+    else
+        fail "T-MONITOR-3: Monitor should show 'none' for empty active_bots" "none" "got: $output"
+    fi
+}
+
+# Run monitor tests
+test_monitor_yaml_list_parsing
+test_monitor_configured_bots
+test_monitor_empty_active_bots
+
+# ========================================
 # Summary
 # ========================================
 

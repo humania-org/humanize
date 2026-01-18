@@ -235,16 +235,18 @@ echo "$REVIEW_COMMENTS" | jq -r --arg type "review_comment" '
 ' > "$TEMP_DIR/review.json"
 
 # Fetch PR reviews
+# Note: Include all reviews, even those with empty body (e.g. approval-only reviews)
+# For empty body reviews, use a placeholder indicating the state
 PR_REVIEWS=$(fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/reviews")
 echo "$PR_REVIEWS" | jq -r --arg type "pr_review" '
     if type == "array" then
-        [.[] | select(.body != null and .body != "") | {
+        [.[] | {
             type: $type,
             id: .id,
             author: .user.login,
             author_type: .user.type,
             created_at: .submitted_at,
-            body: .body,
+            body: (if .body == null or .body == "" then "[Review state: \(.state)]" else .body end),
             state: .state
         }]
     else

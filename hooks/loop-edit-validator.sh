@@ -73,8 +73,34 @@ if [[ "$IN_PR_LOOP_DIR" == "true" ]]; then
         exit 2
     fi
 
-    # Allow edits to round-N-pr-resolve.md (Claude's resolution summary)
+    # For round-N-pr-resolve.md (Claude's resolution summary), validate round number
     if is_pr_round_file_type "$FILE_PATH_LOWER" "pr-resolve"; then
+        # Find the PR loop directory
+        PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+        PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
+        ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
+
+        if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
+            # Parse current round from PR loop state
+            PR_STATE_FILE="$ACTIVE_PR_LOOP_DIR/state.md"
+            if [[ -f "$PR_STATE_FILE" ]]; then
+                PR_CURRENT_ROUND=$(sed -n '/^---$/,/^---$/{ /^current_round:/{ s/current_round: *//; p; } }' "$PR_STATE_FILE" | tr -d ' ')
+                PR_CURRENT_ROUND="${PR_CURRENT_ROUND:-0}"
+
+                # Extract round number from filename
+                CLAUDE_PR_ROUND=$(echo "$FILE_PATH_LOWER" | sed -n 's|.*round-\([0-9]*\)-pr-resolve\.md$|\1|p')
+
+                if [[ -n "$CLAUDE_PR_ROUND" ]] && [[ "$CLAUDE_PR_ROUND" != "$PR_CURRENT_ROUND" ]]; then
+                    CORRECT_PATH="$ACTIVE_PR_LOOP_DIR/round-${PR_CURRENT_ROUND}-pr-resolve.md"
+                    echo "# Wrong Round Number" >&2
+                    echo "" >&2
+                    echo "You tried to edit round-${CLAUDE_PR_ROUND}-pr-resolve.md but current PR loop round is **${PR_CURRENT_ROUND}**." >&2
+                    echo "" >&2
+                    echo "Edit: \`$CORRECT_PATH\`" >&2
+                    exit 2
+                fi
+            fi
+        fi
         exit 0
     fi
 fi

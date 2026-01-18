@@ -955,7 +955,10 @@ _humanize_monitor_pr() {
     local max_iterations=$(echo "$frontmatter" | grep "^max_iterations:" | sed "s/max_iterations: *//" | tr -d ' ')
     local pr_number=$(echo "$frontmatter" | grep "^pr_number:" | sed "s/pr_number: *//" | tr -d ' ')
     local start_branch=$(echo "$frontmatter" | grep "^start_branch:" | sed "s/start_branch: *//" || true)
-    local active_bots=$(echo "$frontmatter" | grep "^active_bots:" | sed "s/active_bots: *//" || true)
+    # Parse active_bots as YAML list (lines starting with "  - ")
+    local active_bots=$(echo "$frontmatter" | sed -n '/^active_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
+    # Also parse configured_bots for display
+    local configured_bots=$(echo "$frontmatter" | sed -n '/^configured_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
     local codex_model=$(echo "$frontmatter" | grep "^codex_model:" | sed "s/codex_model: *//" | tr -d ' ')
     local codex_effort=$(echo "$frontmatter" | grep "^codex_effort:" | sed "s/codex_effort: *//" | tr -d ' ')
     local started_at=$(echo "$frontmatter" | grep "^started_at:" | sed "s/started_at: *//" || true)
@@ -975,9 +978,10 @@ _humanize_monitor_pr() {
     echo "Session: $(basename "$session_dir")"
     echo "Status:  $loop_status"
     echo ""
-    echo "PR Number:     #$pr_number"
-    echo "Branch:        $start_branch"
-    echo "Active Bots:   ${active_bots:-none}"
+    echo "PR Number:       #$pr_number"
+    echo "Branch:          $start_branch"
+    echo "Configured Bots: ${configured_bots:-none}"
+    echo "Active Bots:     ${active_bots:-none}"
     echo ""
     echo "Round:         $current_round / $max_iterations"
     echo "Codex:         $codex_model:$codex_effort"

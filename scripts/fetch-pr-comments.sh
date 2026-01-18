@@ -268,16 +268,18 @@ jq -r --arg type "review_comment" '
 ' "$REVIEW_COMMENTS_FILE" > "$TEMP_DIR/review_processed.jsonl" 2>/dev/null || true
 
 # Process PR reviews
+# Note: Include all reviews, even those with empty body (e.g. approval-only reviews)
+# For empty body reviews, use a placeholder indicating the state
 jq -r --arg type "pr_review" '
     if type == "array" then
-        .[] | select(.body != null and .body != "") | {
+        .[] | {
             type: $type,
             id: .id,
             author: .user.login,
             author_type: .user.type,
             created_at: .submitted_at,
             updated_at: .submitted_at,
-            body: .body,
+            body: (if .body == null or .body == "" then "[Review state: \(.state)]" else .body end),
             path: null,
             line: null,
             state: .state
