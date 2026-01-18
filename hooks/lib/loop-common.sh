@@ -55,8 +55,9 @@ readonly EXIT_UNEXPECTED="unexpected"
 validate_hook_input() {
     local input="$1"
 
-    # Reject null bytes (security) - use grep for reliable detection
-    if printf '%s' "$input" | grep -qP '\x00'; then
+    # Reject null bytes (security) - portable check without grep -P (BSD incompatible)
+    # tr -cd '\0' keeps only null bytes, wc -c counts them
+    if [[ $(printf '%s' "$input" | tr -cd '\0' | wc -c) -gt 0 ]]; then
         echo "Error: Input contains null bytes" >&2
         return 1
     fi
