@@ -764,7 +764,17 @@ These commands are blocked when .humanize exists:
     git add -A             # adds all including .humanize
     git add --all          # adds all including .humanize
     git add .              # may include .humanize if not gitignored
-    git add -f .           # force bypasses gitignore"
+    git add -f .           # force bypasses gitignore
+
+## Adding .humanize to .gitignore
+
+If you need to add \`.humanize*\` to \`.gitignore\`, follow these steps:
+
+1. Edit \`.gitignore\` to append \`.humanize*\`
+2. Run: \`git add .gitignore\`
+3. Run: \`git commit -m \"Add humanize local folder into gitignore\"\`
+
+IMPORTANT: The commit message must NOT contain the literal string \".humanize\" to avoid triggering this protection."
 
     load_and_render_safe "$TEMPLATE_DIR" "block/git-add-humanize.md" "$fallback"
 }

@@ -23,6 +23,7 @@ This command transforms a user's draft document into a well-structured implement
 3. **Draft Analysis**: Analyze draft for clarity, consistency, completeness, and functionality
 4. **Issue Resolution**: Engage user to clarify any issues found
 5. **Plan Generation**: Generate the structured plan.md
+6. **Write and Complete**: Write output file and report results
 
 ---
 
@@ -48,6 +49,8 @@ Execute the validation script with the provided arguments:
 ## Phase 2: Relevance Check
 
 After IO validation passes, check if the draft is relevant to this repository.
+
+> **Note**: Do not spend too much time on this check. As long as the draft is not completely unrelated to the current project - not like the difference between ship design and cake recipes - it passes.
 
 1. Read the input draft file to get its content
 2. Use the Task tool to invoke the `humanize:draft-relevance-checker` agent (haiku model):
@@ -106,6 +109,8 @@ Use the Task tool with `subagent_type: "Explore"` to investigate:
 
 ## Phase 4: Issue Resolution
 
+### Step 1: Resolve Analysis Issues
+
 If any issues are found during analysis, use AskUserQuestion to clarify with the user.
 
 For each issue category that has problems, present:
@@ -114,6 +119,20 @@ For each issue category that has problems, present:
 - Options for resolution (if applicable)
 
 Continue this dialogue until all significant issues are resolved or acknowledged by the user.
+
+### Step 2: Confirm Quantitative Metrics
+
+After all analysis issues are resolved, check the draft for any quantitative metrics or numeric thresholds, such as:
+- Performance targets: "less than 15GB/s", "under 100ms latency"
+- Size constraints: "below 300KB", "maximum 1MB"
+- Count limits: "more than 10 files", "at least 5 retries"
+- Percentage goals: "95% coverage", "reduce by 50%"
+
+For each quantitative metric found, use AskUserQuestion to explicitly confirm with the user:
+- Is this a **hard requirement** that must be achieved for the implementation to be considered successful?
+- Or is this describing an **optimization trend/direction** where improvement toward the target is acceptable even if the exact number is not reached?
+
+Document the user's answer for each metric, as this distinction significantly affects how acceptance criteria should be written in the plan.
 
 ---
 
