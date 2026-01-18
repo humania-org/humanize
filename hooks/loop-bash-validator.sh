@@ -48,48 +48,61 @@ COMMAND=$(echo "$HOOK_INPUT" | jq -r '.tool_input.command // ""')
 COMMAND_LOWER=$(to_lower "$COMMAND")
 
 # ========================================
-# Find Active Loop (needed for multiple checks)
+# Find Active Loops (needed for multiple checks)
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# Check for active RLCR loop
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
-# If no active loop, allow all commands
-if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
+# Check for active PR loop
+PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
+ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
+
+# If no active loop of either type, allow all commands
+if [[ -z "$ACTIVE_LOOP_DIR" ]] && [[ -z "$ACTIVE_PR_LOOP_DIR" ]]; then
     exit 0
 fi
 
-# Detect if we're in Finalize Phase (finalize-state.md exists)
-STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
-if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
-    STATE_FILE="$ACTIVE_LOOP_DIR/finalize-state.md"
-fi
-
-# Parse state file using strict validation (fail closed on malformed state)
-if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
-    echo "Error: Malformed state file, blocking operation for safety" >&2
-    exit 1
-fi
-CURRENT_ROUND="$STATE_CURRENT_ROUND"
-
 # ========================================
-# Block Git Push When push_every_round is false
+# RLCR Loop Specific Checks
 # ========================================
-# Default behavior: commits stay local, no need to push to remote
+# The following checks only apply when an RLCR loop is active
 
-# Note: parse_state_file was called above, STATE_* vars are available
-PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
+if [[ -n "$ACTIVE_LOOP_DIR" ]]; then
+    # Detect if we're in Finalize Phase (finalize-state.md exists)
+    STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
+    if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
+        STATE_FILE="$ACTIVE_LOOP_DIR/finalize-state.md"
+    fi
 
-if [[ "$PUSH_EVERY_ROUND" != "true" ]]; then
-    # Check if command is a git push command
-    if [[ "$COMMAND_LOWER" =~ ^[[:space:]]*git[[:space:]]+push ]]; then
-        FALLBACK="# Git Push Blocked
+    # Parse state file using strict validation (fail closed on malformed state)
+    if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
+        echo "Error: Malformed state file, blocking operation for safety" >&2
+        exit 1
+    fi
+    CURRENT_ROUND="$STATE_CURRENT_ROUND"
+
+    # ========================================
+    # Block Git Push When push_every_round is false
+    # ========================================
+    # Default behavior: commits stay local, no need to push to remote
+
+    # Note: parse_state_file was called above, STATE_* vars are available
+    PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
+
+    if [[ "$PUSH_EVERY_ROUND" != "true" ]]; then
+        # Check if command is a git push command
+        if [[ "$COMMAND_LOWER" =~ ^[[:space:]]*git[[:space:]]+push ]]; then
+            FALLBACK="# Git Push Blocked
 
 Commits should stay local during the RLCR loop.
 Use --push-every-round flag when starting the loop if you need to push each round."
-        load_and_render_safe "$TEMPLATE_DIR" "block/git-push.md" "$FALLBACK" >&2
-        exit 2
+            load_and_render_safe "$TEMPLATE_DIR" "block/git-push.md" "$FALLBACK" >&2
+            exit 2
+        fi
     fi
 fi
 
@@ -103,6 +116,13 @@ if git_adds_humanize "$COMMAND_LOWER"; then
     git_add_humanize_blocked_message >&2
     exit 2
 fi
+
+# ========================================
+# RLCR State and File Protection
+# ========================================
+# These checks only apply when an RLCR loop is active
+
+if [[ -n "$ACTIVE_LOOP_DIR" ]]; then
 
 # ========================================
 # Block State File Modifications (All Rounds)
@@ -372,13 +392,13 @@ if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
     fi
 fi
 
+fi  # End of RLCR-specific checks
+
 # ========================================
 # PR Loop File Protection
 # ========================================
 # Block modifications to PR loop state and read-only files
-
-PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
-ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
+# Note: ACTIVE_PR_LOOP_DIR was already set at the top of the script
 
 if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
     # Block PR loop state.md modifications

@@ -633,6 +633,44 @@ test_pr_loop_state_protected
 test_pr_loop_comment_protected
 test_pr_loop_resolve_allowed
 
+# Test: PR loop Bash protection works without RLCR loop
+test_pr_loop_bash_protection_no_rlcr() {
+    cd "$TEST_DIR"
+
+    # Ensure NO RLCR loop exists
+    rm -rf ".humanize/rlcr"
+
+    local timestamp="2026-01-18_14-30-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 456
+---
+EOF
+
+    # Test that Bash validator blocks state.md modifications via echo redirect
+    local hook_input='{"tool_name": "Bash", "tool_input": {"command": "echo bad > '$TEST_DIR'/.humanize/pr-loop/'$timestamp'/state.md"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 2 ]] && echo "$output" | grep -qi "state\|blocked\|pr loop"; then
+        pass "T-SEC-4: PR loop Bash protection works without RLCR loop"
+    else
+        fail "T-SEC-4: PR loop Bash protection should work without RLCR" "exit=2, blocked" "exit=$exit_code, output=$output"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+test_pr_loop_bash_protection_no_rlcr
+
 # ========================================
 # Comment Sorting Tests
 # ========================================
