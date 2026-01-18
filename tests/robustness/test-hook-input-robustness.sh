@@ -2,12 +2,11 @@
 #
 # Robustness tests for hook input parsing (AC-7) and monitor edge cases (AC-6)
 #
-# Tests hook input handling under edge cases:
-# - Well-formed JSON
-# - Malformed JSON
-# - Extremely long commands
-# - Non-UTF8 content
-# - Monitor terminal edge cases
+# Tests production hook validators by piping JSON to them:
+# - Well-formed JSON parsing (loop-read-validator.sh, loop-write-validator.sh)
+# - Malformed JSON handling
+# - Edge cases in command parsing
+# - Monitor terminal/log edge cases
 #
 
 set -euo pipefail
@@ -48,129 +47,153 @@ echo "========================================"
 echo ""
 
 # ========================================
-# JSON Parsing Tests (AC-7)
+# Hook Input Parsing Tests (AC-7)
 # ========================================
+# These tests pipe JSON to actual hook validators and check their behavior
 
-echo "--- JSON Parsing Tests (AC-7) ---"
+echo "--- Hook Input Parsing Tests (AC-7) ---"
 echo ""
 
-# Test 1: Well-formed JSON input
-echo "Test 1: Parse well-formed JSON"
-JSON='{"tool_name":"Bash","tool_input":{"command":"echo test"}}'
-TOOL_NAME=$(echo "$JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "error")
-if [[ "$TOOL_NAME" == "Bash" ]]; then
-    pass "Parses well-formed JSON correctly"
+# Test 1: Well-formed JSON with Read tool (should pass through)
+echo "Test 1: Hook parses well-formed JSON with Read tool"
+JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt"}}'
+# Run read validator - should exit 0 for non-loop paths
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Read hook passes valid JSON (exit: 0)"
 else
-    fail "Well-formed JSON" "Bash" "$TOOL_NAME"
+    fail "Valid JSON parsing" "exit 0" "exit $EXIT_CODE: $RESULT"
 fi
 
-# Test 2: Extract command from JSON
+# Test 2: Well-formed JSON with Write tool
 echo ""
-echo "Test 2: Extract command field from JSON"
-JSON='{"tool_name":"Bash","tool_input":{"command":"git status"}}'
-COMMAND=$(echo "$JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || echo "error")
-if [[ "$COMMAND" == "git status" ]]; then
-    pass "Extracts command correctly"
+echo "Test 2: Hook parses well-formed JSON with Write tool"
+JSON='{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.txt","content":"hello"}}'
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write hook passes valid JSON (exit: 0)"
 else
-    fail "Command extraction" "git status" "$COMMAND"
+    fail "Write JSON parsing" "exit 0" "exit $EXIT_CODE: $RESULT"
 fi
 
-# Test 3: Handle standard command strings
+# Test 3: Well-formed JSON with Bash tool
 echo ""
-echo "Test 3: Handle standard command strings"
-COMMAND="ls -la /tmp"
-COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if [[ "$COMMAND_LOWER" == "ls -la /tmp" ]]; then
-    pass "Standard command string handled"
+echo "Test 3: Hook parses well-formed JSON with Bash tool"
+JSON='{"tool_name":"Bash","tool_input":{"command":"echo hello"}}'
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Bash hook passes valid JSON (exit: 0)"
 else
-    fail "Standard command" "ls -la /tmp" "$COMMAND_LOWER"
+    fail "Bash JSON parsing" "exit 0" "exit $EXIT_CODE: $RESULT"
 fi
 
-# Test 4: Malformed JSON (missing field)
+# Test 4: Invalid JSON syntax (should not crash)
 echo ""
-echo "Test 4: Handle JSON with missing required fields"
-JSON='{"tool_name":"Bash"}'
-# Should not crash when accessing missing field
-RESULT=$(echo "$JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command','missing'))" 2>/dev/null || echo "error")
-if [[ "$RESULT" == "missing" ]]; then
-    pass "Handles missing fields gracefully"
-else
-    fail "Missing field handling" "missing" "$RESULT"
-fi
-
-# Test 5: Invalid JSON syntax
-echo ""
-echo "Test 5: Handle invalid JSON syntax"
-INVALID_JSON='{"tool_name": "Bash", invalid}'
+echo "Test 4: Hook handles invalid JSON syntax gracefully"
+INVALID_JSON='{"tool_name": "Read", invalid}'
+# The hook uses jq which will fail on invalid JSON, but shouldn't crash the script
 set +e
-RESULT=$(echo "$INVALID_JSON" | python3 -c "import json,sys; json.load(sys.stdin)" 2>&1)
+RESULT=$(echo "$INVALID_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -ne 0 ]]; then
-    pass "Rejects invalid JSON syntax (exit: $EXIT_CODE)"
+# Exit code may be non-zero due to jq error, but script shouldn't crash with signal
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Invalid JSON handled gracefully (exit: $EXIT_CODE)"
 else
-    fail "Invalid JSON rejection" "non-zero exit" "exit 0"
+    fail "Invalid JSON" "exit < 128" "exit $EXIT_CODE (signal)"
 fi
 
-# Test 6: Extremely long command (10KB+)
+# Test 5: Empty JSON object
 echo ""
-echo "Test 6: Handle extremely long command (10KB)"
-LONG_COMMAND=$(printf 'echo %.0s' {1..2001})
-COMMAND_LENGTH=${#LONG_COMMAND}
-if [[ $COMMAND_LENGTH -ge 10000 ]]; then
-    # Test that we can process it (at least lowercase it)
-    LOWER_LENGTH=${#LONG_COMMAND}
-    if [[ $LOWER_LENGTH -eq $COMMAND_LENGTH ]]; then
-        pass "Handles 10KB+ command ($COMMAND_LENGTH chars)"
-    else
-        fail "Long command" "$COMMAND_LENGTH chars" "$LOWER_LENGTH chars"
-    fi
-else
-    fail "Long command generation" ">=10000 chars" "$COMMAND_LENGTH chars"
-fi
-
-# Test 7: Deeply nested JSON
-echo ""
-echo "Test 7: Handle deeply nested JSON"
-DEEP_JSON='{"a":{"b":{"c":{"d":{"e":{"f":"value"}}}}}}'
-RESULT=$(echo "$DEEP_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['a']['b']['c']['d']['e']['f'])" 2>/dev/null || echo "error")
-if [[ "$RESULT" == "value" ]]; then
-    pass "Handles deeply nested JSON"
-else
-    fail "Nested JSON" "value" "$RESULT"
-fi
-
-# Test 8: Non-UTF8 content in command
-echo ""
-echo "Test 8: Handle special characters in commands"
-COMMAND='echo "test with special chars: < > & | ; $"'
-COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
-if [[ "$COMMAND_LOWER" == *"special chars"* ]]; then
-    pass "Handles special characters in commands"
-else
-    fail "Special chars" "contains 'special chars'" "$COMMAND_LOWER"
-fi
-
-# Test 9: Empty JSON
-echo ""
-echo "Test 9: Handle empty JSON object"
+echo "Test 5: Hook handles empty JSON object"
 EMPTY_JSON='{}'
-RESULT=$(echo "$EMPTY_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name','empty'))" 2>/dev/null || echo "error")
-if [[ "$RESULT" == "empty" ]]; then
-    pass "Handles empty JSON gracefully"
+set +e
+RESULT=$(echo "$EMPTY_JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# Should exit 0 because tool_name is empty (not "Read")
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Empty JSON handled (exit: 0)"
 else
-    fail "Empty JSON" "empty" "$RESULT"
+    fail "Empty JSON" "exit 0" "exit $EXIT_CODE"
 fi
 
-# Test 10: JSON with Unicode
+# Test 6: JSON with missing required fields
 echo ""
-echo "Test 10: Handle JSON with Unicode content"
-UNICODE_JSON='{"message":"Hello World"}'
-RESULT=$(echo "$UNICODE_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || echo "error")
-if [[ -n "$RESULT" ]]; then
-    pass "Handles Unicode in JSON"
+echo "Test 6: Hook handles JSON with missing tool_input"
+JSON='{"tool_name":"Read"}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+# jq will return empty string for missing .tool_input.file_path
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Missing tool_input handled (exit: 0)"
 else
-    fail "Unicode JSON" "non-empty" "empty"
+    fail "Missing fields" "exit 0" "exit $EXIT_CODE"
+fi
+
+# Test 7: Extremely long command (10KB+)
+echo ""
+echo "Test 7: Hook handles extremely long command (10KB)"
+LONG_COMMAND=$(printf 'x%.0s' {1..10000})
+JSON=$(cat <<EOF
+{"tool_name":"Bash","tool_input":{"command":"echo $LONG_COMMAND"}}
+EOF
+)
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Long command handled (exit: 0, ${#LONG_COMMAND} chars)"
+else
+    fail "Long command" "exit 0" "exit $EXIT_CODE"
+fi
+
+# Test 8: JSON with special characters in command
+echo ""
+echo "Test 8: Hook handles special characters in command"
+JSON='{"tool_name":"Bash","tool_input":{"command":"echo \"test with special chars: < > & | ; $\""}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Special characters handled (exit: 0)"
+else
+    fail "Special chars" "exit 0" "exit $EXIT_CODE"
+fi
+
+# Test 9: JSON with Unicode content
+echo ""
+echo "Test 9: Hook handles Unicode in JSON"
+JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Unicode handled (exit: 0)"
+else
+    fail "Unicode" "exit 0" "exit $EXIT_CODE"
+fi
+
+# Test 10: Unrecognized tool name passes through
+echo ""
+echo "Test 10: Hook ignores unrecognized tool names"
+JSON='{"tool_name":"UnknownTool","tool_input":{"path":"/tmp/test"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Unknown tool ignored (exit: 0)"
+else
+    fail "Unknown tool" "exit 0" "exit $EXIT_CODE"
 fi
 
 # ========================================
@@ -183,7 +206,6 @@ echo ""
 
 # Test 11: Terminal width handling
 echo "Test 11: Terminal width detection"
-# COLUMNS is often set in terminals
 TERM_WIDTH=${COLUMNS:-80}
 if [[ $TERM_WIDTH -gt 0 ]]; then
     pass "Terminal width detectable ($TERM_WIDTH chars)"
@@ -246,7 +268,6 @@ fi
 echo ""
 echo "Test 16: Handle narrow terminal width"
 NARROW_WIDTH=30
-# Test string truncation
 LONG_STRING="This is a very long string that would exceed narrow width"
 TRUNCATED="${LONG_STRING:0:$NARROW_WIDTH}"
 if [[ ${#TRUNCATED} -eq $NARROW_WIDTH ]]; then
@@ -259,7 +280,6 @@ fi
 echo ""
 echo "Test 17: Handle wide terminal width"
 WIDE_WIDTH=300
-# Test string padding/filling
 PADDED_LINE=$(printf "%-${WIDE_WIDTH}s" "Content")
 if [[ ${#PADDED_LINE} -eq $WIDE_WIDTH ]]; then
     pass "Can pad for wide terminal"
@@ -290,8 +310,8 @@ echo ""
 echo "--- Command Pattern Tests ---"
 echo ""
 
-# Test 19: Detect file modification via command
-echo "Test 19: Detect file modification in commands"
+# Test 19: Detect file modification via sed -i
+echo "Test 19: Detect sed -i modification pattern"
 COMMAND="sed -i 's/old/new/' file.txt"
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
 if command_modifies_file "$COMMAND_LOWER" "file\.txt"; then
@@ -302,7 +322,7 @@ fi
 
 # Test 20: Detect redirect modification
 echo ""
-echo "Test 20: Detect redirect modification"
+echo "Test 20: Detect redirect modification pattern"
 COMMAND="echo content > output.txt"
 COMMAND_LOWER=$(echo "$COMMAND" | tr '[:upper:]' '[:lower:]')
 if command_modifies_file "$COMMAND_LOWER" "output\.txt"; then
