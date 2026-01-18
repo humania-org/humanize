@@ -8,7 +8,7 @@
 #
 # Usage:
 # 1. In terminal 1: cd to project root, run ./tests/manual-monitor-test.sh setup
-# 2. In terminal 2: cd to project root, run: source scripts/humanize.sh && humanize monitor rlcr-loop
+# 2. In terminal 2: cd to project root, run: source scripts/humanize.sh && humanize monitor rlcr
 # 3. In terminal 1: run ./tests/manual-monitor-test.sh delete
 # 4. Observe terminal 2: should see clean exit message, terminal should be restored
 # 5. Clean up: run ./tests/manual-monitor-test.sh cleanup
@@ -41,7 +41,7 @@ Test
         echo "  .humanize/rlcr/2026-01-16_99-99-99/"
         echo ""
         echo "Next steps:"
-        echo "1. In another terminal, run: source scripts/humanize.sh && humanize monitor rlcr-loop"
+        echo "1. In another terminal, run: source scripts/humanize.sh && humanize monitor rlcr"
         echo "2. Then come back here and run: ./tests/manual-monitor-test.sh delete"
         ;;
     delete)

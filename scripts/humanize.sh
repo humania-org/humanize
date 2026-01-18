@@ -876,11 +876,11 @@ humanize() {
         monitor)
             local target="$1"
             case "$target" in
-                rlcr-loop)
+                rlcr)
                     _humanize_monitor_codex
                     ;;
                 *)
-                    echo "Usage: humanize monitor rlcr-loop"
+                    echo "Usage: humanize monitor rlcr"
                     echo ""
                     echo "Monitor the latest RLCR loop log from .humanize/rlcr"
                     echo "Features:"
@@ -896,7 +896,7 @@ humanize() {
             echo "Usage: humanize <command> [args]"
             echo ""
             echo "Commands:"
-            echo "  monitor rlcr-loop    Monitor the latest RLCR loop log"
+            echo "  monitor rlcr    Monitor the latest RLCR loop log"
             return 1
             ;;
     esac
