@@ -1,12 +1,14 @@
 #!/bin/bash
 #
-# PreToolUse Hook: Validate Bash commands for RLCR loop
+# PreToolUse Hook: Validate Bash commands for RLCR loop and PR loop
 #
 # Blocks attempts to bypass Write/Edit hooks using shell commands:
 # - cat/echo/printf > file.md (redirection)
 # - tee file.md
 # - sed -i file.md (in-place edit)
 # - goal-tracker.md modifications after Round 0
+# - PR loop state.md modifications
+# - PR loop read-only file modifications (pr-comment, prompt, codex-prompt, etc.)
 #
 
 set -euo pipefail
@@ -368,6 +370,43 @@ if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
         todos_blocked_message "Bash" >&2
         exit 2
     fi
+fi
+
+# ========================================
+# PR Loop File Protection
+# ========================================
+# Block modifications to PR loop state and read-only files
+
+PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
+ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
+
+if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
+    # Block PR loop state.md modifications
+    if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/state\.md"; then
+        pr_loop_state_blocked_message >&2
+        exit 2
+    fi
+
+    # Block PR loop read-only files:
+    # - round-N-pr-comment.md (fetched comments)
+    # - round-N-prompt.md (prompts from system)
+    # - round-N-codex-prompt.md (Codex prompts)
+    # - round-N-pr-check.md (Codex output)
+    # - round-N-pr-feedback.md (feedback for next round)
+    PR_LOOP_READONLY_PATTERNS=(
+        "round-[0-9]+-pr-comment\.md"
+        "round-[0-9]+-prompt\.md"
+        "round-[0-9]+-codex-prompt\.md"
+        "round-[0-9]+-pr-check\.md"
+        "round-[0-9]+-pr-feedback\.md"
+    )
+
+    for pattern in "${PR_LOOP_READONLY_PATTERNS[@]}"; do
+        if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/${pattern}"; then
+            pr_loop_prompt_blocked_message >&2
+            exit 2
+        fi
+    done
 fi
 
 exit 0

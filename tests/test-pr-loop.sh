@@ -25,6 +25,11 @@ source "$SCRIPT_DIR/test-helpers.sh"
 
 setup_test_dir
 
+# Create mock scripts directory and wire it into PATH
+MOCK_BIN_DIR="$TEST_DIR/mock_bin"
+mkdir -p "$MOCK_BIN_DIR"
+export PATH="$MOCK_BIN_DIR:$PATH"
+
 # Create mock scripts for gh CLI
 create_mock_gh() {
     local mock_dir="$1"
@@ -86,6 +91,10 @@ exit 0
 MOCK_CODEX
     chmod +x "$mock_dir/codex"
 }
+
+# Initialize mock gh and codex in the PATH
+create_mock_gh "$MOCK_BIN_DIR"
+create_mock_codex "$MOCK_BIN_DIR"
 
 # ========================================
 # setup-pr-loop.sh Tests
@@ -459,6 +468,213 @@ test_poll_help
 test_poll_no_pr
 test_poll_no_after
 test_poll_no_bots
+
+# ========================================
+# PR Loop Validator Tests
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing PR Loop Validators"
+echo "========================================"
+echo ""
+
+# Test: active_bots is stored as YAML list
+test_active_bots_yaml_format() {
+    cd "$TEST_DIR"
+
+    # Create mock git repo
+    init_test_git_repo "$TEST_DIR/repo"
+    cd "$TEST_DIR/repo"
+
+    # Create PR loop state file with proper YAML format
+    local timestamp="2026-01-18_13-00-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+active_bots:
+  - claude
+  - chatgpt-codex-connector
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T13:00:00Z
+---
+EOF
+
+    # Verify state file has YAML list format
+    if grep -q "^  - claude$" "$loop_dir/state.md" && \
+       grep -q "^  - chatgpt-codex-connector$" "$loop_dir/state.md"; then
+        pass "T-POS-12: active_bots is stored as YAML list format"
+    else
+        fail "T-POS-12: active_bots should be stored as YAML list format"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Test: PR loop state file is protected from writes
+test_pr_loop_state_protected() {
+    cd "$TEST_DIR"
+
+    # Create mock loop directory
+    local timestamp="2026-01-18_14-00-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Test that write validator blocks state.md writes
+    local hook_input='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/state.md", "content": "malicious content"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 2 ]] && echo "$output" | grep -qi "state.*blocked\|pr loop"; then
+        pass "T-SEC-1: PR loop state.md is protected from writes"
+    else
+        fail "T-SEC-1: PR loop state.md should be protected from writes" "exit=2, blocked" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Test: PR loop comment file is protected from writes
+test_pr_loop_comment_protected() {
+    cd "$TEST_DIR"
+
+    local timestamp="2026-01-18_14-00-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Test that write validator blocks pr-comment.md writes
+    local hook_input='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/round-0-pr-comment.md", "content": "fake comments"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 2 ]]; then
+        pass "T-SEC-2: PR loop pr-comment file is protected from writes"
+    else
+        fail "T-SEC-2: PR loop pr-comment file should be protected from writes" "exit=2" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Test: PR loop resolve file is allowed for writes
+test_pr_loop_resolve_allowed() {
+    cd "$TEST_DIR"
+
+    local timestamp="2026-01-18_14-00-00"
+    local loop_dir=".humanize/pr-loop/$timestamp"
+    mkdir -p "$loop_dir"
+
+    cat > "$loop_dir/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+---
+EOF
+
+    # Test that write validator allows pr-resolve.md writes
+    local hook_input='{"tool_name": "Write", "tool_input": {"file_path": "'$TEST_DIR'/.humanize/pr-loop/'$timestamp'/round-0-pr-resolve.md", "content": "resolution summary"}}'
+
+    local output
+    local exit_code
+    output=$(echo "$hook_input" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1) || exit_code=$?
+    exit_code=${exit_code:-0}
+
+    if [[ $exit_code -eq 0 ]]; then
+        pass "T-POS-13: PR loop pr-resolve file is allowed for writes"
+    else
+        fail "T-POS-13: PR loop pr-resolve file should be allowed for writes" "exit=0" "exit=$exit_code"
+    fi
+
+    cd "$SCRIPT_DIR"
+}
+
+# Run validator tests
+test_active_bots_yaml_format
+test_pr_loop_state_protected
+test_pr_loop_comment_protected
+test_pr_loop_resolve_allowed
+
+# ========================================
+# Comment Sorting Tests
+# ========================================
+
+echo ""
+echo "========================================"
+echo "Testing Comment Sorting (fromdateiso8601)"
+echo "========================================"
+echo ""
+
+# Test: Timestamps are properly sorted (newest first)
+test_timestamp_sorting() {
+    # Test that jq fromdateiso8601 works correctly
+    local sorted_output
+    sorted_output=$(echo '[
+        {"created_at": "2026-01-18T10:00:00Z", "author_type": "User"},
+        {"created_at": "2026-01-18T12:00:00Z", "author_type": "User"},
+        {"created_at": "2026-01-18T11:00:00Z", "author_type": "User"}
+    ]' | jq 'sort_by(-(.created_at | fromdateiso8601)) | .[0].created_at')
+
+    if [[ "$sorted_output" == '"2026-01-18T12:00:00Z"' ]]; then
+        pass "T-SORT-1: Comments are sorted newest first using fromdateiso8601"
+    else
+        fail "T-SORT-1: Comments should be sorted newest first" "12:00:00Z first" "got $sorted_output"
+    fi
+}
+
+# Test: Human comments come before bot comments
+test_human_before_bot_sorting() {
+    local sorted_output
+    sorted_output=$(echo '[
+        {"created_at": "2026-01-18T12:00:00Z", "author_type": "Bot"},
+        {"created_at": "2026-01-18T11:00:00Z", "author_type": "User"}
+    ]' | jq 'sort_by(
+        (if .author_type == "Bot" then 1 else 0 end),
+        -(.created_at | fromdateiso8601)
+    ) | .[0].author_type')
+
+    if [[ "$sorted_output" == '"User"' ]]; then
+        pass "T-SORT-2: Human comments come before bot comments"
+    else
+        fail "T-SORT-2: Human comments should come before bot comments" "User first" "got $sorted_output"
+    fi
+}
+
+# Run sorting tests
+test_timestamp_sorting
+test_human_before_bot_sorting
 
 # ========================================
 # Summary

@@ -133,26 +133,45 @@ ISSUE_COMMENTS_FILE="$TEMP_DIR/issue_comments.json"
 REVIEW_COMMENTS_FILE="$TEMP_DIR/review_comments.json"
 PR_REVIEWS_FILE="$TEMP_DIR/pr_reviews.json"
 
+# Retry configuration
+MAX_RETRIES=3
+RETRY_DELAY=2
+
+# Function to fetch with retries
+fetch_with_retry() {
+    local endpoint="$1"
+    local output_file="$2"
+    local description="$3"
+    local attempt=1
+
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        if gh api "$endpoint" --paginate > "$output_file" 2>/dev/null; then
+            return 0
+        fi
+
+        if [[ $attempt -lt $MAX_RETRIES ]]; then
+            echo "Warning: Failed to fetch $description (attempt $attempt/$MAX_RETRIES), retrying in ${RETRY_DELAY}s..." >&2
+            sleep "$RETRY_DELAY"
+        else
+            echo "Warning: Failed to fetch $description after $MAX_RETRIES attempts" >&2
+            echo "[]" > "$output_file"
+        fi
+        ((attempt++))
+    done
+    return 1
+}
+
 # Fetch issue comments (general PR comments)
 # claude[bot] typically posts here
-gh api "repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/comments" --paginate > "$ISSUE_COMMENTS_FILE" 2>/dev/null || {
-    echo "Warning: Failed to fetch issue comments" >&2
-    echo "[]" > "$ISSUE_COMMENTS_FILE"
-}
+fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/comments" "$ISSUE_COMMENTS_FILE" "issue comments"
 
 # Fetch PR review comments (inline code comments)
 # chatgpt-codex-connector[bot] typically posts inline comments here
-gh api "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/comments" --paginate > "$REVIEW_COMMENTS_FILE" 2>/dev/null || {
-    echo "Warning: Failed to fetch PR review comments" >&2
-    echo "[]" > "$REVIEW_COMMENTS_FILE"
-}
+fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/comments" "$REVIEW_COMMENTS_FILE" "PR review comments"
 
 # Fetch PR reviews (summary reviews with approval status)
 # Both bots may post summary reviews here
-gh api "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/reviews" --paginate > "$PR_REVIEWS_FILE" 2>/dev/null || {
-    echo "Warning: Failed to fetch PR reviews" >&2
-    echo "[]" > "$PR_REVIEWS_FILE"
-}
+fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/reviews" "$PR_REVIEWS_FILE" "PR reviews"
 
 # ========================================
 # Process and Format Comments
@@ -265,10 +284,11 @@ if [[ -n "$AFTER_TIMESTAMP" ]]; then
 fi
 
 # Sort: human comments first, then by timestamp (newest first)
+# Uses fromdateiso8601 for proper ISO 8601 timestamp parsing
 jq '
     sort_by(
         (if .author_type == "Bot" or (.author | test("\\[bot\\]$")) then 1 else 0 end),
-        (.created_at | split("T") | .[0] + .[1] | gsub("[:-]"; "")) | tonumber * -1
+        -(.created_at | fromdateiso8601)
     )
 ' "$ALL_COMMENTS_FILE" > "$TEMP_DIR/sorted.json"
 

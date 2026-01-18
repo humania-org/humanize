@@ -156,11 +156,37 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 ALL_COMMENTS_FILE="$TEMP_DIR/all_comments.json"
 FILTERED_FILE="$TEMP_DIR/filtered.json"
 
+# Retry configuration
+MAX_RETRIES=3
+RETRY_DELAY=2
+
+# Function to fetch with retries
+fetch_with_retry() {
+    local endpoint="$1"
+    local attempt=1
+    local result=""
+
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        result=$(gh api "$endpoint" --paginate 2>/dev/null) && {
+            echo "$result"
+            return 0
+        }
+
+        if [[ $attempt -lt $MAX_RETRIES ]]; then
+            sleep "$RETRY_DELAY"
+        fi
+        ((attempt++))
+    done
+
+    echo "[]"
+    return 1
+}
+
 # Initialize empty array
 echo "[]" > "$ALL_COMMENTS_FILE"
 
 # Fetch issue comments
-ISSUE_COMMENTS=$(gh api "repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/comments" --paginate 2>/dev/null || echo "[]")
+ISSUE_COMMENTS=$(fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/issues/$PR_NUMBER/comments")
 echo "$ISSUE_COMMENTS" | jq -r --arg type "issue_comment" '
     if type == "array" then
         [.[] | {
@@ -177,7 +203,7 @@ echo "$ISSUE_COMMENTS" | jq -r --arg type "issue_comment" '
 ' > "$TEMP_DIR/issue.json"
 
 # Fetch review comments
-REVIEW_COMMENTS=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/comments" --paginate 2>/dev/null || echo "[]")
+REVIEW_COMMENTS=$(fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/comments")
 echo "$REVIEW_COMMENTS" | jq -r --arg type "review_comment" '
     if type == "array" then
         [.[] | {
@@ -196,7 +222,7 @@ echo "$REVIEW_COMMENTS" | jq -r --arg type "review_comment" '
 ' > "$TEMP_DIR/review.json"
 
 # Fetch PR reviews
-PR_REVIEWS=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/reviews" --paginate 2>/dev/null || echo "[]")
+PR_REVIEWS=$(fetch_with_retry "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR_NUMBER/reviews")
 echo "$PR_REVIEWS" | jq -r --arg type "pr_review" '
     if type == "array" then
         [.[] | select(.body != null and .body != "") | {

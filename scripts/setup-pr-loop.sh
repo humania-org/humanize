@@ -179,18 +179,24 @@ if [[ "$BOT_CLAUDE" != "true" && "$BOT_CHATGPT_CODEX_CONNECTOR" != "true" ]]; th
     exit 1
 fi
 
-# Build active_bots list
-ACTIVE_BOTS=""
+# Build active_bots list (stored as array for YAML list format)
+declare -a ACTIVE_BOTS_ARRAY=()
 if [[ "$BOT_CLAUDE" == "true" ]]; then
-    ACTIVE_BOTS="claude"
+    ACTIVE_BOTS_ARRAY+=("claude")
 fi
 if [[ "$BOT_CHATGPT_CODEX_CONNECTOR" == "true" ]]; then
-    if [[ -n "$ACTIVE_BOTS" ]]; then
-        ACTIVE_BOTS="${ACTIVE_BOTS},chatgpt-codex-connector"
-    else
-        ACTIVE_BOTS="chatgpt-codex-connector"
-    fi
+    ACTIVE_BOTS_ARRAY+=("chatgpt-codex-connector")
 fi
+
+# Build dynamic mention string from active bots (no hardcoded bot names)
+BOT_MENTION_STRING=""
+for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
+    if [[ -n "$BOT_MENTION_STRING" ]]; then
+        BOT_MENTION_STRING="${BOT_MENTION_STRING} @${bot}"
+    else
+        BOT_MENTION_STRING="@${bot}"
+    fi
+done
 
 # ========================================
 # Validate Prerequisites
@@ -325,13 +331,20 @@ COMMENT_FILE="$LOOP_DIR/round-0-pr-comment.md"
 # Create State File
 # ========================================
 
+# Build YAML list for active_bots
+ACTIVE_BOTS_YAML=""
+for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
+    ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}
+  - ${bot}"
+done
+
 cat > "$LOOP_DIR/state.md" << EOF
 ---
 current_round: 0
 max_iterations: $MAX_ITERATIONS
 pr_number: $PR_NUMBER
 start_branch: $START_BRANCH
-active_bots: $ACTIVE_BOTS
+active_bots:${ACTIVE_BOTS_YAML}
 codex_model: $CODEX_MODEL
 codex_effort: $CODEX_EFFORT
 codex_timeout: $CODEX_TIMEOUT
@@ -347,6 +360,9 @@ EOF
 
 RESOLVE_PATH="$LOOP_DIR/round-0-pr-resolve.md"
 
+# Build display string for active bots
+ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${ACTIVE_BOTS_ARRAY[*]}")
+
 cat > "$LOOP_DIR/round-0-prompt.md" << EOF
 Read and execute below with ultrathink
 
@@ -357,7 +373,7 @@ You are in a PR review loop monitoring feedback from remote review bots.
 **PR Information:**
 - PR Number: #$PR_NUMBER
 - Branch: $START_BRANCH
-- Active Bots: $ACTIVE_BOTS
+- Active Bots: $ACTIVE_BOTS_DISPLAY
 
 ## Review Comments
 
@@ -388,7 +404,7 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
    - Push to the remote repository
    - Comment on the PR to trigger re-review:
      \`\`\`bash
-     gh pr comment $PR_NUMBER --body "@claude @chatgpt-codex-connector please review the latest changes"
+     gh pr comment $PR_NUMBER --body "$BOT_MENTION_STRING please review the latest changes"
      \`\`\`
 
 4. **Write your resolution summary** to: @$RESOLVE_PATH
@@ -428,7 +444,7 @@ cat << EOF
 
 PR Number: #$PR_NUMBER
 Branch: $START_BRANCH
-Active Bots: $ACTIVE_BOTS
+Active Bots: $ACTIVE_BOTS_DISPLAY
 Comments Fetched: $COMMENT_COUNT
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
@@ -465,7 +481,7 @@ echo "   - Create a commit with descriptive message"
 echo "   - Push to the remote repository"
 echo ""
 echo "2. Comment on the PR to trigger re-review:"
-echo "   gh pr comment $PR_NUMBER --body \"@claude @chatgpt-codex-connector please review\""
+echo "   gh pr comment $PR_NUMBER --body \"$BOT_MENTION_STRING please review\""
 echo ""
 echo "3. Write your resolution summary to:"
 echo "   $RESOLVE_PATH"
