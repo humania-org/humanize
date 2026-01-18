@@ -49,6 +49,17 @@ TEST_SUITES=(
     "test-monitor-runtime.sh"
     "test-monitor-e2e-real.sh"
     "test-gen-plan.sh"
+    # Robustness tests (AC-1 through AC-11)
+    "robustness/test-state-file-robustness.sh"
+    "robustness/test-session-robustness.sh"
+    "robustness/test-goal-tracker-robustness.sh"
+    "robustness/test-path-validation-robustness.sh"
+    "robustness/test-git-operations-robustness.sh"
+    "robustness/test-hook-input-robustness.sh"
+    "robustness/test-template-stress-robustness.sh"
+    "robustness/test-plan-file-robustness.sh"
+    "robustness/test-cancel-security-robustness.sh"
+    "robustness/test-timeout-robustness.sh"
 )
 
 # Tests that must be run with zsh (not bash)
