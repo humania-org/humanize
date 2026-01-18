@@ -387,43 +387,8 @@ else
     fail "Deep nested path" "accepted" "rejected"
 fi
 
-# Test 26a: Reject unicode characters in path
-echo ""
-echo "Test 26a: Reject unicode characters in path"
-# Non-ASCII characters must be rejected for security
-# This prevents encoding-based attacks and ambiguities
-if ! test_path_validation "docs/计划.md"; then
-    pass "Rejects Chinese characters in path"
-else
-    fail "Chinese character rejection" "rejected" "accepted"
-fi
-
-# Test 26b: Reject unicode in directory name
-echo ""
-echo "Test 26b: Reject unicode in directory name"
-if ! test_path_validation "文档/plan.md"; then
-    pass "Rejects Chinese directory name"
-else
-    fail "Chinese directory rejection" "rejected" "accepted"
-fi
-
-# Test 26c: Reject Cyrillic characters
-echo ""
-echo "Test 26c: Reject Cyrillic characters in path"
-if ! test_path_validation "docs/план.md"; then
-    pass "Rejects Cyrillic characters in path"
-else
-    fail "Cyrillic character rejection" "rejected" "accepted"
-fi
-
-# Test 26d: Reject emoji in path
-echo ""
-echo "Test 26d: Reject emoji in path"
-if ! test_path_validation "docs/plan-📝.md"; then
-    pass "Rejects emoji in path"
-else
-    fail "Emoji rejection" "rejected" "accepted"
-fi
+# Note: Unicode/CJK/Emoji characters in paths are now ALLOWED
+# User content (plan files) can use any language and characters
 
 # ========================================
 # File Content Validation Tests

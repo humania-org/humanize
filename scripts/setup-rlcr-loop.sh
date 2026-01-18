@@ -247,17 +247,6 @@ if [[ "$PLAN_FILE" == *[\;\&\|\$\`\<\>\(\)\{\}\[\]\!\#\~\*\?\\]* ]]; then
     exit 1
 fi
 
-# Reject non-ASCII characters (prevents encoding ambiguities and potential bypass)
-# Use LC_ALL=C to ensure byte-level comparison
-# Check if any character has high bit set (non-ASCII)
-NON_ASCII_CHECK=$(echo "$PLAN_FILE" | LC_ALL=C tr -d '[:print:]')
-if [[ -n "$NON_ASCII_CHECK" ]]; then
-    echo "Error: Plan file path contains non-ASCII characters" >&2
-    echo "  Got: $PLAN_FILE" >&2
-    echo "  Rename the file to use only ASCII characters" >&2
-    exit 1
-fi
-
 # Build full path
 FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
 

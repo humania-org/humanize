@@ -198,25 +198,23 @@ Example: "The implementation includes core feature X with basic validation"
 
 ### Generation Rules
 
-1. **Language**: Write in English only. No emoji or CJK characters.
+1. **Terminology**: Use Milestone, Phase, Step, Section. Never use Day, Week, Month, Year, or time estimates.
 
-2. **Terminology**: Use Milestone, Phase, Step, Section. Never use Day, Week, Month, Year, or time estimates.
+2. **No Line Numbers**: Reference code by path only (e.g., `src/utils/helpers.ts`), never by line ranges.
 
-3. **No Line Numbers**: Reference code by path only (e.g., `src/utils/helpers.ts`), never by line ranges.
+3. **No Time Estimates**: Do not estimate duration, effort, or code line counts.
 
-4. **No Time Estimates**: Do not estimate duration, effort, or code line counts.
+4. **Conceptual Not Prescriptive**: Path boundaries and suggestions guide without mandating.
 
-5. **Conceptual Not Prescriptive**: Path boundaries and suggestions guide without mandating.
+5. **AC Format**: All acceptance criteria must use AC-X or AC-X.Y format.
 
-6. **AC Format**: All acceptance criteria must use AC-X or AC-X.Y format.
+6. **Clear Dependencies**: Show what depends on what, not when things happen.
 
-7. **Clear Dependencies**: Show what depends on what, not when things happen.
+7. **TDD-Style Tests**: Each acceptance criterion MUST include both positive tests (expected to pass) and negative tests (expected to fail). This follows Test-Driven Development philosophy and enables deterministic verification.
 
-8. **TDD-Style Tests**: Each acceptance criterion MUST include both positive tests (expected to pass) and negative tests (expected to fail). This follows Test-Driven Development philosophy and enables deterministic verification.
+8. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
 
-9. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
-
-10. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
+9. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
 
 ---
 
