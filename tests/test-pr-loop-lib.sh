@@ -52,16 +52,33 @@ case "$1" in
         ;;
     pr)
         if [[ "$2" == "view" ]]; then
-            if [[ "$3" == "--json" && "$4" == "number" ]]; then
+            if [[ "$*" == *"baseRepository"* ]]; then
+                echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+                exit 0
+            elif [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+                # Return just the timestamp when --jq is used
+                echo "2026-01-18T12:00:00Z"
+                exit 0
+            elif [[ "$*" == *"commits"* ]]; then
+                echo '{"commits":[{"committedDate":"2026-01-18T12:00:00Z"}]}'
+                exit 0
+            elif [[ "$3" == "--json" && "$4" == "number" ]]; then
                 echo '{"number": 123}'
-            elif [[ "$3" == "--json" && "$4" == "state" ]]; then
+                exit 0
+            elif [[ "$3" == "--json" && "$4" == "state" ]] || [[ "$*" == *"state"* ]]; then
                 echo '{"state": "OPEN"}'
+                exit 0
             fi
             exit 0
         fi
         ;;
     api)
-        # Return empty arrays for comment fetching
+        # Handle user endpoint
+        if [[ "$2" == "user" ]]; then
+            echo "testuser"
+            exit 0
+        fi
+        # Return empty arrays for comment/review fetching
         echo "[]"
         exit 0
         ;;

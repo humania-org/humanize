@@ -57,6 +57,15 @@ EOF
     # Mock gh that returns OLD trigger comment (BEFORE latest_commit_at)
     cat > "$mock_bin/gh" << 'MOCK_GH'
 #!/bin/bash
+# Check if --jq is in arguments (for transformed format)
+HAS_JQ=false
+for arg in "$@"; do
+    if [[ "$arg" == "--jq" || "$arg" == "-q" ]]; then
+        HAS_JQ=true
+        break
+    fi
+done
+
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -65,13 +74,24 @@ case "$1" in
         fi
         if [[ "$2" == *"/issues/"*"/comments"* ]]; then
             # Return old trigger comment from 12:00 (BEFORE latest_commit_at of 14:00)
-            echo '[{"id": 1, "author": "testuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review"}]'
+            if [[ "$HAS_JQ" == "true" ]]; then
+                # With --jq --paginate, output one transformed object per line
+                echo '{"id": 1, "author": "testuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review"}'
+            else
+                # Raw GitHub API format
+                echo '[{"id": 1, "user": {"login": "testuser"}, "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review"}]'
+            fi
             exit 0
         fi
         echo "[]"
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T10:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"state"* ]]; then
             echo '{"state": "OPEN"}'
             exit 0
@@ -371,6 +391,11 @@ case "$1" in
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T09:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T09:00:00Z"}]}'
             exit 0
@@ -549,6 +574,11 @@ EOF
 #!/bin/bash
 case "$1" in
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T12:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T12:00:00Z"}]}'
             exit 0
@@ -661,6 +691,11 @@ case "$1" in
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T12:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T12:00:00Z"}]}'
             exit 0
@@ -765,6 +800,11 @@ case "$1" in
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T10:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T10:00:00Z"}]}'
             exit 0
@@ -906,6 +946,11 @@ case "$1" in
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T10:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T10:00:00Z"}]}'
             exit 0
@@ -1001,6 +1046,15 @@ EOF
     # Mock gh that returns NO eyes reaction (simulates claude bot not configured)
     cat > "$mock_bin/gh" << 'MOCK_GH'
 #!/bin/bash
+# Check if --jq is in arguments (for transformed format)
+HAS_JQ=false
+for arg in "$@"; do
+    if [[ "$arg" == "--jq" || "$arg" == "-q" ]]; then
+        HAS_JQ=true
+        break
+    fi
+done
+
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -1014,13 +1068,24 @@ case "$1" in
         fi
         if [[ "$2" == *"/issues/"*"/comments"* ]]; then
             # Return trigger comment
-            echo '[{"id": 12345, "author": "testuser", "created_at": "2026-01-18T11:00:00Z", "body": "@claude please review"}]'
+            if [[ "$HAS_JQ" == "true" ]]; then
+                # With --jq --paginate, output one transformed object per line
+                echo '{"id": 12345, "author": "testuser", "created_at": "2026-01-18T11:00:00Z", "body": "@claude please review"}'
+            else
+                # Raw GitHub API format
+                echo '[{"id": 12345, "user": {"login": "testuser"}, "created_at": "2026-01-18T11:00:00Z", "body": "@claude please review"}]'
+            fi
             exit 0
         fi
         echo "[]"
         exit 0
         ;;
     pr)
+        if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used
+            echo "2026-01-18T10:00:00Z"
+            exit 0
+        fi
         if [[ "$*" == *"commits"* ]]; then
             echo '{"commits":[{"committedDate":"2026-01-18T10:00:00Z"}]}'
             exit 0
@@ -1133,24 +1198,43 @@ EOF
 COMMENT_TS="$comment_ts"
 COMMIT_TS="$commit_ts"
 
-# Check if --jq is in arguments (for transformed format)
+# Check if --jq is in arguments and what type of jq expression
 HAS_JQ=false
-for arg in "\$@"; do
-    if [[ "\$arg" == "--jq" || "\$arg" == "-q" ]]; then
+JQ_RETURNS_ARRAY=false
+ARGS=("\$@")
+for ((i=0; i<\${#ARGS[@]}; i++)); do
+    if [[ "\${ARGS[i]}" == "--jq" || "\${ARGS[i]}" == "-q" ]]; then
         HAS_JQ=true
-        break
+        # Check next argument for jq expression starting with [
+        next_idx=\$((i + 1))
+        if [[ \$next_idx -lt \${#ARGS[@]} ]]; then
+            next_arg="\${ARGS[next_idx]}"
+            if [[ "\$next_arg" == "["* ]]; then
+                JQ_RETURNS_ARRAY=true
+            fi
+        fi
     fi
 done
 
 case "\$1" in
     repo)
-        # poll-pr-reviews.sh needs repo owner and name
-        if [[ "\$*" == *"--json owner"* ]]; then
-            echo "testowner"
+        # check-pr-reviewer-status.sh needs repo owner/name with jq transformation
+        if [[ "\$*" == *"--json owner,name"* ]] || [[ "\$*" == *"--json owner"* && "\$*" == *"--json name"* ]]; then
+            if [[ "\$HAS_JQ" == "true" ]]; then
+                # jq '.owner.login + "/" + .name' returns "owner/repo"
+                echo "testowner/testrepo"
+            else
+                echo '{"owner": {"login": "testowner"}, "name": "testrepo"}'
+            fi
             exit 0
         fi
-        if [[ "\$*" == *"--json name"* ]]; then
-            echo "testrepo"
+        if [[ "\$*" == *"--json parent"* ]]; then
+            if [[ "\$HAS_JQ" == "true" ]]; then
+                # jq '.parent.owner.login + "/" + .parent.name' returns empty for non-fork
+                echo ""
+            else
+                echo '{"parent": null}'
+            fi
             exit 0
         fi
         ;;
@@ -1159,11 +1243,16 @@ case "\$1" in
             echo "testuser"
             exit 0
         fi
-        # Return codex comment - format depends on whether --jq is used
+        # Return codex comment - format depends on whether --jq is used and its pattern
         if [[ "\$2" == *"/issues/"*"/comments"* ]]; then
             if [[ "\$HAS_JQ" == "true" ]]; then
-                # jq-transformed format for check-pr-reviewer-status.sh
-                echo "[{\"author\":\"chatgpt-codex-connector[bot]\",\"created_at\":\"\$COMMENT_TS\",\"body\":\"Found issues\"}]"
+                if [[ "\$JQ_RETURNS_ARRAY" == "true" ]]; then
+                    # check-pr-reviewer-status.sh uses '[.[] | {...}]' - returns array
+                    echo "[{\"author\":\"chatgpt-codex-connector[bot]\",\"created_at\":\"\$COMMENT_TS\",\"body\":\"Found issues\"}]"
+                else
+                    # stop hook uses '.[] | {...}' then 'jq -s' - returns individual objects
+                    echo "{\"id\":1001,\"author\":\"chatgpt-codex-connector[bot]\",\"created_at\":\"\$COMMENT_TS\",\"body\":\"Found issues\"}"
+                fi
             else
                 # Raw GitHub API format for poll-pr-reviews.sh
                 echo "[{\"id\":1001,\"user\":{\"login\":\"chatgpt-codex-connector[bot]\",\"type\":\"Bot\"},\"created_at\":\"\$COMMENT_TS\",\"body\":\"Found issues\"}]"
@@ -1186,10 +1275,25 @@ case "\$1" in
         exit 0
         ;;
     pr)
+        # check-pr-reviewer-status.sh: gh pr view --repo ... --json baseRepository --jq '...'
+        if [[ "\$*" == *"baseRepository"* ]]; then
+            if [[ "\$HAS_JQ" == "true" ]]; then
+                # jq '.baseRepository.owner.login + "/" + .baseRepository.name'
+                echo "testowner/testrepo"
+            else
+                echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+            fi
+            exit 0
+        fi
         if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"headRefOid"* ]]; then
             # For check-pr-reviewer-status.sh: returns jq-processed format
             # {sha: .headRefOid, date: (.commits | last | .committedDate)}
             echo "{\"sha\":\"abc123\",\"date\":\"\$COMMIT_TS\"}"
+            exit 0
+        fi
+        if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"--jq"* ]]; then
+            # Return just the timestamp when --jq is used (stop hook commit fetch)
+            echo "\$COMMIT_TS"
             exit 0
         fi
         if [[ "\$*" == *"commits"* ]]; then

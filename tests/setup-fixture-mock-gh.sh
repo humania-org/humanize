@@ -39,8 +39,12 @@ case "\$1" in
         ;;
     repo)
         if [[ "\$2" == "view" ]]; then
-            if [[ "\$*" == *"owner"* ]]; then
-                echo '{"login": "testowner"}'
+            if [[ "\$*" == *"owner,name"* ]] || [[ "\$*" == *"owner"* && "\$*" == *"name"* ]]; then
+                echo '{"owner": {"login": "testowner"}, "name": "testrepo"}'
+            elif [[ "\$*" == *"parent"* ]]; then
+                echo '{"parent": null}'
+            elif [[ "\$*" == *"owner"* ]]; then
+                echo '{"owner": {"login": "testowner"}}'
             elif [[ "\$*" == *"name"* ]]; then
                 echo '{"name": "testrepo"}'
             fi
@@ -49,7 +53,10 @@ case "\$1" in
         ;;
     pr)
         if [[ "\$2" == "view" ]]; then
-            if [[ "\$*" == *"number"* ]]; then
+            if [[ "\$*" == *"baseRepository"* ]]; then
+                echo '{"baseRepository": {"owner": {"login": "testowner"}, "name": "testrepo"}}'
+                exit 0
+            elif [[ "\$*" == *"number"* ]]; then
                 echo '{"number": 123}'
             elif [[ "\$*" == *"state"* ]]; then
                 echo '{"state": "OPEN"}'

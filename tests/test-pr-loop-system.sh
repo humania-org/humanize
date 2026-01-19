@@ -751,8 +751,8 @@ EOF
     # Verify first update worked
     grep -q "Total Issues Found: 3" "$tracker_file" || { echo "First update failed - expected 3 total found"; return 1; }
 
-    # Second update with SAME round - should be SKIPPED (idempotent)
-    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 5, "resolved": 0, "bot": "Claude"}'
+    # Second update with SAME round AND SAME bot - should be SKIPPED (idempotent)
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 5, "resolved": 0, "bot": "Codex"}'
 
     # Totals should still be 3 (not 8) because round 1 was already recorded
     grep -q "Total Issues Found: 3" "$tracker_file" || { echo "Idempotency failed - totals changed on duplicate update"; return 1; }
@@ -1637,8 +1637,17 @@ case "\$1" in
             echo "{\"sha\":\"abc123\",\"date\":\"\$COMMIT_TS\"}"
             exit 0
         fi
+        if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"--jq"* ]]; then
+            # When --jq is used, return just the extracted timestamp
+            echo "\$COMMIT_TS"
+            exit 0
+        fi
         if [[ "\$*" == *"commits"* ]]; then
             echo "{\"commits\":[{\"committedDate\":\"\$COMMIT_TS\"}]}"
+            exit 0
+        fi
+        if [[ "\$*" == *"baseRepository"* ]]; then
+            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
             exit 0
         fi
         if [[ "\$*" == *"state"* ]]; then

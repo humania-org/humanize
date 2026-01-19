@@ -890,9 +890,15 @@ case "$1" in
             exit 0
         fi
         if [[ "$2" == *"/issues/"*"/comments"* ]]; then
-            # Return comment with trigger @mention
-            # --jq extracts specific fields, --paginate is handled
-            echo '[{"id": 1, "author": "testuser", "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}]'
+            # When --jq and --paginate are used, gh applies jq per-element and outputs transformed objects
+            # The hook's jq: '.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}'
+            if [[ "$*" == *"--jq"* ]]; then
+                # Return pre-transformed format (what jq would output)
+                echo '{"id": 1, "author": "testuser", "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}'
+            else
+                # Return raw GitHub API format
+                echo '[{"id": 1, "user": {"login": "testuser"}, "created_at": "2026-01-18T13:00:00Z", "body": "@claude please review"}]'
+            fi
             exit 0
         fi
         echo "[]"
@@ -985,16 +991,20 @@ case "$1" in
             exit 0
         fi
         if [[ "$2" == *"/issues/"*"/comments"* ]]; then
-            # Simulate paginated output: two JSON arrays that need jq -s 'add' to combine
+            # When --jq and --paginate are used, gh applies jq per-element and outputs transformed objects
             # Page 1: old comment without trigger
             # Page 2: newer comment WITH trigger - must combine to find it
-            if [[ "$*" == *"--paginate"* ]]; then
-                # --paginate flag present: output multiple arrays (simulating pagination)
-                echo '[{"id": 1, "author": "other", "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
-                echo '[{"id": 2, "author": "testuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review the pagination fix"}]'
+            if [[ "$*" == *"--paginate"* ]] && [[ "$*" == *"--jq"* ]]; then
+                # --paginate with --jq: output transformed objects (one per line)
+                echo '{"id": 1, "author": "other", "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}'
+                echo '{"id": 2, "author": "testuser", "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review the pagination fix"}'
+            elif [[ "$*" == *"--paginate"* ]]; then
+                # --paginate without --jq: output raw arrays
+                echo '[{"id": 1, "user": {"login": "other"}, "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
+                echo '[{"id": 2, "user": {"login": "testuser"}, "created_at": "2026-01-18T12:00:00Z", "body": "@claude please review the pagination fix"}]'
             else
                 # No pagination: only first page (trigger NOT found)
-                echo '[{"id": 1, "author": "other", "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
+                echo '[{"id": 1, "user": {"login": "other"}, "created_at": "2026-01-18T11:00:00Z", "body": "old comment"}]'
             fi
             exit 0
         fi
