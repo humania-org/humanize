@@ -1483,14 +1483,15 @@ if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
         | grep -cE '^[0-9]+\.|^- |^\* ' 2>/dev/null || echo "0")
 fi
 
-# Count resolved issues: only count approvals when there were issues to resolve
-# An approval with 0 issues found means no issues to resolve, not 1 resolved
-# This prevents the tracker from going negative (resolved > found)
+# Count resolved issues: when a bot approves, it means all its issues are resolved
+# So if issues were found and any bot approved, resolved = issues found (all resolved)
+# This aligns resolved count with issues found rather than counting approved bots
 if [[ $ISSUES_FOUND_COUNT -gt 0 ]]; then
     for bot in "${!BOTS_APPROVED[@]}"; do
         if [[ "${BOTS_APPROVED[$bot]}" == "true" ]]; then
-            # Bot approved after finding issues - count as resolved
-            ISSUES_RESOLVED_COUNT=$((ISSUES_RESOLVED_COUNT + 1))
+            # Bot approved after finding issues - all issues from this round are resolved
+            ISSUES_RESOLVED_COUNT=$ISSUES_FOUND_COUNT
+            break
         fi
     done
 fi

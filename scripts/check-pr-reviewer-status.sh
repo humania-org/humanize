@@ -150,6 +150,7 @@ ALL_COMMENTS=$(echo "$ISSUE_COMMENTS $REVIEW_COMMENTS $PR_REVIEWS" | jq -s 'add 
 
 declare -a REVIEWERS_COMMENTED=()
 declare -a REVIEWERS_MISSING=()
+declare -a REVIEWERS_STALE=()  # Bots whose latest review is before latest commit
 NEWEST_REVIEW_AT=""
 
 for bot in "${BOTS[@]}"; do
@@ -162,8 +163,16 @@ for bot in "${BOTS[@]}"; do
     if [[ "$BOT_COUNT" -gt 0 ]]; then
         REVIEWERS_COMMENTED+=("$bot")
 
-        # Track newest review timestamp
+        # Track this bot's newest review timestamp
         BOT_NEWEST=$(echo "$BOT_COMMENTS" | jq -r 'sort_by(.created_at) | reverse | .[0].created_at')
+
+        # Check if this bot's review is stale (before latest commit)
+        # This is per-bot, not global - a bot's review can be stale even if another bot reviewed later
+        if [[ -n "$LATEST_COMMIT_AT" && -n "$BOT_NEWEST" && "$LATEST_COMMIT_AT" > "$BOT_NEWEST" ]]; then
+            REVIEWERS_STALE+=("$bot")
+        fi
+
+        # Track global newest for output (still useful for debugging)
         if [[ -z "$NEWEST_REVIEW_AT" ]] || [[ "$BOT_NEWEST" > "$NEWEST_REVIEW_AT" ]]; then
             NEWEST_REVIEW_AT="$BOT_NEWEST"
         fi
@@ -182,6 +191,7 @@ HAS_COMMITS_AFTER_REVIEWS=false
 # Count how many bots have commented
 COMMENTED_COUNT=${#REVIEWERS_COMMENTED[@]}
 MISSING_COUNT=${#REVIEWERS_MISSING[@]}
+STALE_COUNT=${#REVIEWERS_STALE[@]}
 TOTAL_BOTS=${#BOTS[@]}
 
 if [[ $COMMENTED_COUNT -eq 0 ]]; then
@@ -189,34 +199,24 @@ if [[ $COMMENTED_COUNT -eq 0 ]]; then
     CASE=1
 elif [[ $MISSING_COUNT -gt 0 ]]; then
     # Some (not all) reviewers commented
-    # Check for new commits after existing reviews
-    if [[ -n "$NEWEST_REVIEW_AT" && -n "$LATEST_COMMIT_AT" ]]; then
-        if [[ "$LATEST_COMMIT_AT" > "$NEWEST_REVIEW_AT" ]]; then
-            # Case 5: Some reviewers commented, new commits after reviews
-            HAS_COMMITS_AFTER_REVIEWS=true
-            CASE=5
-        else
-            # Case 2: Some reviewers commented, no new commits
-            CASE=2
-        fi
+    # Check if ANY bot that commented has a stale review (per-bot check)
+    if [[ $STALE_COUNT -gt 0 ]]; then
+        # Case 5: Some reviewers commented, but at least one has stale review
+        HAS_COMMITS_AFTER_REVIEWS=true
+        CASE=5
     else
-        # Fallback: treat as Case 2 if timestamps unavailable
+        # Case 2: Some reviewers commented, all reviews are fresh
         CASE=2
     fi
 else
-    # All reviewers have commented, check for new commits after reviews
-    if [[ -n "$NEWEST_REVIEW_AT" && -n "$LATEST_COMMIT_AT" ]]; then
-        # Compare timestamps
-        if [[ "$LATEST_COMMIT_AT" > "$NEWEST_REVIEW_AT" ]]; then
-            # Case 4: All reviewers commented, new commits after reviews
-            HAS_COMMITS_AFTER_REVIEWS=true
-            CASE=4
-        else
-            # Case 3: All commented, no new commits
-            CASE=3
-        fi
+    # All reviewers have commented
+    # Check if ANY bot has a stale review (per-bot check, not global newest)
+    if [[ $STALE_COUNT -gt 0 ]]; then
+        # Case 4: All reviewers commented, but at least one has stale review
+        HAS_COMMITS_AFTER_REVIEWS=true
+        CASE=4
     else
-        # Fallback: treat as Case 3 if timestamps unavailable
+        # Case 3: All commented, all reviews are fresh
         CASE=3
     fi
 fi
