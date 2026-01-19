@@ -1424,13 +1424,17 @@ if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
         | grep -cE '^[0-9]+\.|^- |^\* ' 2>/dev/null || echo "0")
 fi
 
-# Count bots that approved (issues resolved from their perspective)
-for bot in "${!BOTS_APPROVED[@]}"; do
-    if [[ "${BOTS_APPROVED[$bot]}" == "true" ]]; then
-        # Bot approved, count as issues resolved if they had previous issues
-        ISSUES_RESOLVED_COUNT=$((ISSUES_RESOLVED_COUNT + 1))
-    fi
-done
+# Count resolved issues: only count approvals when there were issues to resolve
+# An approval with 0 issues found means no issues to resolve, not 1 resolved
+# This prevents the tracker from going negative (resolved > found)
+if [[ $ISSUES_FOUND_COUNT -gt 0 ]]; then
+    for bot in "${!BOTS_APPROVED[@]}"; do
+        if [[ "${BOTS_APPROVED[$bot]}" == "true" ]]; then
+            # Bot approved after finding issues - count as resolved
+            ISSUES_RESOLVED_COUNT=$((ISSUES_RESOLVED_COUNT + 1))
+        fi
+    done
+fi
 
 # Call update_pr_goal_tracker if goal tracker exists
 if [[ -f "$GOAL_TRACKER_FILE" ]]; then
