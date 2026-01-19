@@ -569,7 +569,7 @@ ${BOT_AC_ROWS}
 | 0 | $STARTED_AT | PR loop initialized (Case $STARTUP_CASE) |
 "
 
-GOAL_TRACKER_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/goal-tracker-init.md" "$FALLBACK_GOAL_TRACKER" "${GOAL_TRACKER_VARS[@]}")
+GOAL_TRACKER_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/goal-tracker-initial.md" "$FALLBACK_GOAL_TRACKER" "${GOAL_TRACKER_VARS[@]}")
 echo "$GOAL_TRACKER_CONTENT" > "$GOAL_TRACKER_FILE"
 
 echo "Goal tracker created: $GOAL_TRACKER_FILE" >&2

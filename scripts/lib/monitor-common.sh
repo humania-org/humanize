@@ -259,6 +259,11 @@ monitor_truncate_string() {
 # Returns: one of: approved, cancelled, maxiter, codex_analyzing, waiting_initial_review, waiting_reviewer
 #
 # Usage: get_pr_loop_phase "/path/to/session"
+#
+# Detection strategy for codex_analyzing:
+# 1. Find the latest round's pr-check.md file
+# 2. Check if it's growing by comparing current size with cached previous size
+# 3. Cache size in /tmp for comparison on next call
 get_pr_loop_phase() {
     local session_dir="$1"
 
@@ -269,17 +274,45 @@ get_pr_loop_phase() {
     [[ -f "$session_dir/cancel-state.md" ]] && echo "cancelled" && return
     [[ -f "$session_dir/maxiter-state.md" ]] && echo "maxiter" && return
 
-    # Check for Codex running (codex log file being written)
-    # Look for recent round-*-pr-check.md files that are still growing
-    local latest_check
-    latest_check=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f -mmin -1 2>/dev/null | head -1)
+    # Check for Codex running by detecting file growth
+    # Find the highest numbered round pr-check file
+    local latest_check=""
+    local highest_round=-1
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        local basename=$(basename "$f")
+        local round_str="${basename#round-}"
+        round_str="${round_str%-pr-check.md}"
+        if [[ "$round_str" =~ ^[0-9]+$ ]] && [[ "$round_str" -gt "$highest_round" ]]; then
+            highest_round="$round_str"
+            latest_check="$f"
+        fi
+    done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null)
+
     if [[ -n "$latest_check" ]]; then
-        # Check if file is still growing (modified in last 5 seconds)
-        local now_epoch
-        local file_epoch
+        # Get current file size
+        local current_size
+        current_size=$(stat -c%s "$latest_check" 2>/dev/null || stat -f%z "$latest_check" 2>/dev/null || echo 0)
+
+        # Cache file for tracking size changes (unique per session)
+        local session_name=$(basename "$session_dir")
+        local cache_file="/tmp/humanize-phase-${session_name}-${highest_round}.size"
+
+        # Read previous size from cache
+        local previous_size=0
+        [[ -f "$cache_file" ]] && previous_size=$(cat "$cache_file" 2>/dev/null || echo 0)
+
+        # Update cache with current size
+        echo "$current_size" > "$cache_file" 2>/dev/null || true
+
+        # If file is growing OR is new (no previous record), Codex is analyzing
+        # Also check mtime as fallback (file modified in last 10 seconds)
+        local now_epoch file_epoch
         now_epoch=$(date +%s)
         file_epoch=$(stat -c %Y "$latest_check" 2>/dev/null || stat -f %m "$latest_check" 2>/dev/null || echo 0)
-        if [[ $((now_epoch - file_epoch)) -lt 5 ]]; then
+        local age_seconds=$((now_epoch - file_epoch))
+
+        if [[ "$current_size" -gt "$previous_size" ]] || [[ "$age_seconds" -lt 10 ]]; then
             echo "codex_analyzing"
             return
         fi

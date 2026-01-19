@@ -234,28 +234,9 @@ _humanize_monitor_codex() {
         return 1
     fi
 
-    # Function to find the latest session directory
+    # Use shared monitor helper for finding latest session
     _find_latest_session() {
-        local latest_session=""
-        # Check if loop_dir exists before glob operation (prevents zsh "no matches found" error)
-        if [[ ! -d "$loop_dir" ]]; then
-            echo ""
-            return
-        fi
-        # Use find instead of glob to avoid zsh "no matches found" errors
-        # find is safe even when directory is empty or has no matching files
-        while IFS= read -r session_dir; do
-            [[ -z "$session_dir" ]] && continue
-            [[ ! -d "$session_dir" ]] && continue
-
-            local session_name=$(basename "$session_dir")
-            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
-                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
-                    latest_session="$session_dir"
-                fi
-            fi
-        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        echo "$latest_session"
+        monitor_find_latest_session "$loop_dir"
     }
 
     # Function to find the latest codex log file
@@ -319,45 +300,9 @@ _humanize_monitor_codex() {
         echo "$latest"
     }
 
-    # Find the state file for a session directory
-    # Returns: state_file_path|loop_status
-    # - If state.md exists: returns "state.md|active"
-    # - If <STOP_REASON>-state.md exists: returns "<file>|<stop_reason>"
-    # - If no state file found: returns "|unknown"
+    # Use shared monitor helper for finding state file
     _find_state_file() {
-        local session_dir="$1"
-        if [[ -z "$session_dir" || ! -d "$session_dir" ]]; then
-            echo "|unknown"
-            return
-        fi
-
-        # Priority 1: state.md indicates active loop
-        if [[ -f "$session_dir/state.md" ]]; then
-            echo "$session_dir/state.md|active"
-            return
-        fi
-
-        # Priority 2: Look for <STOP_REASON>-state.md files
-        # Common stop reasons: completed, failed, cancelled, timeout, error
-        # Use find instead of glob to avoid zsh "no matches found" errors
-        local state_file=""
-        local stop_reason=""
-        while IFS= read -r f; do
-            [[ -z "$f" ]] && continue
-            if [[ -f "$f" ]]; then
-                state_file="$f"
-                # Extract stop reason from filename (e.g., "completed-state.md" -> "completed")
-                local basename=$(basename "$f")
-                stop_reason="${basename%-state.md}"
-                break
-            fi
-        done < <(find "$session_dir" -maxdepth 1 -name '*-state.md' -type f 2>/dev/null)
-
-        if [[ -n "$state_file" ]]; then
-            echo "$state_file|$stop_reason"
-        else
-            echo "|unknown"
-        fi
+        monitor_find_state_file "$1"
     }
 
     # Parse state.md and return values
@@ -621,9 +566,9 @@ _humanize_monitor_codex() {
     # Setup terminal
     _setup_terminal
 
-    # Get file size (cross-platform: Linux uses -c%s, macOS uses -f%z)
+    # Use shared monitor helper for file size
     _get_file_size() {
-        stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0
+        monitor_get_file_size "$1"
     }
 
     # Track last read position for incremental reading
@@ -973,24 +918,9 @@ _humanize_monitor_pr() {
         return 1
     fi
 
-    # Function to find the latest session directory
+    # Use shared monitor helper for finding latest session
     _pr_find_latest_session() {
-        if [[ ! -d "$loop_dir" ]]; then
-            echo ""
-            return
-        fi
-        local latest_session=""
-        while IFS= read -r session_dir; do
-            [[ -z "$session_dir" ]] && continue
-            [[ ! -d "$session_dir" ]] && continue
-            local session_name=$(basename "$session_dir")
-            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
-                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
-                    latest_session="$session_dir"
-                fi
-            fi
-        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        echo "$latest_session"
+        monitor_find_latest_session "$loop_dir"
     }
 
     # Function to find the latest monitorable file (pr-check, pr-feedback, or pr-comment)
@@ -1037,28 +967,23 @@ _humanize_monitor_pr() {
         echo "$latest"
     }
 
-    # Function to find and parse state file
+    # Use shared monitor helper for finding state file
+    # Note: monitor_find_state_file returns "approve" not "approved" for approve-state.md
+    # so we maintain the PR-specific status mapping here for display purposes
     _pr_find_state_file() {
         local session_dir="$1"
-        local state_file=""
-        local loop_status="unknown"
+        local result
+        result=$(monitor_find_state_file "$session_dir")
+        local state_file="${result%|*}"
+        local stop_reason="${result#*|}"
 
-        if [[ -f "$session_dir/state.md" ]]; then
-            state_file="$session_dir/state.md"
-            loop_status="active"
-        elif [[ -f "$session_dir/approve-state.md" ]]; then
-            # PR loop uses approve-state.md for completion (per design decision)
-            state_file="$session_dir/approve-state.md"
-            loop_status="approved"
-        elif [[ -f "$session_dir/cancel-state.md" ]]; then
-            state_file="$session_dir/cancel-state.md"
-            loop_status="cancelled"
-        elif [[ -f "$session_dir/maxiter-state.md" ]]; then
-            state_file="$session_dir/maxiter-state.md"
-            loop_status="max-iterations"
-        fi
+        # Map stop reasons to PR-friendly status names
+        case "$stop_reason" in
+            approve) stop_reason="approved" ;;
+            maxiter) stop_reason="max-iterations" ;;
+        esac
 
-        echo "$state_file|$loop_status"
+        echo "$state_file|$stop_reason"
     }
 
     # Function to parse state.md and return key values

@@ -640,7 +640,7 @@ test_approve_state_detection() {
 
 test_goal_tracker_schema() {
     # Read the goal tracker init template
-    local template_file="$PROJECT_ROOT/prompt-template/pr-loop/goal-tracker-init.md"
+    local template_file="$PROJECT_ROOT/prompt-template/pr-loop/goal-tracker-initial.md"
 
     # Verify required sections exist per plan
     grep -q "## Issue Summary" "$template_file" || { echo "Missing Issue Summary section"; return 1; }
@@ -763,6 +763,141 @@ EOF
 }
 
 # ========================================
+# Test: Shared Monitor - Find Latest Session - AC-13
+# ========================================
+
+test_shared_monitor_find_latest_session() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create session directories with different timestamps
+    local loop_dir="$TEST_TEMP_DIR/.humanize/pr-loop"
+    mkdir -p "$loop_dir/2026-01-18_10-00-00"
+    mkdir -p "$loop_dir/2026-01-18_12-00-00"
+    mkdir -p "$loop_dir/2026-01-18_11-00-00"
+
+    # Test that the latest session is found
+    local result
+    result=$(monitor_find_latest_session "$loop_dir")
+
+    [[ "$(basename "$result")" == "2026-01-18_12-00-00" ]] || {
+        echo "Expected 2026-01-18_12-00-00, got $(basename "$result")"
+        return 1
+    }
+}
+
+# ========================================
+# Test: Shared Monitor - Find State File - AC-13
+# ========================================
+
+test_shared_monitor_find_state_file() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    local session_dir="$TEST_TEMP_DIR/session"
+    mkdir -p "$session_dir"
+
+    # Test 1: active state
+    touch "$session_dir/state.md"
+    local result
+    result=$(monitor_find_state_file "$session_dir")
+    local status="${result#*|}"
+    [[ "$status" == "active" ]] || { echo "Expected active, got $status"; return 1; }
+
+    # Test 2: approve state (remove state.md, add approve-state.md)
+    rm "$session_dir/state.md"
+    touch "$session_dir/approve-state.md"
+    result=$(monitor_find_state_file "$session_dir")
+    status="${result#*|}"
+    [[ "$status" == "approve" ]] || { echo "Expected approve, got $status"; return 1; }
+
+    # Test 3: no state file
+    rm "$session_dir/approve-state.md"
+    result=$(monitor_find_state_file "$session_dir")
+    status="${result#*|}"
+    [[ "$status" == "unknown" ]] || { echo "Expected unknown, got $status"; return 1; }
+}
+
+# ========================================
+# Test: Shared Monitor - Get File Size - AC-13
+# ========================================
+
+test_shared_monitor_get_file_size() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create a test file with known content
+    local test_file="$TEST_TEMP_DIR/test-file.txt"
+    echo "Hello World" > "$test_file"
+
+    local result
+    result=$(monitor_get_file_size "$test_file")
+
+    # File should have content (size > 0)
+    [[ "$result" -gt 0 ]] || { echo "Expected size > 0, got $result"; return 1; }
+
+    # Test non-existent file returns 0
+    result=$(monitor_get_file_size "$TEST_TEMP_DIR/nonexistent.txt")
+    [[ "$result" -eq 0 ]] || { echo "Expected 0 for nonexistent file, got $result"; return 1; }
+}
+
+# ========================================
+# Test: Phase Detection - Codex Analyzing (File Growth) - AC-11
+# ========================================
+
+test_phase_detection_codex_analyzing() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    local session_dir="$TEST_TEMP_DIR/session"
+    mkdir -p "$session_dir"
+
+    # Create state.md for active session
+    cat > "$session_dir/state.md" << 'EOF'
+---
+current_round: 1
+startup_case: 2
+---
+EOF
+
+    # Create a pr-check file with recent mtime (simulates Codex writing)
+    local check_file="$session_dir/round-1-pr-check.md"
+    echo "Analyzing PR..." > "$check_file"
+    # Touch with current time ensures mtime is within 10 seconds
+    touch "$check_file"
+
+    # Test phase detection shows codex_analyzing
+    local result
+    result=$(get_pr_loop_phase "$session_dir")
+    [[ "$result" == "codex_analyzing" ]] || {
+        echo "Expected codex_analyzing, got $result"
+        return 1
+    }
+
+    # For the second test: make the file old and ensure cache shows no growth
+    # Touch with past timestamp
+    touch -d "2026-01-18 10:00:00" "$check_file"
+
+    # Get the current file size and write it to cache twice
+    # (so second call sees no growth)
+    local size
+    size=$(stat -c%s "$check_file" 2>/dev/null || stat -f%z "$check_file" 2>/dev/null || echo 0)
+    local session_name=$(basename "$session_dir")
+    local cache_file="/tmp/humanize-phase-${session_name}-1.size"
+    echo "$size" > "$cache_file"
+
+    # Now call again - same size, old mtime -> should be waiting_reviewer
+    result=$(get_pr_loop_phase "$session_dir")
+    [[ "$result" == "waiting_reviewer" ]] || {
+        echo "Expected waiting_reviewer after old mtime and no growth, got $result"
+        return 1
+    }
+
+    # Cleanup
+    rm -f "$cache_file" 2>/dev/null || true
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -848,6 +983,16 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "startup_case" ]]; then
         run_test "AC-14: Startup case 4/5 detection" test_startup_case_4_5_detection
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "shared_monitor" ]]; then
+        run_test "AC-13: Shared monitor - find latest session" test_shared_monitor_find_latest_session
+        run_test "AC-13: Shared monitor - find state file" test_shared_monitor_find_state_file
+        run_test "AC-13: Shared monitor - get file size" test_shared_monitor_get_file_size
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "phase_analyzing" ]]; then
+        run_test "AC-11: Phase detection - codex analyzing (file growth)" test_phase_detection_codex_analyzing
     fi
 
     echo ""
