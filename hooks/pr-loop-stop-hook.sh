@@ -1013,14 +1013,24 @@ while true; do
                     exit 0
                 else
                     # Update state file with remaining bots
+                    # Build YAML with actual newlines (BSD sed doesn't interpret \n in replacement)
                     ACTIVE_BOTS_YAML=""
                     for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-                        ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}  - ${bot}\n"
+                        ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}
+  - ${bot}"
                     done
+                    # Use awk to replace active_bots section (portable across GNU/BSD)
                     TEMP_FILE="${STATE_FILE}.thumbsup.$$"
-                    sed '/^active_bots:$/,/^[a-z_]*:/{/^active_bots:$/!{/^[a-z_]*:/!d}}' "$STATE_FILE" > "$TEMP_FILE"
-                    sed -i "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" 2>/dev/null || \
-                        { sed "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" > "${TEMP_FILE}.new" && mv "${TEMP_FILE}.new" "$TEMP_FILE"; }
+                    awk -v bots="$ACTIVE_BOTS_YAML" '
+                        /^active_bots:$/ {
+                            print "active_bots:" bots
+                            skip = 1
+                            next
+                        }
+                        skip && /^[a-z_]+:/ { skip = 0 }
+                        skip && /^  - / { next }
+                        !skip { print }
+                    ' "$STATE_FILE" > "$TEMP_FILE"
                     mv "$TEMP_FILE" "$STATE_FILE"
                 fi
             fi
