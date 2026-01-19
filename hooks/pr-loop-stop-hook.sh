@@ -1004,7 +1004,29 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
         # If no bots remain, loop is complete
         if [[ ${#NEW_ACTIVE_BOTS_TIMEOUT[@]} -eq 0 ]]; then
             echo "All bots removed (timed out) - PR loop approved!" >&2
-            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+            # Write updated state with empty active_bots before moving to approve-state.md
+            {
+                echo "---"
+                echo "current_round: $CURRENT_ROUND"
+                echo "max_iterations: $PR_MAX_ITERATIONS"
+                echo "pr_number: $PR_NUMBER"
+                echo "start_branch: $PR_START_BRANCH"
+                echo "configured_bots:${CONFIGURED_BOTS_YAML}"
+                echo "active_bots:"
+                echo "codex_model: $PR_CODEX_MODEL"
+                echo "codex_effort: $PR_CODEX_EFFORT"
+                echo "codex_timeout: $PR_CODEX_TIMEOUT"
+                echo "poll_interval: $PR_POLL_INTERVAL"
+                echo "poll_timeout: $PR_POLL_TIMEOUT"
+                echo "started_at: $PR_STARTED_AT"
+                echo "startup_case: ${PR_STARTUP_CASE:-1}"
+                echo "latest_commit_sha: ${PR_LATEST_COMMIT_SHA:-}"
+                echo "latest_commit_at: ${PR_LATEST_COMMIT_AT:-}"
+                echo "last_trigger_at: ${PR_LAST_TRIGGER_AT:-}"
+                echo "trigger_comment_id: ${PR_TRIGGER_COMMENT_ID:-}"
+                echo "---"
+            } > "$LOOP_DIR/approve-state.md"
+            rm -f "$STATE_FILE"
             exit 0
         fi
 

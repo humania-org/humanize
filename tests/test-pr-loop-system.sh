@@ -971,8 +971,8 @@ GOAL
     local output
     output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
 
-    # Assert output contains "All reviews approved" (the display string for approved phase)
-    if echo "$output" | grep -qi "All reviews approved\|approved\|Phase.*approved"; then
+    # Assert output contains approved phase (require Phase: label)
+    if echo "$output" | grep -qi "Phase:.*approved\|Phase:.*All reviews"; then
         return 0
     else
         echo "Expected 'All reviews approved' in output, got: $(echo "$output" | head -20)"
@@ -1011,12 +1011,12 @@ GOAL
     local output
     output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
 
-    # Assert output contains active status (Status: active or Phase:...waiting)
-    # For startup_case=1 (no comments yet), the loop is active and waiting
-    if echo "$output" | grep -qi "Status:.*active\|Phase:.*waiting"; then
+    # Assert output contains waiting phase (require Phase: label)
+    # For startup_case=1 (no comments yet), the loop is waiting for initial review
+    if echo "$output" | grep -qi "Phase:.*waiting"; then
         return 0
     else
-        echo "Expected 'Status: active' or 'Phase:...waiting' in output, got: $(echo "$output" | head -20)"
+        echo "Expected 'Phase:...waiting' in output, got: $(echo "$output" | head -20)"
         return 1
     fi
 }
@@ -1051,11 +1051,55 @@ GOAL
     local output
     output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
 
-    # Assert output contains cancel status (Status: cancel or Phase:...cancel)
-    if echo "$output" | grep -qi "Status:.*cancel\|Phase:.*cancel"; then
+    # Assert output contains cancel phase (require Phase: label)
+    if echo "$output" | grep -qi "Phase:.*cancel"; then
         return 0
     else
-        echo "Expected 'Status: cancel' or 'Phase:...cancel' in output, got: $(echo "$output" | head -20)"
+        echo "Expected 'Phase:...cancel' in output, got: $(echo "$output" | head -20)"
+        return 1
+    fi
+}
+
+# Test: Monitor displays "Codex analyzing..." for codex_analyzing phase
+test_monitor_output_phase_codex_analyzing() {
+    local test_dir="$TEST_TEMP_DIR/monitor_phase_analyzing"
+    mkdir -p "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00"
+
+    # Create state.md for active session
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/state.md" << 'EOF'
+---
+current_round: 1
+startup_case: 2
+pr_number: 123
+configured_bots:
+  - codex
+active_bots:
+  - codex
+---
+EOF
+
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/goal-tracker.md" << 'GOAL'
+# Goal Tracker
+## Issue Summary
+| Round | Reviewer | Issues Found | Status |
+|-------|----------|--------------|--------|
+| 0     | -        | 0            | Initial |
+GOAL
+
+    # Create a pr-check file with current mtime (simulates Codex actively writing)
+    local check_file="$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/round-1-pr-check.md"
+    echo "Analyzing PR..." > "$check_file"
+    # Touch with current time ensures mtime is within 10 seconds
+    touch "$check_file"
+
+    local output
+    output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
+
+    # Assert output contains "Codex analyzing" phase
+    if echo "$output" | grep -qi "Phase:.*Codex.*analyz\|analyz"; then
+        return 0
+    else
+        echo "Expected 'Codex analyzing' in output, got: $(echo "$output" | head -20)"
         return 1
     fi
 }
@@ -1440,6 +1484,7 @@ test_goal_tracker_creation_integration() {
         # Restore fixtures
         echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
         echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        echo '[{"id":5001,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-01-18T11:10:00Z"}]' > "$FIXTURES_DIR/reactions.json"
         return 1
     fi
 
@@ -1452,6 +1497,7 @@ test_goal_tracker_creation_integration() {
         # Restore fixtures
         echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
         echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        echo '[{"id":5001,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-01-18T11:10:00Z"}]' > "$FIXTURES_DIR/reactions.json"
         return 1
     fi
 
@@ -1463,6 +1509,7 @@ test_goal_tracker_creation_integration() {
         # Restore fixtures
         echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
         echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        echo '[{"id":5001,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-01-18T11:10:00Z"}]' > "$FIXTURES_DIR/reactions.json"
         return 1
     fi
 
@@ -1474,6 +1521,7 @@ test_goal_tracker_creation_integration() {
         # Restore fixtures
         echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
         echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        echo '[{"id":5001,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-01-18T11:10:00Z"}]' > "$FIXTURES_DIR/reactions.json"
         return 1
     fi
 
@@ -1484,7 +1532,208 @@ test_goal_tracker_creation_integration() {
     echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
     echo '[]' > "$FIXTURES_DIR/review-comments.json"
     echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+    echo '[{"id":5001,"user":{"login":"chatgpt-codex-connector[bot]"},"content":"+1","created_at":"2026-01-18T11:10:00Z"}]' > "$FIXTURES_DIR/reactions.json"
 
+    return 0
+}
+
+# Test AC-12: Stop hook updates goal tracker with round results
+test_stophook_updates_goal_tracker() {
+    # This test verifies that running the stop hook after bot review updates the goal tracker
+    local test_dir="$TEST_TEMP_DIR/stophook_goal_test"
+    mkdir -p "$test_dir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Use dynamic timestamps
+    local trigger_ts commit_ts comment_ts
+    trigger_ts=$(date -u -d "-10 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10S +%Y-%m-%dT%H:%M:%SZ)
+    commit_ts=$(date -u -d "-60 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-60S +%Y-%m-%dT%H:%M:%SZ)
+    comment_ts=$(date -u -d "-5 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5S +%Y-%m-%dT%H:%M:%SZ)
+
+    # Create state.md for Round 0
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - codex
+active_bots:
+  - codex
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 1
+poll_timeout: 60
+started_at: $commit_ts
+last_trigger_at: $trigger_ts
+trigger_comment_id: 999
+startup_case: 1
+latest_commit_sha: abc123
+latest_commit_at: $commit_ts
+---
+EOF
+
+    # Create initial goal tracker (need blank line after table header for row insertion)
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_12-00-00/goal-tracker.md" << 'EOF'
+# PR Review Goal Tracker (PR #123)
+
+## Issue Summary
+
+| Round | Bot | Issues Found | Issues Resolved | Status |
+|-------|-----|--------------|-----------------|--------|
+
+## Total Statistics
+- Total Issues Found: 0
+- Total Issues Resolved: 0
+EOF
+
+    # Create round-0 resolve file
+    echo "# Resolution" > "$test_dir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    # Create mock gh and git
+    local mock_bin="$test_dir/bin"
+    mkdir -p "$mock_bin"
+
+    cat > "$mock_bin/gh" << MOCK_GH
+#!/bin/bash
+COMMENT_TS="$comment_ts"
+COMMIT_TS="$commit_ts"
+
+case "\$1" in
+    repo)
+        if [[ "\$*" == *"--json owner"* ]]; then
+            echo "testowner"
+            exit 0
+        fi
+        if [[ "\$*" == *"--json name"* ]]; then
+            echo "testrepo"
+            exit 0
+        fi
+        ;;
+    api)
+        if [[ "\$2" == "user" ]]; then
+            echo "testuser"
+            exit 0
+        fi
+        if [[ "\$2" == *"/issues/"*"/comments"* ]]; then
+            # Return codex comment with issues
+            echo "[{\"id\":1001,\"user\":{\"login\":\"chatgpt-codex-connector[bot]\",\"type\":\"Bot\"},\"created_at\":\"\$COMMENT_TS\",\"body\":\"Found 2 issues: fix X, fix Y\"}]"
+            exit 0
+        fi
+        if [[ "\$2" == *"/pulls/"*"/reviews"* ]]; then
+            echo '[]'
+            exit 0
+        fi
+        if [[ "\$2" == *"/pulls/"*"/comments"* ]]; then
+            echo '[]'
+            exit 0
+        fi
+        echo '[]'
+        exit 0
+        ;;
+    pr)
+        if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"headRefOid"* ]]; then
+            echo "{\"sha\":\"abc123\",\"date\":\"\$COMMIT_TS\"}"
+            exit 0
+        fi
+        if [[ "\$*" == *"commits"* ]]; then
+            echo "{\"commits\":[{\"committedDate\":\"\$COMMIT_TS\"}]}"
+            exit 0
+        fi
+        if [[ "\$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "abc123"
+        elif [[ "$2" == "--git-dir" ]]; then
+            echo ".git"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status)
+        echo ""
+        ;;
+    merge-base) exit 0 ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    # Mock codex command - returns ISSUES_REMAINING to trigger goal tracker update
+    cat > "$mock_bin/codex" << 'MOCK_CODEX'
+#!/bin/bash
+# Mock codex for testing - output review analysis
+cat << 'CODEX_OUTPUT'
+## Bot Review Analysis
+
+### codex (chatgpt-codex-connector[bot])
+**Status**: ISSUES
+**Issues Found**: 1
+- Fix issue X
+
+### Issues Found (if any)
+- Fix issue X
+
+### Approved Bots (to remove from active_bots)
+(none)
+
+### Final Recommendation
+ISSUES_REMAINING
+CODEX_OUTPUT
+exit 0
+MOCK_CODEX
+    chmod +x "$mock_bin/codex"
+
+    # Run stop hook
+    export CLAUDE_PROJECT_DIR="$test_dir"
+    local old_path="$PATH"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_output
+    hook_output=$(timeout 15 bash -c 'echo "{}" | "$1/hooks/pr-loop-stop-hook.sh" 2>&1' _ "$PROJECT_ROOT" 2>&1) || true
+
+    export PATH="$old_path"
+    unset CLAUDE_PROJECT_DIR
+
+    # Verify goal tracker was updated with Round 1 row
+    local goal_file="$test_dir/.humanize/pr-loop/2026-01-18_12-00-00/goal-tracker.md"
+    if [[ ! -f "$goal_file" ]]; then
+        echo "Goal tracker file not found"
+        rm -rf "$test_dir"
+        return 1
+    fi
+
+    # Check that Round 1 row was added (format: | 1     | with possible spaces)
+    if ! grep -qE '^\|[[:space:]]*1[[:space:]]*\|' "$goal_file"; then
+        echo "Goal tracker not updated with Round 1"
+        echo "Contents: $(cat "$goal_file")"
+        echo "Hook output: $(echo "$hook_output" | tail -20)"
+        rm -rf "$test_dir"
+        return 1
+    fi
+
+    # Check that Codex bot is mentioned in the row
+    if ! grep -q "Codex" "$goal_file"; then
+        echo "Goal tracker missing Codex bot entry"
+        echo "Contents: $(cat "$goal_file")"
+        rm -rf "$test_dir"
+        return 1
+    fi
+
+    rm -rf "$test_dir"
     return 0
 }
 
@@ -1591,6 +1840,7 @@ main() {
         run_test "AC-11: Monitor output - approved phase display" test_monitor_output_phase_approved
         run_test "AC-11: Monitor output - waiting initial phase display" test_monitor_output_phase_waiting_initial
         run_test "AC-11: Monitor output - cancelled phase display" test_monitor_output_phase_cancelled
+        run_test "AC-11: Monitor output - codex analyzing phase display" test_monitor_output_phase_codex_analyzing
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "case1_exception" ]]; then
@@ -1616,6 +1866,7 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_integration" ]]; then
         run_test "AC-12: Goal tracker creation via setup-pr-loop.sh" test_goal_tracker_creation_integration
+        run_test "AC-12: Stop hook updates goal tracker with round results" test_stophook_updates_goal_tracker
     fi
 
     echo ""

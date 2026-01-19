@@ -1191,12 +1191,24 @@ _humanize_monitor_pr() {
         local state_values=$(_pr_parse_state_md "$state_file")
         IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
 
+        # AC-11: Get phase for --once mode display
+        local phase=""
+        local phase_display=""
+        if declare -f get_pr_loop_phase &>/dev/null; then
+            phase=$(get_pr_loop_phase "$session_dir")
+            phase_display=$(get_pr_loop_phase_display "$phase" "$active_bots")
+        fi
+
         echo "=========================================="
         echo " PR Loop Monitor"
         echo "=========================================="
         echo ""
         echo "Session: $(basename "$session_dir")"
-        echo "Status:  $loop_status"
+        if [[ -n "$phase_display" ]]; then
+            echo "Phase:   $phase_display"
+        else
+            echo "Status:  $loop_status"
+        fi
         echo ""
         echo "PR Number:       #$pr_number"
         echo "Branch:          $start_branch"
