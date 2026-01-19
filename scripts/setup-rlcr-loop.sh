@@ -72,14 +72,17 @@ DESCRIPTION:
 
   1. Takes a markdown plan file as input (not a prompt string)
   2. Uses Codex to independently review Claude's work each iteration
-  3. Continues until Codex confirms completion with "COMPLETE" or max iterations
+  3. Has two phases: Implementation Phase and Review Phase
 
   The flow:
-  1. Claude works on the plan
+  1. Claude works on the plan (Implementation Phase)
   2. Claude writes a summary to round-N-summary.md
   3. On exit attempt, Codex reviews the summary
   4. If Codex finds issues, it blocks exit and sends feedback
-  5. If Codex outputs "COMPLETE", the loop ends
+  5. If Codex outputs "COMPLETE", enters Review Phase
+  6. In Review Phase, codex review checks code quality with [P0-9] markers
+  7. If code review finds issues, Claude fixes them
+  8. When no issues found, enters Finalize Phase and loop ends
 
 EXAMPLES:
   /humanize:start-rlcr-loop docs/feature-plan.md
@@ -90,7 +93,7 @@ EXAMPLES:
 STOPPING:
   - /humanize:cancel-rlcr-loop   Cancel the active loop
   - Reach --max iterations
-  - Codex outputs "COMPLETE" as final line of review
+  - Pass code review (no [P0-9] issues) after COMPLETE
 
 MONITORING:
   # View current state:
@@ -809,7 +812,9 @@ Loop Directory: $LOOP_DIR
 The loop is now active. When you try to exit:
 1. Codex will review your work summary
 2. If issues are found, you'll receive feedback and continue
-3. If Codex outputs "COMPLETE", the loop ends
+3. If Codex outputs "COMPLETE", enters Review Phase (code review)
+4. Code review checks for [P0-9] issues; if found, you fix them
+5. When no issues found, enters Finalize Phase and loop ends
 
 To cancel: /humanize:cancel-rlcr-loop
 
