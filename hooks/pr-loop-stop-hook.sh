@@ -525,7 +525,7 @@ detect_trigger_comment() {
             [.[] | select(
                 .author == $user and
                 (.body | test($pattern; "i")) and
-                (.created_at > $after)
+                (.created_at >= $after)
             )] |
             sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
         ')
