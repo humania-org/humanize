@@ -579,14 +579,20 @@ CURRENT_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER
 
 if [[ -n "$CURRENT_LATEST_COMMIT_AT" && "$CURRENT_LATEST_COMMIT_AT" != "$PR_LATEST_COMMIT_AT" ]]; then
     echo "Updating latest_commit_at: $PR_LATEST_COMMIT_AT -> $CURRENT_LATEST_COMMIT_AT" >&2
+    echo "  Clearing stale trigger fields (new commits require new @bot mention)" >&2
 
-    # Persist to state file
+    # Persist to state file and clear trigger fields to prevent stale polling
+    # New commits mean old trigger is invalid - user must post new @bot comment
     TEMP_FILE="${STATE_FILE}.commitrefresh.$$"
     sed -e "s/^latest_commit_at:.*/latest_commit_at: $CURRENT_LATEST_COMMIT_AT/" \
+        -e "s/^last_trigger_at:.*/last_trigger_at:/" \
+        -e "s/^trigger_comment_id:.*/trigger_comment_id:/" \
         "$STATE_FILE" > "$TEMP_FILE"
     mv "$TEMP_FILE" "$STATE_FILE"
 
     PR_LATEST_COMMIT_AT="$CURRENT_LATEST_COMMIT_AT"
+    PR_LAST_TRIGGER_AT=""
+    PR_TRIGGER_COMMENT_ID=""
 fi
 
 # ALWAYS check for newer trigger comments and update last_trigger_at
