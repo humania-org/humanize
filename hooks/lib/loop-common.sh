@@ -950,6 +950,19 @@ update_pr_goal_tracker() {
         return 1
     fi
 
+    # IDEMPOTENCY CHECK: Skip if this round already has an entry in Issue Summary or Issue Log
+    # Check Issue Summary for existing row with this round number
+    if grep -qE "^\|[[:space:]]*${round}[[:space:]]*\|" "$tracker_file" 2>/dev/null; then
+        echo "Goal tracker: Round $round already has Issue Summary entry, skipping update" >&2
+        return 0
+    fi
+
+    # Also check Issue Log for existing round entry
+    if grep -qE "^### Round ${round}$" "$tracker_file" 2>/dev/null; then
+        echo "Goal tracker: Round $round already has Issue Log entry, skipping update" >&2
+        return 0
+    fi
+
     # Extract current totals
     local current_found
     current_found=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')

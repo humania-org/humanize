@@ -79,6 +79,7 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 
 # Source portable timeout wrapper
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMPLATE_DIR="$PLUGIN_ROOT/prompt-template"
 source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
 
 # Default timeout for git/gh operations
@@ -303,14 +304,14 @@ $NON_HUMANIZE_STATUS
     GIT_AHEAD=$(run_with_timeout "$GIT_TIMEOUT" git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
     if [[ -n "$GIT_AHEAD" ]]; then
         AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
-        REASON="# Step 6: Unpushed Commits
+        CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+        FALLBACK_MSG="# Unpushed Commits Detected
 
 You have $AHEAD_COUNT unpushed commit(s). PR loop requires pushing changes so bots can review them.
 
-Please push your changes:
-\`\`\`bash
-git push
-\`\`\`"
+Please push: git push origin $CURRENT_BRANCH"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/unpushed-commits.md" "$FALLBACK_MSG" \
+            "AHEAD_COUNT=$AHEAD_COUNT" "CURRENT_BRANCH=$CURRENT_BRANCH")
         jq -n --arg reason "$REASON" --arg msg "PR Loop: $AHEAD_COUNT unpushed commit(s)" \
             '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
         exit 0
@@ -347,27 +348,12 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
             PR_LATEST_COMMIT_SHA="$CURRENT_HEAD"
             PR_LAST_TRIGGER_AT=""
 
-            REASON="# Step 6.5: Force Push Detected
+            FALLBACK_MSG="# Step 6.5: Force Push Detected
 
-A force push (history rewrite) has been detected on this branch.
-
-**Previous HEAD:** (updated in state)
-**Current HEAD:** \`$CURRENT_HEAD\`
-
-The previous commit is no longer reachable from the current HEAD, which indicates:
-- An interactive rebase was performed
-- A \`git push --force\` was executed
-- Commits were squashed or amended
-
-**What to do:**
-
-You must post a new @bot trigger comment to re-trigger reviews:
-
-\`\`\`bash
-gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review - force push detected, history was rewritten\"
-\`\`\`
-
-After posting the trigger comment, try exiting again."
+A force push (history rewrite) has been detected. Post a new @bot trigger comment: $PR_BOT_MENTION_STRING"
+            REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/force-push-detected.md" "$FALLBACK_MSG" \
+                "OLD_COMMIT=$PR_LATEST_COMMIT_SHA" "NEW_COMMIT=$CURRENT_HEAD" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING" \
+                "PR_NUMBER=$PR_NUMBER")
 
             jq -n --arg reason "$REASON" --arg msg "PR Loop: Force push detected - please re-trigger bots" \
                 '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
@@ -558,48 +544,71 @@ if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
             "$STATE_FILE" > "$TEMP_FILE"
         mv "$TEMP_FILE" "$STATE_FILE"
 
-        # Step 7b: Verify Claude eyes reaction if claude is configured
-        CLAUDE_CONFIGURED=false
-        for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-            if [[ "$bot" == "claude" ]]; then
-                CLAUDE_CONFIGURED=true
-                break
-            fi
-        done
-
-        if [[ "$CLAUDE_CONFIGURED" == "true" && -n "$DETECTED_TRIGGER_COMMENT_ID" ]]; then
-            echo "Verifying Claude eyes reaction on trigger comment (ID: $DETECTED_TRIGGER_COMMENT_ID)..." >&2
-
-            # Check for eyes reaction with 3x5s retry
-            EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$DETECTED_TRIGGER_COMMENT_ID" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
-
-            if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
-                # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
-                REASON="# Claude Bot Not Responding
-
-The Claude bot did not respond with an 'eyes' reaction to your trigger comment within 15 seconds (3 attempts x 5 seconds).
-
-This indicates that:
-- The Claude bot may not be installed on this repository
-- The bot may be experiencing issues
-- The trigger comment may not have been detected
-
-**To fix:**
-1. Verify the Claude bot is installed and configured for this repository
-2. Check the repository settings for bot permissions
-3. Try posting a new trigger comment
-
-If the bot is correctly configured, try exiting again to retry the eyes check."
-
-                jq -n --arg reason "$REASON" --arg msg "PR Loop: Claude bot not responding - check bot configuration" \
-                    '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
-                exit 0
-            else
-                echo "Claude eyes reaction confirmed!" >&2
-            fi
-        fi
+        # Note: Claude eyes verification is done in the dedicated section below
+        # (after trigger detection) to ensure it runs on EVERY exit attempt
     else
         echo "Using existing trigger timestamp: $PR_LAST_TRIGGER_AT" >&2
+    fi
+fi
+
+# ========================================
+# Claude Eyes Verification (EVERY exit attempt when claude is configured)
+# ========================================
+
+# AC-9: Always verify Claude eyes on every exit attempt when claude is in configured_bots
+CLAUDE_CONFIGURED=false
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    if [[ "$bot" == "claude" ]]; then
+        CLAUDE_CONFIGURED=true
+        break
+    fi
+done
+
+if [[ "$CLAUDE_CONFIGURED" == "true" ]]; then
+    # Use trigger comment ID from state or newly detected
+    TRIGGER_ID_TO_CHECK="${PR_TRIGGER_COMMENT_ID:-}"
+
+    if [[ -z "$TRIGGER_ID_TO_CHECK" ]]; then
+        # No trigger comment ID available - this is a blocking condition
+        echo "Error: Claude is configured but no trigger comment ID is available for eyes verification" >&2
+        REASON="# Claude Eyes Verification Failed
+
+Claude is configured as a bot reviewer, but no trigger comment ID is available to verify the eyes reaction.
+
+**This can happen when:**
+- No @bot trigger comment was posted
+- The trigger comment detection failed
+
+**Required Action:**
+Post a trigger comment mentioning @claude (or $PR_BOT_MENTION_STRING) to enable eyes verification.
+
+\`\`\`bash
+gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review\"
+\`\`\`"
+        jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment for Claude eyes verification" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+
+    echo "Verifying Claude eyes reaction on trigger comment (ID: $TRIGGER_ID_TO_CHECK)..." >&2
+
+    # Check for eyes reaction with 3x5s retry
+    EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
+
+    if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
+        # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
+        FALLBACK_MSG="# Claude Bot Not Responding
+
+The Claude bot did not respond with an 'eyes' reaction within 15 seconds (3 x 5s retries).
+Please verify the Claude bot is installed and configured for this repository."
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/claude-eyes-timeout.md" "$FALLBACK_MSG" \
+            "RETRY_COUNT=3" "TOTAL_WAIT_SECONDS=15")
+
+        jq -n --arg reason "$REASON" --arg msg "PR Loop: Claude bot not responding - check bot configuration" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    else
+        echo "Claude eyes reaction confirmed!" >&2
     fi
 fi
 
@@ -636,18 +645,20 @@ elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
 fi
 
 if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
-    REASON="# Missing Trigger Comment
+    # Determine startup case description for template
+    STARTUP_CASE_DESC="requires trigger comment"
+    case "${PR_STARTUP_CASE:-1}" in
+        4) STARTUP_CASE_DESC="New commits after all bots reviewed" ;;
+        5) STARTUP_CASE_DESC="New commits after partial bot reviews" ;;
+        *) STARTUP_CASE_DESC="Subsequent round requires trigger" ;;
+    esac
 
-No @bot mention comment found from you on this PR.
+    FALLBACK_MSG="# Missing Trigger Comment
 
-Before the Stop Hook can poll for bot reviews, you must comment on the PR to trigger the bots.
-
-**Please run:**
-\`\`\`bash
-gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review the latest changes\"
-\`\`\`
-
-Then try exiting again."
+No @bot mention found. Please run: gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review\""
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/no-trigger-comment.md" "$FALLBACK_MSG" \
+        "STARTUP_CASE=${PR_STARTUP_CASE:-1}" "STARTUP_CASE_DESC=$STARTUP_CASE_DESC" \
+        "CURRENT_ROUND=$PR_CURRENT_ROUND" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING")
 
     jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment - please @mention bots first" \
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
@@ -1164,6 +1175,13 @@ LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//
 # Per AC-8: Use "APPROVE" marker
 if [[ "$LAST_LINE_TRIMMED" == "APPROVE" ]]; then
     echo "All bots have approved! PR loop complete." >&2
+
+    # Update goal tracker BEFORE exit (idempotent - won't duplicate if Codex already updated)
+    if [[ -f "$GOAL_TRACKER_FILE" ]]; then
+        # For APPROVE, we record 0 new issues
+        update_pr_goal_tracker "$GOAL_TRACKER_FILE" "$NEXT_ROUND" '{"issues": 0, "resolved": 0, "bot": "All"}' || true
+    fi
+
     mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
     exit 0
 fi

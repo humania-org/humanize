@@ -715,6 +715,54 @@ EOF
 }
 
 # ========================================
+# Test: Goal Tracker Update Idempotency - AC-12
+# ========================================
+
+test_goal_tracker_update_idempotent() {
+    # Source loop-common.sh
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+    # Create a goal tracker file with proper schema
+    local tracker_file="$TEST_TEMP_DIR/goal-tracker.md"
+    cat > "$tracker_file" << 'EOF'
+# PR Review Goal Tracker
+
+## Issue Summary
+
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
+
+## Total Statistics
+
+- Total Issues Found: 0
+- Total Issues Resolved: 0
+- Remaining: 0
+
+## Issue Log
+
+### Round 0
+*Awaiting initial reviews*
+EOF
+
+    # First update - should succeed
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 3, "resolved": 0, "bot": "Codex"}'
+
+    # Verify first update worked
+    grep -q "Total Issues Found: 3" "$tracker_file" || { echo "First update failed - expected 3 total found"; return 1; }
+
+    # Second update with SAME round - should be SKIPPED (idempotent)
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 5, "resolved": 0, "bot": "Claude"}'
+
+    # Totals should still be 3 (not 8) because round 1 was already recorded
+    grep -q "Total Issues Found: 3" "$tracker_file" || { echo "Idempotency failed - totals changed on duplicate update"; return 1; }
+
+    # Count Issue Summary rows - should only have 2 (Round 0 + Round 1)
+    local row_count=$(grep -cE '^\|[[:space:]]*[0-9]+[[:space:]]*\|' "$tracker_file")
+    [[ "$row_count" -eq 2 ]] || { echo "Idempotency failed - expected 2 rows, got $row_count"; return 1; }
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -795,6 +843,7 @@ main() {
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_schema" ]]; then
         run_test "AC-12: Goal tracker schema" test_goal_tracker_schema
         run_test "AC-12: Goal tracker update adds row" test_goal_tracker_update_adds_row
+        run_test "AC-12: Goal tracker update idempotent" test_goal_tracker_update_idempotent
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "startup_case" ]]; then
