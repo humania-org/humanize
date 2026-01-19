@@ -961,7 +961,7 @@ while true; do
                     TEMP_FILE="${STATE_FILE}.thumbsup.$$"
                     sed '/^active_bots:$/,/^[a-z_]*:/{/^active_bots:$/!{/^[a-z_]*:/!d}}' "$STATE_FILE" > "$TEMP_FILE"
                     sed -i "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" 2>/dev/null || \
-                        sed "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" > "${TEMP_FILE}.new" && mv "${TEMP_FILE}.new" "$TEMP_FILE"
+                        { sed "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" > "${TEMP_FILE}.new" && mv "${TEMP_FILE}.new" "$TEMP_FILE"; }
                     mv "$TEMP_FILE" "$STATE_FILE"
                 fi
             fi
