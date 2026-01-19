@@ -884,20 +884,26 @@ fi
 # previously approved bots post new issues and re-add them to active_bots
 # IMPORTANT: Timeouts are anchored to TRIGGER_EPOCH, not poll start time
 # This ensures the 15-minute window is measured from when the @mention was posted
-declare -A BOTS_RESPONDED
-declare -A BOTS_TIMEOUT_START
-declare -A BOTS_TIMED_OUT  # Track which bots have timed out for AC-6
+#
+# NOTE: Using dynamic variable names instead of associative arrays (declare -A)
+# for macOS Bash 3.2 compatibility. Associative arrays require Bash 4.0+.
+# Helper functions to get/set values:
+_sanitize_key() { echo "$1" | tr -c 'a-zA-Z0-9_' '_'; }
+_map_get() { local var="$1_$(_sanitize_key "$2")"; echo "${!var}"; }
+_map_set() { local var="$1_$(_sanitize_key "$2")"; eval "$var=\"$3\""; }
+_map_isset() { local var="$1_$(_sanitize_key "$2")"; [[ -n "${!var+x}" ]]; }
+
 POLL_START_EPOCH=$(date +%s)
 echo "Timeout anchor: trigger at epoch $TRIGGER_EPOCH (poll started at $POLL_START_EPOCH)" >&2
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    BOTS_RESPONDED["$bot"]="false"
-    BOTS_TIMED_OUT["$bot"]="false"
+    _map_set "BOTS_RESPONDED" "$bot" "false"
+    _map_set "BOTS_TIMED_OUT" "$bot" "false"
     # Use TRIGGER_EPOCH for timeout, not poll start
-    BOTS_TIMEOUT_START["$bot"]="$TRIGGER_EPOCH"
+    _map_set "BOTS_TIMEOUT_START" "$bot" "$TRIGGER_EPOCH"
 done
 
 # Collect all new comments with deduplication by id
-declare -A SEEN_COMMENT_IDS
+# Using dynamic variables: SEEN_ID_<sanitized_id>=1
 ALL_NEW_COMMENTS="[]"
 
 while true; do
@@ -909,15 +915,15 @@ while true; do
     TIMED_OUT_BOTS=""
 
     for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-        if [[ "${BOTS_RESPONDED[$bot]}" == "true" ]]; then
+        if [[ "$(_map_get BOTS_RESPONDED "$bot")" == "true" ]]; then
             continue  # Bot already responded
         fi
 
         # Check per-bot timeout (15 minutes each) - AC-6: auto-remove after timeout
-        BOT_ELAPSED=$((CURRENT_TIME - BOTS_TIMEOUT_START[$bot]))
+        BOT_ELAPSED=$((CURRENT_TIME - $(_map_get BOTS_TIMEOUT_START "$bot")))
         if [[ $BOT_ELAPSED -ge $PR_POLL_TIMEOUT ]]; then
             echo "Bot '$bot' timed out after ${PR_POLL_TIMEOUT}s - will be removed from active_bots" >&2
-            BOTS_TIMED_OUT["$bot"]="true"  # Mark as timed out for later removal
+            _map_set "BOTS_TIMED_OUT" "$bot" "true"  # Mark as timed out for later removal
             if [[ -n "$TIMED_OUT_BOTS" ]]; then
                 TIMED_OUT_BOTS="${TIMED_OUT_BOTS}, ${bot}"
             else
@@ -969,8 +975,8 @@ while true; do
         responded_bot=$(map_author_to_bot "$responded_author")
         for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
             if [[ "$responded_bot" == "$bot" ]]; then
-                if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
-                    BOTS_RESPONDED["$bot"]="true"
+                if [[ "$(_map_get BOTS_RESPONDED "$bot")" != "true" ]]; then
+                    _map_set "BOTS_RESPONDED" "$bot" "true"
                     echo "Bot '$bot' has responded!" >&2
                 fi
             fi
@@ -979,7 +985,7 @@ while true; do
 
     # AC-8: Check for Codex +1 reaction during polling (Round 0, startup_case=1 only)
     # Codex may give +1 instead of commenting if no issues found on initial auto-review
-    if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 && "${BOTS_RESPONDED[codex]:-}" != "true" ]]; then
+    if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 && "$(_map_get BOTS_RESPONDED codex)" != "true" ]]; then
         # Check if codex is a configured bot
         CODEX_CONFIGURED=false
         for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
@@ -993,7 +999,7 @@ while true; do
             if [[ -n "$THUMBSUP_RESULT" && "$THUMBSUP_RESULT" != "null" ]]; then
                 # +1 found - codex approved without issues
                 echo "Codex +1 reaction detected during polling - treating as approval!" >&2
-                BOTS_RESPONDED["codex"]="true"
+                _map_set "BOTS_RESPONDED" "codex" "true"
 
                 # Remove codex from active_bots
                 declare -a NEW_ACTIVE_BOTS_THUMBSUP=()
@@ -1045,8 +1051,8 @@ while true; do
         while IFS= read -r comment_json; do
             [[ -z "$comment_json" || "$comment_json" == "null" ]] && continue
             COMMENT_ID=$(echo "$comment_json" | jq -r '.id // empty')
-            if [[ -n "$COMMENT_ID" && -z "${SEEN_COMMENT_IDS[$COMMENT_ID]:-}" ]]; then
-                SEEN_COMMENT_IDS["$COMMENT_ID"]="1"
+            if [[ -n "$COMMENT_ID" ]] && ! _map_isset "SEEN_COMMENT_IDS" "$COMMENT_ID"; then
+                _map_set "SEEN_COMMENT_IDS" "$COMMENT_ID" "1"
                 UNIQUE_COMMENTS=$(echo "$UNIQUE_COMMENTS" | jq --argjson c "$comment_json" '. + [$c]')
             fi
         done < <(echo "$NEW_COMMENTS" | jq -c '.[]')
@@ -1072,9 +1078,9 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
     TIMED_OUT_COUNT=0
     WAITING_COUNT=0
     for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-        if [[ "${BOTS_TIMED_OUT[$bot]:-}" == "true" ]]; then
+        if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" == "true" ]]; then
             TIMED_OUT_COUNT=$((TIMED_OUT_COUNT + 1))
-        elif [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
+        elif [[ "$(_map_get BOTS_RESPONDED "$bot")" != "true" ]]; then
             WAITING_COUNT=$((WAITING_COUNT + 1))
         fi
     done
@@ -1086,7 +1092,7 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
         # Build new active bots list without timed-out bots
         declare -a NEW_ACTIVE_BOTS_TIMEOUT=()
         for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-            if [[ "${BOTS_TIMED_OUT[$bot]:-}" != "true" ]]; then
+            if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" != "true" ]]; then
                 NEW_ACTIVE_BOTS_TIMEOUT+=("$bot")
             else
                 echo "Removing '$bot' from active_bots (timed out)" >&2
@@ -1135,7 +1141,7 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
     # Build list of bots that didn't respond (check all configured bots)
     MISSING_BOTS=""
     for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-        if [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
+        if [[ "$(_map_get BOTS_RESPONDED "$bot")" != "true" ]]; then
             if [[ -n "$MISSING_BOTS" ]]; then
                 MISSING_BOTS="${MISSING_BOTS}, ${bot}"
             else
@@ -1410,8 +1416,7 @@ ISSUES_SECTION=$(awk '/^### Per-Bot Status/{found=1; next} found && /^###/{exit}
 # IMPORTANT: Process ALL configured bots, not just currently active ones
 # This allows re-adding bots that were previously approved but now have new issues
 declare -a NEW_ACTIVE_BOTS=()
-declare -A BOTS_WITH_ISSUES=()
-declare -A BOTS_APPROVED=()
+# NOTE: Using _map_set/get instead of declare -A for macOS Bash 3.2 compatibility
 
 # First, identify bots with issues from Codex output
 while IFS= read -r line; do
@@ -1419,14 +1424,14 @@ while IFS= read -r line; do
         # Extract bot name from table row: | botname | ISSUES | summary |
         BOT_WITH_ISSUE=$(echo "$line" | sed 's/|/\n/g' | sed -n '2p' | tr -d ' ')
         if [[ -n "$BOT_WITH_ISSUE" ]]; then
-            BOTS_WITH_ISSUES["$BOT_WITH_ISSUE"]="true"
+            _map_set "BOTS_WITH_ISSUES" "$BOT_WITH_ISSUE" "true"
         fi
     fi
     if echo "$line" | grep -qiE '\|[[:space:]]*APPROVE[[:space:]]*\|'; then
         # Extract bot name from table row: | botname | APPROVE | summary |
         BOT_APPROVED=$(echo "$line" | sed 's/|/\n/g' | sed -n '2p' | tr -d ' ')
         if [[ -n "$BOT_APPROVED" ]]; then
-            BOTS_APPROVED["$BOT_APPROVED"]="true"
+            _map_set "BOTS_APPROVED" "$BOT_APPROVED" "true"
         fi
     fi
 done <<< "$ISSUES_SECTION"
@@ -1436,20 +1441,20 @@ done <<< "$ISSUES_SECTION"
 # AC-6: Also handle timed-out bots by removing them from active_bots
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     # AC-6: Check if bot timed out - remove from active_bots
-    if [[ "${BOTS_TIMED_OUT[$bot]:-}" == "true" ]]; then
+    if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" == "true" ]]; then
         echo "Removing '$bot' from active_bots (timed out after ${PR_POLL_TIMEOUT}s)" >&2
         continue  # Don't add to NEW_ACTIVE_BOTS
     fi
 
-    if [[ "${BOTS_WITH_ISSUES[$bot]:-}" == "true" ]]; then
+    if [[ "$(_map_get BOTS_WITH_ISSUES "$bot")" == "true" ]]; then
         # Bot has issues - add to active list
-        if [[ "${BOTS_APPROVED[$bot]:-}" == "true" ]]; then
+        if [[ "$(_map_get BOTS_APPROVED "$bot")" == "true" ]]; then
             echo "Bot '$bot' was previously approved but has new issues - re-adding to active" >&2
         else
             echo "Bot '$bot' has issues - keeping active" >&2
         fi
         NEW_ACTIVE_BOTS+=("$bot")
-    elif [[ "${BOTS_APPROVED[$bot]:-}" == "true" ]]; then
+    elif [[ "$(_map_get BOTS_APPROVED "$bot")" == "true" ]]; then
         # Bot approved with no new issues - remove from active
         echo "Removing '$bot' from active_bots (approved)" >&2
     elif echo "$APPROVED_SECTION" | grep -qi "$bot"; then
@@ -1502,8 +1507,8 @@ fi
 # So if issues were found and any bot approved, resolved = issues found (all resolved)
 # This aligns resolved count with issues found rather than counting approved bots
 if [[ $ISSUES_FOUND_COUNT -gt 0 ]]; then
-    for bot in "${!BOTS_APPROVED[@]}"; do
-        if [[ "${BOTS_APPROVED[$bot]}" == "true" ]]; then
+    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+        if [[ "$(_map_get BOTS_APPROVED "$bot")" == "true" ]]; then
             # Bot approved after finding issues - all issues from this round are resolved
             ISSUES_RESOLVED_COUNT=$ISSUES_FOUND_COUNT
             break
