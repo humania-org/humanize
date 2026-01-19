@@ -1279,6 +1279,35 @@ for bot in "${NEW_ACTIVE_BOTS[@]}"; do
   - ${bot}"
 done
 
+# ========================================
+# Update PR Goal Tracker (AC-12)
+# ========================================
+# Extract issue counts from Codex output and update goal tracker
+# Count issues by looking at the Issues Found section
+ISSUES_FOUND_COUNT=0
+ISSUES_RESOLVED_COUNT=0
+
+# Count issues in the "### Issues Found" section
+if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
+    # Count numbered list items (1., 2., etc.) in Issues Found section
+    ISSUES_FOUND_COUNT=$(sed -n '/### Issues Found/,/^###/p' "$CHECK_FILE" \
+        | grep -cE '^[0-9]+\.' 2>/dev/null || echo "0")
+fi
+
+# Count bots that approved (issues resolved from their perspective)
+for bot in "${!BOTS_APPROVED[@]}"; do
+    if [[ "${BOTS_APPROVED[$bot]}" == "true" ]]; then
+        # Bot approved, count as issues resolved if they had previous issues
+        ISSUES_RESOLVED_COUNT=$((ISSUES_RESOLVED_COUNT + 1))
+    fi
+done
+
+# Call update_pr_goal_tracker if goal tracker exists
+if [[ -f "$GOAL_TRACKER_FILE" ]]; then
+    BOT_RESULTS_JSON="{\"bot\": \"Codex\", \"issues\": $ISSUES_FOUND_COUNT, \"resolved\": $ISSUES_RESOLVED_COUNT}"
+    update_pr_goal_tracker "$GOAL_TRACKER_FILE" "$NEXT_ROUND" "$BOT_RESULTS_JSON" || true
+fi
+
 # Build YAML list for configured_bots (never changes)
 CONFIGURED_BOTS_YAML=""
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do

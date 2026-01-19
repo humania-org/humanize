@@ -4,51 +4,61 @@ After completing your analysis, update the goal tracker file at `{{GOAL_TRACKER_
 
 ### Required Updates
 
-1. **Update Current Status section:**
-   - Change the Round heading to match current round: `### Round {{NEXT_ROUND}}`
-   - Update `Phase:` to reflect current state (e.g., "Analyzing feedback", "Issues found", "All approved")
-   - Update `Active Bots:` to list only bots that still have ISSUES status
-   - Update `Approved Bots:` to list bots that have APPROVE status
+1. **Add row to Issue Summary table:**
+   - Add a new row for this round with your review results
+   - Format: `| {{NEXT_ROUND}} | <reviewer_name> | <issues_found> | <issues_resolved> | <status> |`
+   - Status should be: "Issues Found", "All Resolved", or "Approved"
 
-2. **Update Open Issues table:**
-   - Add new issues from this round (one row per issue)
-   - Mark resolved issues by moving them to Addressed Issues
+2. **Update Total Statistics section:**
+   - Increment `Total Issues Found` by number of new issues discovered
+   - Increment `Total Issues Resolved` by number of issues you verified as fixed
+   - Update `Remaining` to be (Total Found - Total Resolved)
 
-3. **Update Addressed Issues table:**
-   - Move issues that were fixed in this round from Open Issues
-   - Add resolution description
-
-4. **Update Log table:**
-   - Add entry for this round: `| {{NEXT_ROUND}} | <timestamp> | <summary of what happened> |`
+3. **Add Issue Log entry for this round:**
+   - Create heading: `### Round {{NEXT_ROUND}}`
+   - List each issue or approval with details
+   - Include reviewer name and brief description
 
 ### Example Goal Tracker Update
 
-If bot "claude" reported 2 issues and "codex" approved:
+If bot "claude" reported 2 new issues and "codex" found 0 issues (approved):
 
 ```markdown
-### Round {{NEXT_ROUND}}: Review Analysis
+## Issue Summary
 
-- **Phase:** Issues found - awaiting fixes
-- **Active Bots:** claude
-- **Approved Bots:** codex
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
+| 1     | claude   | 2            | 0               | Issues Found |
+| 1     | codex    | 0            | 0               | Approved |
 
-### Open Issues
+## Total Statistics
 
-| Round | Bot | Issue | Status |
-|-------|-----|-------|--------|
-| {{NEXT_ROUND}} | claude | Missing error handling in auth.ts | pending |
-| {{NEXT_ROUND}} | claude | Test coverage below 80% | pending |
+- Total Issues Found: 2
+- Total Issues Resolved: 0
+- Remaining: 2
 
-### Log
+## Issue Log
 
-| Round | Timestamp | Event |
-|-------|-----------|-------|
-| {{NEXT_ROUND}} | (now) | codex approved; claude reported 2 issues |
+### Round 0
+*Awaiting initial reviews*
+
+Started: 2026-01-18T10:00:00Z
+Startup Case: 1
+
+### Round 1
+**claude** found 2 issues:
+1. Missing error handling in auth.ts
+2. Test coverage below 80%
+
+**codex** approved - no issues found.
 ```
 
-### Important
+### Important Rules
 
 - Keep the file structure intact
 - Use proper markdown table formatting
-- Only update sections mentioned above
-- Do not modify the header sections (PR Information, Ultimate Goal, Acceptance Criteria)
+- Only update the sections mentioned above (Issue Summary, Total Statistics, Issue Log)
+- Do not modify the header sections (PR Information, Ultimate Goal)
+- Add to existing tables, do not replace them
+- Each reviewer gets a separate row in Issue Summary

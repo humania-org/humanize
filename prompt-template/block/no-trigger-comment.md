@@ -7,11 +7,11 @@ The PR loop is waiting for a **trigger comment** before it can proceed.
 - Round {{CURRENT_ROUND}} requires explicit trigger to start the review cycle
 
 **Required Action**:
-Post a comment on the PR mentioning `@anthropic-cla-1` to trigger a review.
+Post a comment on the PR mentioning {{BOT_MENTION_STRING}} to trigger a review.
 
 **Example trigger comment**:
 ```
-@anthropic-cla-1 Please review these changes.
+{{BOT_MENTION_STRING}} Please review these changes.
 ```
 
 After posting a trigger comment, you may attempt to continue.

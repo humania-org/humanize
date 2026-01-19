@@ -930,11 +930,12 @@ end_loop() {
 #   $1 - Path to goal-tracker.md
 #   $2 - Current round number
 #   $3 - JSON containing per-bot analysis results (optional)
-#        Format: {"bot": "status", "issues": N, "resolved": N}
+#        Format: {"bot": "name", "issues": N, "resolved": N}
 #
 # Updates:
 #   - Issue Summary table with new row
 #   - Total Statistics section
+#   - Issue Log with round entry
 #
 # Note: This is a helper function for the stop hook. The primary update
 # mechanism is through Codex prompt instructions, but this ensures
@@ -974,23 +975,53 @@ update_pr_goal_tracker() {
     local total_resolved=$((current_resolved + new_resolved))
     local remaining=$((total_found - total_resolved))
 
-    # Determine status
+    # Determine status for this round
     local status="In Progress"
-    if [[ $remaining -eq 0 && $total_found -gt 0 ]]; then
-        status="Resolved"
+    if [[ $new_issues -eq 0 && $new_resolved -eq 0 ]]; then
+        status="Approved"
     elif [[ $new_issues -gt 0 ]]; then
         status="Issues Found"
+    elif [[ $new_resolved -gt 0 ]]; then
+        status="Resolved"
     fi
 
-    # Update the file using sed
-    # Update Total Statistics
+    # Create temp file for updates
     local temp_file="${tracker_file}.update.$$"
+
+    # Step 1: Update Total Statistics
     sed -e "s/^- Total Issues Found:.*/- Total Issues Found: $total_found/" \
         -e "s/^- Total Issues Resolved:.*/- Total Issues Resolved: $total_resolved/" \
         -e "s/^- Remaining:.*/- Remaining: $remaining/" \
         "$tracker_file" > "$temp_file"
 
+    # Step 2: Add row to Issue Summary table
+    # Find the line after the table header separator and insert a new row
+    local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
+
+    # Find the Total Statistics section and insert row just before it
+    awk -v row="$new_row" '
+        /^## Total Statistics/ {
+            print row
+            print ""
+        }
+        { print }
+    ' "$temp_file" > "${temp_file}.2"
+    mv "${temp_file}.2" "$temp_file"
+
+    # Step 3: Add Issue Log entry for this round
+    # Insert before the end of file
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local log_entry="### Round $round
+$reviewer: Found $new_issues issues, Resolved $new_resolved
+Updated: $timestamp
+"
+
+    # Append to Issue Log section
+    echo "" >> "$temp_file"
+    echo "$log_entry" >> "$temp_file"
+
     mv "$temp_file" "$tracker_file"
-    echo "Goal tracker updated: Round $round, Found=$total_found, Resolved=$total_resolved, Remaining=$remaining" >&2
+    echo "Goal tracker updated: Round $round, Reviewer=$reviewer, Found=$new_issues, Resolved=$new_resolved" >&2
     return 0
 }

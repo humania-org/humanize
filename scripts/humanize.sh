@@ -1170,6 +1170,17 @@ _humanize_monitor_pr() {
             printf "${yellow}Active Bots:${reset}     ${active_bots}\n"
         fi
 
+        # Goal tracker issue stats (AC-13)
+        local goal_tracker_file="$session_dir/goal-tracker.md"
+        if [[ -f "$goal_tracker_file" ]] && type humanize_parse_pr_goal_tracker &>/dev/null; then
+            local tracker_stats=$(humanize_parse_pr_goal_tracker "$goal_tracker_file")
+            local total_issues resolved_issues remaining_issues last_reviewer
+            IFS='|' read -r total_issues resolved_issues remaining_issues last_reviewer <<< "$tracker_stats"
+            if [[ "$total_issues" != "0" ]] || [[ "$resolved_issues" != "0" ]]; then
+                printf "${cyan}Issues:${reset}          Found: ${yellow}${total_issues}${reset}, Resolved: ${green}${resolved_issues}${reset}, Remaining: ${red}${remaining_issues}${reset}\n"
+            fi
+        fi
+
         # Started time
         local start_display="$started_at"
         if [[ "$started_at" != "N/A" ]]; then

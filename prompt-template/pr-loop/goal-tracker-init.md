@@ -1,9 +1,10 @@
-# PR Loop Goal Tracker
+# PR Review Goal Tracker
 
 ## PR Information
 
 - **PR Number:** #{{PR_NUMBER}}
 - **Branch:** {{START_BRANCH}}
+- **Started:** {{STARTED_AT}}
 - **Monitored Bots:** {{ACTIVE_BOTS_DISPLAY}}
 - **Startup Case:** {{STARTUP_CASE}}
 
@@ -11,33 +12,22 @@
 
 Get all monitored bot reviewers ({{ACTIVE_BOTS_DISPLAY}}) to approve this PR.
 
-## Acceptance Criteria
+## Issue Summary
 
-| AC | Description | Bot | Status |
-|----|-------------|-----|--------|
-{{BOT_AC_ROWS}}
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
 
-## Current Status
+## Total Statistics
 
-### Round 0: Initialization
+- Total Issues Found: 0
+- Total Issues Resolved: 0
+- Remaining: 0
 
-- **Phase:** Waiting for initial bot reviews
-- **Active Bots:** {{ACTIVE_BOTS_DISPLAY}}
-- **Approved Bots:** (none yet)
+## Issue Log
 
-### Open Issues
+### Round 0
+*Awaiting initial reviews*
 
-| Round | Bot | Issue | Status |
-|-------|-----|-------|--------|
-| - | - | (awaiting initial reviews) | pending |
-
-### Addressed Issues
-
-| Round | Bot | Issue | Resolution |
-|-------|-----|-------|------------|
-
-## Log
-
-| Round | Timestamp | Event |
-|-------|-----------|-------|
-| 0 | {{STARTED_AT}} | PR loop initialized (Case {{STARTUP_CASE}}) |
+Started: {{STARTED_AT}}
+Startup Case: {{STARTUP_CASE}}

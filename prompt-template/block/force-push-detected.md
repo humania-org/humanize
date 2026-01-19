@@ -7,11 +7,11 @@ Force pushes reset the review state because the commit history has been rewritte
 **Required Actions**:
 1. The PR loop has updated its tracking to the new commit SHA
 2. You must post a new trigger comment to restart the review cycle
-3. Post a comment mentioning `@anthropic-cla-1` to trigger a new review
+3. Post a comment mentioning {{BOT_MENTION_STRING}} to trigger a new review
 
 **Example trigger comment**:
 ```
-@anthropic-cla-1 Please review these changes.
+{{BOT_MENTION_STRING}} Please review these changes.
 ```
 
 After posting a trigger comment, you may attempt to continue.

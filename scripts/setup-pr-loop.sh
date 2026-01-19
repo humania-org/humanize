@@ -411,19 +411,29 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         echo "Warning: Failed to post trigger comment: $TRIGGER_RESULT" >&2
     }
 
-    LAST_TRIGGER_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    # Get the comment ID and use GitHub's timestamp to avoid clock skew
+    # Fetch the latest comment from current user
+    CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
+    if [[ -n "$CURRENT_USER" ]]; then
+        # Fetch both ID and created_at from the comment we just posted
+        COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+            --paginate --jq "[.[] | select(.user.login == \"$CURRENT_USER\")] | sort_by(.created_at) | reverse | .[0] | {id: .id, created_at: .created_at}" 2>/dev/null) || COMMENT_DATA=""
+
+        if [[ -n "$COMMENT_DATA" && "$COMMENT_DATA" != "null" ]]; then
+            TRIGGER_COMMENT_ID=$(echo "$COMMENT_DATA" | jq -r '.id // empty')
+            # Use GitHub's timestamp instead of local time to avoid clock skew
+            LAST_TRIGGER_AT=$(echo "$COMMENT_DATA" | jq -r '.created_at // empty')
+        fi
+    fi
+
+    # Fallback to local time if we couldn't get GitHub timestamp
+    if [[ -z "$LAST_TRIGGER_AT" ]]; then
+        LAST_TRIGGER_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    fi
 
     # If --claude is specified, verify eyes reaction
     if [[ "$BOT_CLAUDE" == "true" ]]; then
         echo "Verifying Claude eyes reaction (3 attempts x 5 seconds)..." >&2
-
-        # Get the comment ID we just posted
-        # Fetch the latest comment from current user
-        CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
-        if [[ -n "$CURRENT_USER" ]]; then
-            TRIGGER_COMMENT_ID=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-                --paginate --jq "[.[] | select(.user.login == \"$CURRENT_USER\")] | sort_by(.created_at) | reverse | .[0].id" 2>/dev/null) || TRIGGER_COMMENT_ID=""
-        fi
 
         if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
             # Check for eyes reaction with retry
