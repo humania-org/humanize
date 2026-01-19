@@ -871,10 +871,12 @@ fi
 
 # Convert trigger timestamp to epoch for timeout anchoring
 # Per-bot timeouts are measured from the TRIGGER time, not poll start time
-# Special case: when USE_ALL_COMMENTS is true, AFTER_TIMESTAMP is epoch (1970),
-# so we anchor timeouts to started_at instead to avoid instant timeout
+# Special case: when USE_ALL_COMMENTS is true (startup cases 2/3), we're looking at
+# ALL historical comments. In this case, anchor timeout to NOW (poll start time)
+# rather than PR_STARTED_AT, which could be hours old and cause instant timeout.
 if [[ "$USE_ALL_COMMENTS" == "true" ]]; then
-    TRIGGER_EPOCH=$(date -d "$PR_STARTED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$PR_STARTED_AT" +%s 2>/dev/null || date +%s)
+    # Use current time as timeout anchor for historical comment review
+    TRIGGER_EPOCH=$(date +%s)
 else
     TRIGGER_EPOCH=$(date -d "$AFTER_TIMESTAMP" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$AFTER_TIMESTAMP" +%s 2>/dev/null || date +%s)
 fi
