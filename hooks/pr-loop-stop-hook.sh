@@ -1547,7 +1547,9 @@ done
 
 # Update latest_commit_sha to current HEAD (for force push detection in next round)
 NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || NEW_LATEST_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
-NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits --jq '.commits | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
+# NOTE: Sort by committedDate before selecting last - API order is not guaranteed
+NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+    --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
 
 # Re-evaluate startup_case dynamically (AC-14)
 # This allows case to change as bot comments arrive
