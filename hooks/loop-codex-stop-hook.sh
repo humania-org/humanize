@@ -685,8 +685,7 @@ fi
 # Get Docs Path from Config
 # ========================================
 
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
+# Note: PLUGIN_ROOT already defined at line 51
 DOCS_PATH="docs"
 
 # ========================================
@@ -813,25 +812,7 @@ CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
 CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 mkdir -p "$CACHE_DIR"
 
-# Source portable timeout if available
-TIMEOUT_SCRIPT="$PLUGIN_ROOT/scripts/portable-timeout.sh"
-if [[ -f "$TIMEOUT_SCRIPT" ]]; then
-    source "$TIMEOUT_SCRIPT"
-else
-    # Fallback: define run_with_timeout inline
-    run_with_timeout() {
-        local timeout_secs="$1"
-        shift
-        if command -v timeout &>/dev/null; then
-            timeout "$timeout_secs" "$@"
-        elif command -v gtimeout &>/dev/null; then
-            gtimeout "$timeout_secs" "$@"
-        else
-            # No timeout command, just run directly
-            "$@"
-        fi
-    }
-fi
+# Note: portable-timeout.sh already sourced at line 52
 
 # Build Codex command arguments (shared between codex exec and codex review)
 CODEX_ARGS=("-m" "$CODEX_MODEL")
@@ -839,6 +820,184 @@ if [[ -n "$CODEX_EFFORT" ]]; then
     CODEX_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
 fi
 CODEX_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+
+# ========================================
+# Helper Functions for Code Review Phase
+# ========================================
+
+# Run codex review and save debug files
+# Arguments: $1=round_number, $2=prompt_file, $3=result_file
+# Sets: CODEX_REVIEW_EXIT_CODE, CODEX_REVIEW_STDOUT_FILE, CODEX_REVIEW_STDERR_FILE
+# Returns: exit code from codex review
+run_codex_code_review() {
+    local round="$1"
+    local prompt_file="$2"
+    local result_file="$3"
+
+    CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
+    CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${round}-codex-review.out"
+    CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${round}-codex-review.log"
+
+    local prompt_content
+    prompt_content=$(cat "$prompt_file")
+    {
+        echo "# Codex review invocation debug info"
+        echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "# Working directory: $PROJECT_ROOT"
+        echo "# Base branch: $BASE_BRANCH"
+        echo "# Timeout: $CODEX_TIMEOUT seconds"
+        echo ""
+        echo "codex review --base $BASE_BRANCH ${CODEX_ARGS[*]} \"<prompt>\""
+        echo ""
+        echo "# Prompt content:"
+        echo "$prompt_content"
+    } > "$CODEX_REVIEW_CMD_FILE"
+
+    echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
+    echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
+
+    CODEX_REVIEW_EXIT_CODE=0
+    printf '%s' "$prompt_content" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_ARGS[@]}" - \
+        > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
+
+    echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
+
+    # Copy stdout to result file if codex didn't create it directly
+    if [[ "$CODEX_REVIEW_EXIT_CODE" -eq 0 && ! -f "$result_file" && -s "$CODEX_REVIEW_STDOUT_FILE" ]]; then
+        cp "$CODEX_REVIEW_STDOUT_FILE" "$result_file"
+    fi
+
+    return "$CODEX_REVIEW_EXIT_CODE"
+}
+
+# Enter finalize phase with appropriate prompt
+# Arguments: $1=skip_reason (empty if not skipped), $2=system_message
+enter_finalize_phase() {
+    local skip_reason="$1"
+    local system_msg="$2"
+
+    mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
+    echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
+
+    local finalize_summary_file="$LOOP_DIR/finalize-summary.md"
+    local finalize_prompt
+
+    if [[ -n "$skip_reason" ]]; then
+        local fallback="# Finalize Phase (Review Skipped)
+
+**Warning**: Code review was skipped due to: {{REVIEW_SKIP_REASON}}
+
+The implementation could not be fully validated. You are now in the **Finalize Phase**.
+
+## Important Notice
+Since the code review was skipped, please manually verify your changes before finalizing:
+1. Review your code changes for any obvious issues
+2. Run any available tests to verify correctness
+3. Check for common code quality issues
+
+## Simplification (Optional)
+If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-skipped-prompt.md" "$fallback" \
+            "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
+            "PLAN_FILE=$PLAN_FILE" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+            "REVIEW_SKIP_REASON=$skip_reason")
+    else
+        local fallback="# Finalize Phase
+
+Codex review has passed. The implementation is complete.
+
+You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Focus
+Focus on the code changes made during this RLCR session.
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$fallback" \
+            "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
+            "PLAN_FILE=$PLAN_FILE" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
+    fi
+
+    jq -n \
+        --arg reason "$finalize_prompt" \
+        --arg msg "$system_msg" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# Continue review loop when issues are found
+# Arguments: $1=round_number, $2=review_content
+continue_review_loop_with_issues() {
+    local round="$1"
+    local review_content="$2"
+
+    echo "Code review found issues. Continuing review loop..." >&2
+
+    # Update round number in state file
+    local temp_file="${STATE_FILE}.tmp.$$"
+    sed "s/^current_round: .*/current_round: $round/" "$STATE_FILE" > "$temp_file"
+    mv "$temp_file" "$STATE_FILE"
+
+    # Build review-fix prompt for Claude
+    local next_prompt_file="$LOOP_DIR/round-${round}-prompt.md"
+    local next_summary_file="$LOOP_DIR/round-${round}-summary.md"
+
+    local fallback="# Code Review Findings
+
+You are in the **Review Phase** of the RLCR loop. Codex has performed a code review and found issues.
+
+## Review Results
+
+{{REVIEW_CONTENT}}
+
+## Instructions
+
+1. Address all issues marked with [P0-9] severity markers
+2. Focus on fixes only - do not add new features
+3. Commit your changes after fixing the issues
+4. Write your summary to: {{SUMMARY_FILE}}"
+
+    load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
+        "REVIEW_CONTENT=$review_content" \
+        "SUMMARY_FILE=$next_summary_file" > "$next_prompt_file"
+
+    jq -n \
+        --arg reason "$(cat "$next_prompt_file")" \
+        --arg msg "Loop: Review Phase Round $round - Fix code review issues" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
 
 # ========================================
 # Run Codex Review (Implementation Phase Only)
@@ -1020,7 +1179,6 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             echo "Warning: No base_branch configured, skipping code review phase." >&2
             REVIEW_SKIPPED="true"
             REVIEW_SKIP_REASON="No base_branch configured for code review"
-            # Fall through to finalize phase
         else
             echo "Implementation complete. Entering Review Phase..." >&2
 
@@ -1030,7 +1188,7 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             mv "$TEMP_FILE" "$STATE_FILE"
             REVIEW_STARTED="true"
 
-            # Create marker file to validate review phase was properly entered (prevents manual toggle attacks)
+            # Create marker file to validate review phase was properly entered
             touch "$LOOP_DIR/.review-phase-started"
 
             # Run codex review
@@ -1057,198 +1215,35 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
 
             echo "Running codex review against base branch: $BASE_BRANCH..." >&2
 
-            # Debug file naming for code review (separate from codex-run)
-            CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.cmd"
-            CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out"
-            CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.log"
-
-            # Build codex review command
-            CODEX_REVIEW_PROMPT_CONTENT=$(cat "$CODE_REVIEW_PROMPT_FILE")
-            {
-                echo "# Codex review invocation debug info"
-                echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                echo "# Working directory: $PROJECT_ROOT"
-                echo "# Base branch: $BASE_BRANCH"
-                echo "# Timeout: $CODEX_TIMEOUT seconds"
-                echo ""
-                echo "codex review --base $BASE_BRANCH ${CODEX_ARGS[*]} \"<prompt>\""
-                echo ""
-                echo "# Prompt content:"
-                echo "$CODEX_REVIEW_PROMPT_CONTENT"
-            } > "$CODEX_REVIEW_CMD_FILE"
-
-            echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-            echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
-
-            CODEX_REVIEW_EXIT_CODE=0
-            printf '%s' "$CODEX_REVIEW_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_ARGS[@]}" - \
-                > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
-
-            echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
-            echo "Codex review stdout saved to: $CODEX_REVIEW_STDOUT_FILE" >&2
-            echo "Codex review stderr saved to: $CODEX_REVIEW_STDERR_FILE" >&2
-
-            # Handle codex review failure - skip to finalize
-            if [[ "$CODEX_REVIEW_EXIT_CODE" -ne 0 ]]; then
+            # Run codex review using helper function
+            if ! run_codex_code_review "$REVIEW_ROUND" "$CODE_REVIEW_PROMPT_FILE" "$CODE_REVIEW_RESULT_FILE"; then
                 echo "Warning: Codex review failed (exit code $CODEX_REVIEW_EXIT_CODE). Skipping to finalize phase." >&2
                 REVIEW_SKIPPED="true"
                 REVIEW_SKIP_REASON="Codex review failed with exit code $CODEX_REVIEW_EXIT_CODE"
-                # Fall through to finalize phase
+            elif [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
+                echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
+                REVIEW_SKIPPED="true"
+                REVIEW_SKIP_REASON="Codex review produced no output"
+            elif grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
+                # Issues found - continue review loop using helper function
+                continue_review_loop_with_issues "$REVIEW_ROUND" "$(cat "$CODE_REVIEW_RESULT_FILE")"
             else
-                # Copy stdout to result file if needed
-                if [[ ! -f "$CODE_REVIEW_RESULT_FILE" && -s "$CODEX_REVIEW_STDOUT_FILE" ]]; then
-                    cp "$CODEX_REVIEW_STDOUT_FILE" "$CODE_REVIEW_RESULT_FILE"
-                fi
-
-                # Handle missing or empty review output as failure (skip to finalize with warning)
-                if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
-                    echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
-                    REVIEW_SKIPPED="true"
-                    REVIEW_SKIP_REASON="Codex review produced no output"
-                    # Fall through to finalize phase (same as exit code failure)
-                # Check for issues using [P0-9] pattern
-                elif grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
-                    # Issues found - continue review loop
-                    echo "Code review found issues. Continuing review loop..." >&2
-
-                    CODE_REVIEW_CONTENT=$(cat "$CODE_REVIEW_RESULT_FILE")
-
-                    # Update round number
-                    TEMP_FILE="${STATE_FILE}.tmp.$$"
-                    sed "s/^current_round: .*/current_round: $REVIEW_ROUND/" "$STATE_FILE" > "$TEMP_FILE"
-                    mv "$TEMP_FILE" "$STATE_FILE"
-
-                    # Build review-fix prompt for Claude
-                    NEXT_PROMPT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-prompt.md"
-                    NEXT_SUMMARY_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-summary.md"
-
-                    REVIEW_PHASE_FALLBACK="# Code Review Findings
-
-You are in the **Review Phase** of the RLCR loop. Codex has performed a code review and found issues.
-
-## Review Results
-
-{{REVIEW_CONTENT}}
-
-## Instructions
-
-1. Address all issues marked with [P0-9] severity markers
-2. Focus on fixes only - do not add new features
-3. Commit your changes after fixing the issues
-4. Write your summary to: {{SUMMARY_FILE}}"
-
-                    load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$REVIEW_PHASE_FALLBACK" \
-                        "REVIEW_CONTENT=$CODE_REVIEW_CONTENT" \
-                        "SUMMARY_FILE=$NEXT_SUMMARY_FILE" > "$NEXT_PROMPT_FILE"
-
-                    SYSTEM_MSG="Loop: Review Phase Round $REVIEW_ROUND - Fix code review issues"
-
-                    jq -n \
-                        --arg reason "$(cat "$NEXT_PROMPT_FILE")" \
-                        --arg msg "$SYSTEM_MSG" \
-                        '{
-                            "decision": "block",
-                            "reason": $reason,
-                            "systemMessage": $msg
-                        }'
-                    exit 0
-                else
-                    # No issues found - proceed to finalize
-                    echo "Code review passed with no issues. Proceeding to finalize phase." >&2
-                fi
+                echo "Code review passed with no issues. Proceeding to finalize phase." >&2
             fi
         fi
 
-        # Finalize phase entry - different messaging based on whether review was skipped
+        # Determine finalize phase messaging
         if [[ "$REVIEW_SKIPPED" == "true" ]]; then
             echo "Code review was skipped ($REVIEW_SKIP_REASON). Entering Finalize Phase..." >&2
-        elif [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
-            echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
+            enter_finalize_phase "$REVIEW_SKIP_REASON" "Loop: Finalize Phase - Review skipped, manual verification needed"
         else
-            echo "Codex review passed. Entering Finalize Phase..." >&2
+            if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
+                echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
+            else
+                echo "Codex review passed. Entering Finalize Phase..." >&2
+            fi
+            enter_finalize_phase "" "Loop: Finalize Phase - Simplify and refactor code before completion"
         fi
-
-        # Rename state file to indicate Finalize Phase
-        mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
-        echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
-
-        # Build Finalize Phase prompt - use different prompt for skipped review
-        FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-
-        if [[ "$REVIEW_SKIPPED" == "true" ]]; then
-            # Failure-specific finalize prompt when review was skipped
-            FINALIZE_PROMPT_FALLBACK="# Finalize Phase (Review Skipped)
-
-**Warning**: Code review was skipped due to: {{REVIEW_SKIP_REASON}}
-
-The implementation could not be fully validated. You are now in the **Finalize Phase**.
-
-## Important Notice
-Since the code review was skipped, please manually verify your changes before finalizing:
-1. Review your code changes for any obvious issues
-2. Run any available tests to verify correctness
-3. Check for common code quality issues
-
-## Simplification (Optional)
-If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
-
-## Constraints
-- Must NOT change existing functionality
-- Must NOT fail existing tests
-- Must NOT introduce new bugs
-- Only perform functionality-equivalent code refactoring and simplification
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-            FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-skipped-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-                "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-                "PLAN_FILE=$PLAN_FILE" \
-                "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
-                "REVIEW_SKIP_REASON=$REVIEW_SKIP_REASON")
-
-            SYSTEM_MSG="Loop: Finalize Phase - Review skipped, manual verification needed"
-        else
-            # Normal finalize prompt when review passed
-            FINALIZE_PROMPT_FALLBACK="# Finalize Phase
-
-Codex review has passed. The implementation is complete.
-
-You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
-
-## Constraints
-- Must NOT change existing functionality
-- Must NOT fail existing tests
-- Must NOT introduce new bugs
-- Only perform functionality-equivalent code refactoring and simplification
-
-## Focus
-Focus on the code changes made during this RLCR session.
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-            FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-                "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-                "PLAN_FILE=$PLAN_FILE" \
-                "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
-
-            SYSTEM_MSG="Loop: Finalize Phase - Simplify and refactor code before completion"
-        fi
-
-        jq -n \
-            --arg reason "$FINALIZE_PROMPT" \
-            --arg msg "$SYSTEM_MSG" \
-            '{
-                "decision": "block",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
     fi
 fi
 
@@ -1302,188 +1297,24 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
         "BASE_BRANCH=$BASE_BRANCH" \
         "REVIEW_RESULT_FILE=$CODE_REVIEW_RESULT_FILE" > "$CODE_REVIEW_PROMPT_FILE"
 
-    # Debug file naming for code review
-    CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.cmd"
-    CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out"
-    CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.log"
-
-    # Build codex review command
-    CODEX_REVIEW_PROMPT_CONTENT=$(cat "$CODE_REVIEW_PROMPT_FILE")
-    {
-        echo "# Codex review invocation debug info"
-        echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "# Working directory: $PROJECT_ROOT"
-        echo "# Base branch: $BASE_BRANCH"
-        echo "# Timeout: $CODEX_TIMEOUT seconds"
-        echo ""
-        echo "codex review --base $BASE_BRANCH ${CODEX_ARGS[*]} \"<prompt>\""
-        echo ""
-        echo "# Prompt content:"
-        echo "$CODEX_REVIEW_PROMPT_CONTENT"
-    } > "$CODEX_REVIEW_CMD_FILE"
-
-    echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-    echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
-
-    CODEX_REVIEW_EXIT_CODE=0
-    printf '%s' "$CODEX_REVIEW_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_ARGS[@]}" - \
-        > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
-
-    echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
-
-    # Handle codex review failure - skip to finalize
-    if [[ "$CODEX_REVIEW_EXIT_CODE" -ne 0 ]]; then
+    # Run codex review using helper function
+    if ! run_codex_code_review "$REVIEW_ROUND" "$CODE_REVIEW_PROMPT_FILE" "$CODE_REVIEW_RESULT_FILE"; then
         echo "Warning: Codex review failed (exit code $CODEX_REVIEW_EXIT_CODE). Skipping to finalize phase." >&2
-
-        # Finalize phase entry
-        mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
-        echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
-
-        FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-        FINALIZE_PROMPT_FALLBACK="# Finalize Phase
-
-Code review was skipped due to failure. Proceeding to finalize.
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-        FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-            "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-            "PLAN_FILE=$PLAN_FILE" \
-            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
-
-        jq -n \
-            --arg reason "$FINALIZE_PROMPT" \
-            --arg msg "Loop: Finalize Phase - Code review skipped" \
-            '{
-                "decision": "block",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
+        enter_finalize_phase "Codex review failed with exit code $CODEX_REVIEW_EXIT_CODE" "Loop: Finalize Phase - Code review skipped"
     fi
 
-    # Copy stdout to result file if needed
-    if [[ ! -f "$CODE_REVIEW_RESULT_FILE" && -s "$CODEX_REVIEW_STDOUT_FILE" ]]; then
-        cp "$CODEX_REVIEW_STDOUT_FILE" "$CODE_REVIEW_RESULT_FILE"
-    fi
-
-    # Handle missing or empty review output as failure (skip to finalize with warning)
+    # Handle missing or empty review output
     if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
         echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
-
-        # Finalize phase entry
-        mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
-        echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
-
-        FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-        FINALIZE_PROMPT_FALLBACK="# Finalize Phase
-
-Code review was skipped due to empty output. Proceeding to finalize.
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-        FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-            "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-            "PLAN_FILE=$PLAN_FILE" \
-            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
-
-        jq -n \
-            --arg reason "$FINALIZE_PROMPT" \
-            --arg msg "Loop: Finalize Phase - Code review empty" \
-            '{
-                "decision": "block",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
+        enter_finalize_phase "Codex review produced no output" "Loop: Finalize Phase - Code review empty"
     fi
 
     # Check for issues using [P0-9] pattern
     if grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
-        # Issues found - continue review loop
-        echo "Code review found issues. Continuing review loop..." >&2
-
-        CODE_REVIEW_CONTENT=$(cat "$CODE_REVIEW_RESULT_FILE")
-
-        # Update round number
-        TEMP_FILE="${STATE_FILE}.tmp.$$"
-        sed "s/^current_round: .*/current_round: $REVIEW_ROUND/" "$STATE_FILE" > "$TEMP_FILE"
-        mv "$TEMP_FILE" "$STATE_FILE"
-
-        # Build review-fix prompt for Claude
-        NEXT_PROMPT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-prompt.md"
-        NEXT_SUMMARY_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-summary.md"
-
-        REVIEW_PHASE_FALLBACK="# Code Review Findings
-
-You are in the **Review Phase** of the RLCR loop. Codex has performed a code review and found issues.
-
-## Review Results
-
-{{REVIEW_CONTENT}}
-
-## Instructions
-
-1. Address all issues marked with [P0-9] severity markers
-2. Focus on fixes only - do not add new features
-3. Commit your changes after fixing the issues
-4. Write your summary to: {{SUMMARY_FILE}}"
-
-        load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$REVIEW_PHASE_FALLBACK" \
-            "REVIEW_CONTENT=$CODE_REVIEW_CONTENT" \
-            "SUMMARY_FILE=$NEXT_SUMMARY_FILE" > "$NEXT_PROMPT_FILE"
-
-        SYSTEM_MSG="Loop: Review Phase Round $REVIEW_ROUND - Fix code review issues"
-
-        jq -n \
-            --arg reason "$(cat "$NEXT_PROMPT_FILE")" \
-            --arg msg "$SYSTEM_MSG" \
-            '{
-                "decision": "block",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
+        continue_review_loop_with_issues "$REVIEW_ROUND" "$(cat "$CODE_REVIEW_RESULT_FILE")"
     else
-        # No issues found - proceed to finalize
         echo "Code review passed with no issues. Proceeding to finalize phase." >&2
-
-        # Finalize phase entry
-        mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
-        echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
-
-        FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-        FINALIZE_PROMPT_FALLBACK="# Finalize Phase
-
-Code review has passed. The implementation is complete.
-
-You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-        FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-            "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-            "PLAN_FILE=$PLAN_FILE" \
-            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
-
-        jq -n \
-            --arg reason "$FINALIZE_PROMPT" \
-            --arg msg "Loop: Finalize Phase - Code review passed" \
-            '{
-                "decision": "block",
-                "reason": $reason,
-                "systemMessage": $msg
-            }'
-        exit 0
+        enter_finalize_phase "" "Loop: Finalize Phase - Code review passed"
     fi
 fi
 
