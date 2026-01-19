@@ -1095,11 +1095,11 @@ GOAL
     local output
     output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
 
-    # Assert output contains "Codex analyzing" phase
-    if echo "$output" | grep -qi "Phase:.*Codex.*analyz\|analyz"; then
+    # Assert output contains "Codex analyzing" phase (require Phase: prefix)
+    if echo "$output" | grep -qi "Phase:.*Codex.*analyz"; then
         return 0
     else
-        echo "Expected 'Codex analyzing' in output, got: $(echo "$output" | head -20)"
+        echo "Expected 'Phase:...Codex analyzing' in output, got: $(echo "$output" | head -20)"
         return 1
     fi
 }
