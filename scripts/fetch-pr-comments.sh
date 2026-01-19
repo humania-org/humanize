@@ -305,7 +305,9 @@ fi
 
 # Sort: human comments first, then by timestamp (newest first)
 # Uses fromdateiso8601 for proper ISO 8601 timestamp parsing
+# Filter out entries with null created_at to avoid fromdateiso8601 errors
 jq '
+    [.[] | select(.created_at != null)] |
     sort_by(
         (if .author_type == "Bot" or (.author | test("\\[bot\\]$")) then 1 else 0 end),
         -(.created_at | fromdateiso8601)
