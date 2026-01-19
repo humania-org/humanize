@@ -405,10 +405,18 @@ TRIGGER_COMMENT_ID=""
 if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     echo "Case $STARTUP_CASE: Posting trigger comment for re-review..." >&2
 
-    # Post trigger comment
+    # Post trigger comment (abort on failure to prevent orphaned state)
     TRIGGER_BODY="$BOT_MENTION_STRING please review the latest changes (new commits since last review)"
     TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --body "$TRIGGER_BODY" 2>&1) || {
-        echo "Warning: Failed to post trigger comment: $TRIGGER_RESULT" >&2
+        echo "Error: Failed to post trigger comment: $TRIGGER_RESULT" >&2
+        echo "" >&2
+        echo "Cannot proceed without a trigger comment - bots would not be notified." >&2
+        echo "Please check:" >&2
+        echo "  - GitHub API rate limits" >&2
+        echo "  - Network connectivity" >&2
+        echo "  - Repository permissions" >&2
+        rm -rf "$LOOP_DIR"
+        exit 1
     }
 
     # Get the comment ID and use GitHub's timestamp to avoid clock skew

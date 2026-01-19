@@ -260,7 +260,7 @@ jq -s 'add' "$TEMP_DIR/issue.json" "$TEMP_DIR/review.json" "$TEMP_DIR/reviews.js
 # Filter: after timestamp AND from watched bots
 jq --arg after "$AFTER_TIMESTAMP" --arg pattern "$BOT_PATTERNS" '
     [.[] | select(
-        .created_at > $after and
+        .created_at >= $after and
         (.author | test($pattern; "i"))
     )]
 ' "$ALL_COMMENTS_FILE" > "$FILTERED_FILE"
