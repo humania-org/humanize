@@ -85,9 +85,10 @@ fi
 # Parse State File (using shared function)
 # ========================================
 
-# Use shared strict parsing function from loop-common.sh (fail closed on malformed state)
-if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
-    echo "Error: Malformed state file, allowing exit for safety" >&2
+# Use tolerant parsing first to extract values, then validate schema
+# This allows us to provide proper block messages for missing fields instead of silent exit
+if ! parse_state_file "$STATE_FILE" 2>/dev/null; then
+    echo "Error: Failed to read state file, allowing exit for safety" >&2
     exit 0
 fi
 
@@ -99,7 +100,7 @@ PLAN_FILE="$STATE_PLAN_FILE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
 PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
-REVIEW_STARTED="${STATE_REVIEW_STARTED:-false}"
+REVIEW_STARTED="$STATE_REVIEW_STARTED"
 CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
@@ -773,14 +774,10 @@ else
 fi
 
 # ========================================
-# Run Codex Review (Implementation Phase Only)
+# Shared Setup: Cache Directory and Codex Arguments
 # ========================================
-# Skip the summary review when in review phase - review phase uses codex review instead
-
-if [[ "$REVIEW_STARTED" == "true" ]]; then
-    echo "In review phase - skipping codex exec summary review, will run codex review instead..." >&2
-    # Jump directly to Review Phase section below (after the COMPLETE/STOP handling)
-else
+# Initialize these before the REVIEW_STARTED guard so they are available in both
+# impl phase (codex exec) and review phase (codex review)
 
 # First, check if codex command exists
 if ! command -v codex &>/dev/null; then
@@ -804,8 +801,6 @@ EOF
     exit 0
 fi
 
-echo "Running Codex review for round $CURRENT_ROUND..." >&2
-
 # Debug log files go to XDG_CACHE_HOME/humanize/<project-path>/<timestamp>/ to avoid polluting project dir
 # Respects XDG_CACHE_HOME for testability in restricted environments (falls back to $HOME/.cache)
 # This prevents Claude and Codex from reading these debug files during their work
@@ -817,10 +812,6 @@ SANITIZED_PROJECT_PATH=$(echo "$PROJECT_ROOT" | sed 's/[^a-zA-Z0-9._-]/-/g' | se
 CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
 CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 mkdir -p "$CACHE_DIR"
-
-CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.cmd"
-CODEX_STDOUT_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.out"
-CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.log"
 
 # Source portable timeout if available
 TIMEOUT_SCRIPT="$PLUGIN_ROOT/scripts/portable-timeout.sh"
@@ -842,13 +833,28 @@ else
     }
 fi
 
-# Build Codex command arguments
-# Note: codex exec reads prompt from stdin, writes to stdout, and we use -w to write to file
+# Build Codex command arguments (shared between codex exec and codex review)
 CODEX_ARGS=("-m" "$CODEX_MODEL")
 if [[ -n "$CODEX_EFFORT" ]]; then
     CODEX_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
 fi
 CODEX_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+
+# ========================================
+# Run Codex Review (Implementation Phase Only)
+# ========================================
+# Skip the summary review when in review phase - review phase uses codex review instead
+
+if [[ "$REVIEW_STARTED" == "true" ]]; then
+    echo "In review phase - skipping codex exec summary review, will run codex review instead..." >&2
+    # Jump directly to Review Phase section below (after the COMPLETE/STOP handling)
+else
+
+echo "Running Codex review for round $CURRENT_ROUND..." >&2
+
+CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.cmd"
+CODEX_STDOUT_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.out"
+CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.log"
 
 # Save the command for debugging
 CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
@@ -1086,8 +1092,12 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
                     cp "$CODEX_REVIEW_STDOUT_FILE" "$CODE_REVIEW_RESULT_FILE"
                 fi
 
+                # Handle missing or empty review output as failure (skip to finalize with warning)
+                if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
+                    echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
+                    # Fall through to finalize phase (same as exit code failure)
                 # Check for issues using [P0-9] pattern
-                if [[ -f "$CODE_REVIEW_RESULT_FILE" ]] && grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
+                elif grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
                     # Issues found - continue review loop
                     echo "Code review found issues. Continuing review loop..." >&2
 

@@ -226,11 +226,13 @@ parse_state_file() {
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
     STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
 
-    # Apply defaults
+    # Apply defaults for non-schema-critical fields only
+    # Note: review_started is NOT defaulted here so we can detect missing schema fields
+    # and block with a proper message in the stop hook
     STATE_CURRENT_ROUND="${STATE_CURRENT_ROUND:-0}"
     STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
-    STATE_REVIEW_STARTED="${STATE_REVIEW_STARTED:-false}"
+    # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
 }
