@@ -301,10 +301,27 @@ $NON_HUMANIZE_STATUS
     fi
 
     # Step 6: Check for unpushed commits (PR loop always requires push)
+    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+    AHEAD_COUNT=0
+
+    # First try: git status -sb works when upstream is configured
     GIT_AHEAD=$(run_with_timeout "$GIT_TIMEOUT" git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
     if [[ -n "$GIT_AHEAD" ]]; then
         AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
-        CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+    else
+        # Fallback: Check if upstream exists, if not compare with origin/branch
+        if ! git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+            # No upstream configured - compare local HEAD with origin/branch
+            LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || LOCAL_HEAD=""
+            REMOTE_HEAD=$(git rev-parse "origin/$CURRENT_BRANCH" 2>/dev/null) || REMOTE_HEAD=""
+            if [[ -n "$LOCAL_HEAD" && -n "$REMOTE_HEAD" && "$LOCAL_HEAD" != "$REMOTE_HEAD" ]]; then
+                # Count commits ahead of remote
+                AHEAD_COUNT=$(git rev-list --count "origin/$CURRENT_BRANCH..HEAD" 2>/dev/null) || AHEAD_COUNT=0
+            fi
+        fi
+    fi
+
+    if [[ "$AHEAD_COUNT" -gt 0 ]]; then
         FALLBACK_MSG="# Unpushed Commits Detected
 
 You have $AHEAD_COUNT unpushed commit(s). PR loop requires pushing changes so bots can review them.
@@ -1004,6 +1021,12 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
         # If no bots remain, loop is complete
         if [[ ${#NEW_ACTIVE_BOTS_TIMEOUT[@]} -eq 0 ]]; then
             echo "All bots removed (timed out) - PR loop approved!" >&2
+            # Build configured_bots YAML inline (CONFIGURED_BOTS_YAML not yet populated)
+            TIMEOUT_CONFIGURED_BOTS_YAML=""
+            for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+                TIMEOUT_CONFIGURED_BOTS_YAML="${TIMEOUT_CONFIGURED_BOTS_YAML}
+  - ${bot}"
+            done
             # Write updated state with empty active_bots before moving to approve-state.md
             {
                 echo "---"
@@ -1011,7 +1034,7 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
                 echo "max_iterations: $PR_MAX_ITERATIONS"
                 echo "pr_number: $PR_NUMBER"
                 echo "start_branch: $PR_START_BRANCH"
-                echo "configured_bots:${CONFIGURED_BOTS_YAML}"
+                echo "configured_bots:${TIMEOUT_CONFIGURED_BOTS_YAML}"
                 echo "active_bots:"
                 echo "codex_model: $PR_CODEX_MODEL"
                 echo "codex_effort: $PR_CODEX_EFFORT"
