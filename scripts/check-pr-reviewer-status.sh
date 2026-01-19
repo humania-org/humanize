@@ -108,7 +108,7 @@ IFS=',' read -ra BOTS <<< "$BOT_LIST"
 
 # Get latest commit info
 COMMIT_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json headRefOid,commits \
-    --jq '{sha: .headRefOid, date: (.commits | last | .committedDate)}' 2>/dev/null) || {
+    --jq '{sha: .headRefOid, date: (.commits | sort_by(.committedDate) | last | .committedDate)}' 2>/dev/null) || {
     echo "Error: Failed to fetch PR commit info" >&2
     exit 1
 }

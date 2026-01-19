@@ -1413,9 +1413,9 @@ ISSUES_RESOLVED_COUNT=0
 
 # Count issues in the "### Issues Found" section
 if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
-    # Count numbered list items (1., 2., etc.) in Issues Found section
+    # Count list items: numbered (1., 2.) or bullet (-, *) in Issues Found section
     ISSUES_FOUND_COUNT=$(sed -n '/### Issues Found/,/^###/p' "$CHECK_FILE" \
-        | grep -cE '^[0-9]+\.' 2>/dev/null || echo "0")
+        | grep -cE '^[0-9]+\.|^- |^\* ' 2>/dev/null || echo "0")
 fi
 
 # Count bots that approved (issues resolved from their perspective)
