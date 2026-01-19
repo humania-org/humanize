@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for path validation (AC-4)
+# Robustness tests for path validation
 #
 # Tests production path validation in scripts/setup-rlcr-loop.sh by:
 # - Creating test plan files with various path structures
@@ -44,7 +44,7 @@ EOF
 }
 
 echo "========================================"
-echo "Path Validation Robustness Tests (AC-4)"
+echo "Path Validation Robustness Tests"
 echo "========================================"
 echo ""
 

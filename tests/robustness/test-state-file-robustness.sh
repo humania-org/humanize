@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for state file parsing (AC-1)
+# Robustness tests for state file parsing
 #
 # Tests state file validation under edge cases:
 # - Corrupted YAML frontmatter
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/../test-helpers.sh"
 setup_test_dir
 
 echo "========================================"
-echo "State File Robustness Tests (AC-1)"
+echo "State File Robustness Tests"
 echo "========================================"
 echo ""
 

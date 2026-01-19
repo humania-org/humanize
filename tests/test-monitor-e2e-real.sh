@@ -1,15 +1,15 @@
 #!/bin/bash
 #
-# TRUE End-to-End Monitor Tests for AC-1.1, AC-1.3, AC-1.4
+# TRUE End-to-End Monitor Tests for monitor tests
 #
 # This test runs the REAL _humanize_monitor_codex function (not stubs)
 # and verifies graceful stop behavior when .humanize/rlcr is deleted.
 #
 # Validates:
-# - AC-1.1: Clean exit with user-friendly message when .humanize deleted
-# - AC-1.2: No zsh/bash "no matches found" errors
-# - AC-1.3: Terminal state properly restored (scroll region reset)
-# - AC-1.4: Works correctly in both bash and zsh
+# - Clean exit with user-friendly message when .humanize deleted
+# - No zsh/bash "no matches found" errors
+# - Terminal state properly restored (scroll region reset)
+# - Works correctly in both bash and zsh
 #
 
 set -euo pipefail
@@ -182,39 +182,39 @@ fi
 # Read captured output
 output=$(cat "$OUTPUT_FILE" 2>/dev/null || echo "")
 
-# Verify AC-1.1: Clean exit with user-friendly message
+# Verify: Clean exit with user-friendly message
 if echo "$output" | grep -q "Monitoring stopped:"; then
-    pass "AC-1.1: Graceful stop message displayed"
+    pass "Graceful stop message displayed"
 else
-    fail "AC-1.1: Graceful stop message" "Missing 'Monitoring stopped:' in output"
+    fail "Graceful stop message" "Missing 'Monitoring stopped:' in output"
 fi
 
 if echo "$output" | grep -q "directory no longer exists"; then
-    pass "AC-1.1: User-friendly deletion reason"
+    pass "User-friendly deletion reason"
 else
-    fail "AC-1.1: Deletion reason" "Missing 'directory no longer exists' in output"
+    fail "Deletion reason" "Missing 'directory no longer exists' in output"
 fi
 
-# Verify AC-1.2: No glob errors
+# Verify: No glob errors
 if echo "$output" | grep -qE 'no matches found|bad pattern'; then
-    fail "AC-1.2: Glob errors present" "Found glob errors: $(echo "$output" | grep -E 'no matches found|bad pattern')"
+    fail "Glob errors present" "Found glob errors: $(echo "$output" | grep -E 'no matches found|bad pattern')"
 else
-    pass "AC-1.2: No glob errors in output"
+    pass "No glob errors in output"
 fi
 
-# Verify AC-1.3: Terminal state restored (scroll region reset)
+# Verify: Terminal state restored (scroll region reset)
 # Check for the scroll region reset escape sequence \033[r
 if echo "$output" | grep -q 'Stopped monitoring'; then
-    pass "AC-1.3: Cleanup message displayed"
+    pass "Cleanup message displayed"
 else
-    fail "AC-1.3: Cleanup message" "Missing 'Stopped monitoring' in output"
+    fail "Cleanup message" "Missing 'Stopped monitoring' in output"
 fi
 
 # Check source code for scroll reset (backup verification)
 if grep -q 'printf "\\033\[r"' "$PROJECT_ROOT/scripts/humanize.sh"; then
-    pass "AC-1.3: Scroll region reset in source"
+    pass "Scroll region reset in source"
 else
-    fail "AC-1.3: Scroll reset" "Missing scroll reset escape in source"
+    fail "Scroll reset" "Missing scroll reset escape in source"
 fi
 
 # Verify exit code is 0
@@ -332,39 +332,39 @@ ZSH_MONITOR_SCRIPT
     if kill -0 $MONITOR_PID_ZSH 2>/dev/null; then
         kill $MONITOR_PID_ZSH 2>/dev/null || true
         wait $MONITOR_PID_ZSH 2>/dev/null || true
-        fail "AC-1.4: zsh monitor exit" "Monitor did not exit within timeout"
+        fail "zsh monitor exit" "Monitor did not exit within timeout"
     else
         wait $MONITOR_PID_ZSH 2>/dev/null || true
-        pass "AC-1.4: zsh monitor exited after deletion"
+        pass "zsh monitor exited after deletion"
     fi
 
     output_zsh=$(cat "$OUTPUT_FILE_ZSH" 2>/dev/null || echo "")
 
-    # Verify AC-1.4: Works correctly in zsh
+    # Verify: Works correctly in zsh
     if echo "$output_zsh" | grep -q "Monitoring stopped:"; then
-        pass "AC-1.4: zsh graceful stop message"
+        pass "zsh graceful stop message"
     else
-        fail "AC-1.4: zsh graceful stop" "Missing message in zsh output"
+        fail "zsh graceful stop" "Missing message in zsh output"
     fi
 
     if echo "$output_zsh" | grep -qE 'no matches found|bad pattern'; then
-        fail "AC-1.4: zsh glob errors" "Found glob errors in zsh"
+        fail "zsh glob errors" "Found glob errors in zsh"
     else
-        pass "AC-1.4: zsh no glob errors"
+        pass "zsh no glob errors"
     fi
 
     if echo "$output_zsh" | grep -q "EXIT_CODE:0"; then
-        pass "AC-1.4: zsh exit code 0"
+        pass "zsh exit code 0"
     else
-        fail "AC-1.4: zsh exit code" "Expected EXIT_CODE:0"
+        fail "zsh exit code" "Expected EXIT_CODE:0"
     fi
 fi
 
 # ========================================
-# Test 3: Real _humanize_monitor_codex with SIGINT/Ctrl+C (AC-10 bash)
+# Test 3: Real _humanize_monitor_codex with SIGINT/Ctrl+C
 # ========================================
 echo ""
-echo "Test 3: Real _humanize_monitor_codex with SIGINT/Ctrl+C (AC-10 bash)"
+echo "Test 3: Real _humanize_monitor_codex with SIGINT/Ctrl+C"
 echo ""
 
 # Create test project directory for SIGINT test
@@ -494,17 +494,17 @@ if kill -0 $MONITOR_PID_SIGINT 2>/dev/null; then
         fi
         wait $MONITOR_PID_SIGINT 2>/dev/null || true
         # Still count as pass if the monitor ran and was force-killed (SIGINT delivery is complex in bash)
-        pass "AC-10: bash monitor handled via SIGTERM (SIGINT delivery issues)"
+        pass "bash monitor handled via SIGTERM (SIGINT delivery issues)"
     else
         wait $MONITOR_PID_SIGINT 2>/dev/null || true
-        pass "AC-10: bash monitor exited after SIGINT"
+        pass "bash monitor exited after SIGINT"
     fi
 else
     # Debug: show what happened
     if [[ -f "$OUTPUT_FILE_SIGINT" ]]; then
-        fail "AC-10: bash SIGINT start" "Monitor exited early. Output: $(head -c 300 "$OUTPUT_FILE_SIGINT" 2>/dev/null | tr '\n' ' ' || echo 'empty')"
+        fail "bash SIGINT start" "Monitor exited early. Output: $(head -c 300 "$OUTPUT_FILE_SIGINT" 2>/dev/null | tr '\n' ' ' || echo 'empty')"
     else
-        fail "AC-10: bash SIGINT start" "Monitor did not start properly (no output file)"
+        fail "bash SIGINT start" "Monitor did not start properly (no output file)"
     fi
 fi
 
@@ -513,28 +513,28 @@ output_sigint=$(cat "$OUTPUT_FILE_SIGINT" 2>/dev/null || echo "")
 
 # Verify clean exit message for SIGINT
 if echo "$output_sigint" | grep -qE 'Stopped|Monitoring stopped|interrupt|signal'; then
-    pass "AC-10: bash SIGINT cleanup message"
+    pass "bash SIGINT cleanup message"
 else
     # May not have cleanup message if terminated too fast, check exit was clean
     if echo "$output_sigint" | grep -qE 'EXIT_CODE:[01]'; then
-        pass "AC-10: bash SIGINT clean exit code"
+        pass "bash SIGINT clean exit code"
     else
-        fail "AC-10: bash SIGINT cleanup" "No cleanup message or clean exit code in output"
+        fail "bash SIGINT cleanup" "No cleanup message or clean exit code in output"
     fi
 fi
 
 # Verify no glob errors
 if echo "$output_sigint" | grep -qE 'no matches found|bad pattern'; then
-    fail "AC-10: bash SIGINT glob errors" "Found glob errors"
+    fail "bash SIGINT glob errors" "Found glob errors"
 else
-    pass "AC-10: bash SIGINT no glob errors"
+    pass "bash SIGINT no glob errors"
 fi
 
 # ========================================
-# Test 4: Real _humanize_monitor_codex with SIGINT/Ctrl+C (AC-10 zsh)
+# Test 4: Real _humanize_monitor_codex with SIGINT/Ctrl+C
 # ========================================
 echo ""
-echo "Test 4: Real _humanize_monitor_codex with SIGINT/Ctrl+C (AC-10 zsh)"
+echo "Test 4: Real _humanize_monitor_codex with SIGINT/Ctrl+C"
 echo ""
 
 if ! command -v zsh &>/dev/null; then
@@ -634,35 +634,35 @@ ZSH_SIGINT_SCRIPT
         if kill -0 $MONITOR_PID_ZSH_SIGINT 2>/dev/null; then
             kill -9 $MONITOR_PID_ZSH_SIGINT 2>/dev/null || true
             wait $MONITOR_PID_ZSH_SIGINT 2>/dev/null || true
-            fail "AC-10: zsh SIGINT exit" "Monitor did not exit after SIGINT"
+            fail "zsh SIGINT exit" "Monitor did not exit after SIGINT"
         else
             wait $MONITOR_PID_ZSH_SIGINT 2>/dev/null || true
-            pass "AC-10: zsh monitor exited after SIGINT"
+            pass "zsh monitor exited after SIGINT"
         fi
     else
-        fail "AC-10: zsh SIGINT start" "Monitor did not start properly"
+        fail "zsh SIGINT start" "Monitor did not start properly"
     fi
 
     output_zsh_sigint=$(cat "$OUTPUT_FILE_ZSH_SIGINT" 2>/dev/null || echo "")
 
     if echo "$output_zsh_sigint" | grep -qE 'Stopped|Monitoring stopped|interrupt|signal|EXIT_CODE:[01]'; then
-        pass "AC-10: zsh SIGINT cleanup or clean exit"
+        pass "zsh SIGINT cleanup or clean exit"
     else
-        fail "AC-10: zsh SIGINT cleanup" "No cleanup indication in output"
+        fail "zsh SIGINT cleanup" "No cleanup indication in output"
     fi
 
     if echo "$output_zsh_sigint" | grep -qE 'no matches found|bad pattern'; then
-        fail "AC-10: zsh SIGINT glob errors" "Found glob errors"
+        fail "zsh SIGINT glob errors" "Found glob errors"
     else
-        pass "AC-10: zsh SIGINT no glob errors"
+        pass "zsh SIGINT no glob errors"
     fi
 fi
 
 # ========================================
-# Test 5: Real _humanize_monitor_pr with directory deletion (AC-13)
+# Test 5: Real _humanize_monitor_pr with directory deletion
 # ========================================
 echo ""
-echo "Test 5: Real _humanize_monitor_pr with directory deletion (AC-13)"
+echo "Test 5: Real _humanize_monitor_pr with directory deletion"
 echo ""
 
 # Create test project directory for PR monitor
@@ -780,30 +780,30 @@ chmod +x "$TEST_PROJECT_PR/run_real_monitor_pr.sh"
 # Run the PR monitor test
 output_pr=$("$TEST_PROJECT_PR/run_real_monitor_pr.sh" "$TEST_PROJECT_PR" "$PROJECT_ROOT" "$FAKE_HOME_PR" 2>&1) || true
 
-# Verify AC-13: PR monitor e2e - graceful exit
+# Verify: PR monitor e2e - graceful exit
 if echo "$output_pr" | grep -qE 'Stopped|gracefully|EXIT_CODE:0'; then
-    pass "AC-13: PR monitor e2e - graceful exit on directory deletion"
+    pass "PR monitor e2e - graceful exit on directory deletion"
 else
     # Alternative: check for any clean exit indication
     if echo "$output_pr" | grep -q "EXIT_CODE:0"; then
-        pass "AC-13: PR monitor e2e - clean exit"
+        pass "PR monitor e2e - clean exit"
     else
-        fail "AC-13: PR monitor e2e" "Expected graceful stop or EXIT_CODE:0, got: $output_pr"
+        fail "PR monitor e2e" "Expected graceful stop or EXIT_CODE:0, got: $output_pr"
     fi
 fi
 
 # Verify no glob errors in PR monitor output
 if echo "$output_pr" | grep -qE 'no matches found|bad pattern'; then
-    fail "AC-13: PR monitor glob errors" "Found glob errors: $(echo "$output_pr" | grep -E 'no matches found|bad pattern')"
+    fail "PR monitor glob errors" "Found glob errors: $(echo "$output_pr" | grep -E 'no matches found|bad pattern')"
 else
-    pass "AC-13: PR monitor no glob errors"
+    pass "PR monitor no glob errors"
 fi
 
 # ========================================
-# Test 6: Real _humanize_monitor_pr without --once with SIGINT (AC-13)
+# Test 6: Real _humanize_monitor_pr without --once with SIGINT
 # ========================================
 echo ""
-echo "Test 6: Real _humanize_monitor_pr without --once with SIGINT (AC-13)"
+echo "Test 6: Real _humanize_monitor_pr without --once with SIGINT"
 echo ""
 
 # Create test project directory for PR monitor without --once
@@ -934,13 +934,13 @@ if kill -0 $MONITOR_PID_PR_NO_ONCE 2>/dev/null; then
         fi
         wait $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
         # Still count as pass if the monitor ran and was terminated (SIGINT delivery is complex)
-        pass "AC-13: PR monitor (no --once) handled via SIGTERM"
+        pass "PR monitor (no --once) handled via SIGTERM"
     else
         wait $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-        pass "AC-13: PR monitor (no --once) exited after SIGINT"
+        pass "PR monitor (no --once) exited after SIGINT"
     fi
 else
-    fail "AC-13: PR monitor (no --once) start" "Monitor did not start properly"
+    fail "PR monitor (no --once) start" "Monitor did not start properly"
 fi
 
 # Read captured output
@@ -948,21 +948,21 @@ output_pr_no_once=$(cat "$OUTPUT_FILE_PR_NO_ONCE" 2>/dev/null || echo "")
 
 # Verify clean exit after SIGINT
 if echo "$output_pr_no_once" | grep -qE 'Stopped|Monitor stopped|EXIT_CODE:[01]'; then
-    pass "AC-13: PR monitor (no --once) clean SIGINT exit"
+    pass "PR monitor (no --once) clean SIGINT exit"
 else
     # Check for any indication the monitor ran properly before SIGINT
     if echo "$output_pr_no_once" | grep -qE 'PR|loop|Waiting|session'; then
-        pass "AC-13: PR monitor (no --once) ran before SIGINT"
+        pass "PR monitor (no --once) ran before SIGINT"
     else
-        fail "AC-13: PR monitor (no --once) SIGINT cleanup" "Expected cleanup message, got: $(head -c 300 <<< "$output_pr_no_once" | tr '\n' ' ')"
+        fail "PR monitor (no --once) SIGINT cleanup" "Expected cleanup message, got: $(head -c 300 <<< "$output_pr_no_once" | tr '\n' ' ')"
     fi
 fi
 
 # Verify no glob errors in PR monitor output
 if echo "$output_pr_no_once" | grep -qE 'no matches found|bad pattern'; then
-    fail "AC-13: PR monitor (no --once) glob errors" "Found glob errors"
+    fail "PR monitor (no --once) glob errors" "Found glob errors"
 else
-    pass "AC-13: PR monitor (no --once) no glob errors"
+    pass "PR monitor (no --once) no glob errors"
 fi
 
 # ========================================
@@ -979,12 +979,12 @@ if [[ $TESTS_FAILED -eq 0 ]]; then
     echo ""
     echo -e "${GREEN}All TRUE end-to-end monitor tests passed!${NC}"
     echo ""
-    echo "AC-1.1 VERIFIED: Clean exit with user-friendly message"
-    echo "AC-1.2 VERIFIED: No glob errors"
-    echo "AC-1.3 VERIFIED: Terminal state restored"
-    echo "AC-1.4 VERIFIED: Works in bash and zsh"
-    echo "AC-10 VERIFIED: Real SIGINT/Ctrl+C handling (bash and zsh)"
-    echo "AC-13 VERIFIED: PR monitor e2e works (with and without --once)"
+    echo "VERIFIED: Clean exit with user-friendly message"
+    echo "VERIFIED: No glob errors"
+    echo "VERIFIED: Terminal state restored"
+    echo "VERIFIED: Works in bash and zsh"
+    echo "VERIFIED: Real SIGINT/Ctrl+C handling (bash and zsh)"
+    echo "VERIFIED: PR monitor e2e works (with and without --once)"
     exit 0
 else
     echo ""

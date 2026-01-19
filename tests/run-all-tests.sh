@@ -51,7 +51,7 @@ TEST_SUITES=(
     "test-gen-plan.sh"
     "test-pr-loop.sh"
     "test-pr-loop-system.sh"
-    # Robustness tests (AC-1 through AC-11)
+    # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"
     "robustness/test-goal-tracker-robustness.sh"

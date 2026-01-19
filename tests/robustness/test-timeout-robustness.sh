@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for timeout implementation (AC-11)
+# Robustness tests for timeout implementation
 #
 # Tests timeout handling under edge cases:
 # - Timeout fallback chain
@@ -17,7 +17,7 @@ source "$PROJECT_ROOT/scripts/portable-timeout.sh"
 source "$SCRIPT_DIR/../test-helpers.sh"
 
 echo "========================================"
-echo "Timeout Robustness Tests (AC-11)"
+echo "Timeout Robustness Tests"
 echo "========================================"
 echo ""
 

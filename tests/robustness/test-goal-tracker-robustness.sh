@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for goal tracker parsing (AC-3)
+# Robustness tests for goal tracker parsing
 #
 # Tests production humanize_parse_goal_tracker function from scripts/humanize.sh:
 # - Standard table format
@@ -24,7 +24,7 @@ source "$PROJECT_ROOT/scripts/humanize.sh"
 setup_test_dir
 
 echo "========================================"
-echo "Goal Tracker Robustness Tests (AC-3)"
+echo "Goal Tracker Robustness Tests"
 echo "========================================"
 echo ""
 
@@ -196,7 +196,7 @@ echo ""
 echo "Test 5: Count unique completed ACs"
 # Using same file from Test 4
 if [[ "$COMPLETED_ACS" == "2" ]]; then
-    pass "Counts 2 unique completed ACs (AC-1 and AC-2)"
+    pass "Counts 2 unique completed ACs"
 else
     fail "Unique completed AC count" "2" "$COMPLETED_ACS"
 fi
@@ -474,7 +474,7 @@ else
     fail "Headers only" "0 ACs, 0 active" "ACs=$TOTAL_ACS, active=$ACTIVE_TASKS"
 fi
 
-# Test 17: Mixed AC format (AC-1, **AC-2**, AC-3.1)
+# Test 17: Mixed AC format
 echo ""
 echo "Test 17: Mixed AC formats with bold and sub-numbering"
 cat > "$TEST_DIR/goal-tracker-mixed.md" << 'EOF'

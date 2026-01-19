@@ -3,8 +3,8 @@
 # Zsh Runtime Safety Tests for humanize monitor
 #
 # This test MUST be executed by zsh to verify:
-# - AC-1.2: No zsh "no matches found" errors
-# - AC-1.4: Works correctly in zsh shell
+# - No zsh "no matches found" errors
+# - Works correctly in zsh shell
 #
 # Tests the actual humanize.sh functions under zsh with empty/dotfile-only directories
 #

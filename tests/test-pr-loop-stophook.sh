@@ -14,7 +14,7 @@
 
 run_stophook_tests() {
 # ========================================
-# Stop-Hook Integration Tests (AC-3/4/5/6/7/8/9)
+# Stop-Hook Integration Tests
 # ========================================
 
 # Test: Force push trigger validation - old triggers rejected after force push
@@ -716,7 +716,7 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
-# Test: AC-6 - Bot timeout auto-removes bot from active_bots
+# Test: Bot timeout auto-removes bot from active_bots
 test_stophook_bot_timeout_auto_remove() {
     local test_subdir="$TEST_DIR/stophook_timeout_test"
     mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -813,14 +813,14 @@ MOCK_GIT
 
     # Should either mention timeout or create approve-state (if all bots timed out)
     if echo "$hook_output" | grep -qi "timeout\|timed out\|auto-remove\|approved"; then
-        pass "T-STOPHOOK-8: Bot timeout handling (AC-6)"
+        pass "T-STOPHOOK-8: Bot timeout handling"
     elif [[ -f "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/approve-state.md" ]]; then
-        pass "T-STOPHOOK-8: Bot timeout created approve-state.md (AC-6)"
+        pass "T-STOPHOOK-8: Bot timeout created approve-state.md"
     else
         fail "T-STOPHOOK-8: Bot timeout should trigger auto-remove" "timeout/approved message" "got: $hook_output"
     fi
 
-    # AC-6 VERIFICATION: Check that active_bots was actually updated (removed the bot)
+    # VERIFICATION: Check that active_bots was actually updated (removed the bot)
     # After timeout, either:
     # 1. approve-state.md exists with empty active_bots (all bots timed out)
     # 2. state.md has the timed-out bot removed from active_bots
@@ -831,10 +831,10 @@ MOCK_GIT
         state_file="$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md"
     fi
 
-    # AC-6 VERIFICATION: Check that approve-state.md was created with empty active_bots
+    # VERIFICATION: Check that approve-state.md was created with empty active_bots
     local approve_file="$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/approve-state.md"
     if [[ -f "$approve_file" ]]; then
-        pass "T-STOPHOOK-8a: approve-state.md created - bot timeout led to loop completion (AC-6)"
+        pass "T-STOPHOOK-8a: approve-state.md created - bot timeout led to loop completion"
         # Verify active_bots is empty (not containing 'codex')
         local active_bots_line
         active_bots_line=$(grep "^active_bots:" "$approve_file" 2>/dev/null || true)
@@ -842,7 +842,7 @@ MOCK_GIT
         local next_line_has_bot
         next_line_has_bot=$(sed -n '/^active_bots:/,/^[a-z_]*:/p' "$approve_file" | grep -E '^\s*-\s*\w' || true)
         if [[ -z "$next_line_has_bot" ]]; then
-            pass "T-STOPHOOK-8b: active_bots is empty after timeout (AC-6)"
+            pass "T-STOPHOOK-8b: active_bots is empty after timeout"
         else
             fail "T-STOPHOOK-8b: active_bots should be empty after timeout" "no bots listed" "got: $next_line_has_bot"
         fi
@@ -853,7 +853,7 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
-# Test: AC-8 - Codex +1 detection removes codex from active_bots
+# Test: Codex +1 detection removes codex from active_bots
 test_stophook_codex_thumbsup_approval() {
     local test_subdir="$TEST_DIR/stophook_thumbsup_test"
     mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -953,9 +953,9 @@ MOCK_GIT
 
     # Should detect +1 and create approve-state.md (since codex is only bot)
     if echo "$hook_output" | grep -qi "+1\|thumbsup\|approved"; then
-        pass "T-STOPHOOK-9: Codex +1 detection (AC-8)"
+        pass "T-STOPHOOK-9: Codex +1 detection"
     elif [[ -f "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/approve-state.md" ]]; then
-        pass "T-STOPHOOK-9: Codex +1 created approve-state.md (AC-8)"
+        pass "T-STOPHOOK-9: Codex +1 created approve-state.md"
     else
         fail "T-STOPHOOK-9: Codex +1 should be detected" "+1/approved message" "got: $hook_output"
     fi
@@ -963,7 +963,7 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
-# Test: AC-9 - Claude eyes timeout blocks exit
+# Test: Claude eyes timeout blocks exit
 test_stophook_claude_eyes_timeout() {
     local test_subdir="$TEST_DIR/stophook_eyes_timeout_test"
     mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -1069,7 +1069,7 @@ MOCK_GIT
 
     # Should block with eyes timeout message
     if echo "$hook_output" | grep -qi "eyes\|not responding\|timeout\|bot.*configured"; then
-        pass "T-STOPHOOK-10: Claude eyes timeout blocks exit (AC-9)"
+        pass "T-STOPHOOK-10: Claude eyes timeout blocks exit"
     else
         fail "T-STOPHOOK-10: Claude eyes timeout should block" "eyes/timeout message" "got: $hook_output"
     fi
@@ -1077,7 +1077,7 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
-# Test: AC-14 - Dynamic startup_case update when comments arrive
+# Test: Dynamic startup_case update when comments arrive
 test_stophook_dynamic_startup_case_update() {
     local test_subdir="$TEST_DIR/stophook_dynamic_case_test2"
     mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -1257,16 +1257,16 @@ MOCK_GIT
 
     # Verify startup_case is present in the updated state file (confirms re-evaluation code path ran)
     if [[ -n "$new_case" ]]; then
-        pass "T-STOPHOOK-11: Hook completes with startup_case in state (AC-14)"
+        pass "T-STOPHOOK-11: Hook completes with startup_case in state"
     else
         fail "T-STOPHOOK-11: startup_case should be preserved in state" "startup_case present" "got: empty/missing"
     fi
 
-    # AC-14 VERIFICATION: Assert startup_case changed from initial value (1) to expected value
+    # VERIFICATION: Assert startup_case changed from initial value (1) to expected value
     # Mock setup: codex comment at 10:05:00Z, commit at 09:00:00Z (before comment)
     # Expected: Case 3 (all reviewers commented, no new commits after)
     if [[ -n "$new_case" && "$new_case" != "1" ]]; then
-        pass "T-STOPHOOK-11a: startup_case changed from 1 to $new_case (AC-14)"
+        pass "T-STOPHOOK-11a: startup_case changed from 1 to $new_case"
     elif [[ -n "$new_case" && "$new_case" == "1" ]]; then
         # Debug: check if stop hook re-evaluated startup_case
         if echo "$hook_output" | grep -qi "Startup case changed"; then

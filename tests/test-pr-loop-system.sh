@@ -103,7 +103,7 @@ run_test() {
 }
 
 # ========================================
-# Test: Mutual Exclusion - AC-1
+# Test: Mutual Exclusion
 # ========================================
 
 test_mutual_exclusion_rlcr_blocks_pr() {
@@ -145,7 +145,7 @@ pr_number: 123
 }
 
 # ========================================
-# Test: Check PR Reviewer Status - AC-2
+# Test: Check PR Reviewer Status
 # ========================================
 
 test_reviewer_status_case1_no_comments() {
@@ -192,7 +192,7 @@ test_reviewer_status_case2_partial_comments() {
 }
 
 # ========================================
-# Test: Codex +1 Detection - AC-8
+# Test: Codex +1 Detection
 # ========================================
 
 test_codex_thumbsup_detected() {
@@ -216,7 +216,7 @@ test_codex_thumbsup_with_after_filter() {
 }
 
 # ========================================
-# Test: Claude Eyes Detection - AC-9
+# Test: Claude Eyes Detection
 # ========================================
 
 test_claude_eyes_detected() {
@@ -229,7 +229,7 @@ test_claude_eyes_detected() {
 }
 
 # ========================================
-# Test: PR Reviews Detection - AC-2 (PR submissions)
+# Test: PR Reviews Detection (PR submissions)
 # ========================================
 
 test_reviewer_status_includes_pr_reviews() {
@@ -249,7 +249,7 @@ test_reviewer_status_includes_pr_reviews() {
 }
 
 # ========================================
-# Test: Phase Detection - AC-11
+# Test: Phase Detection
 # ========================================
 
 test_phase_detection_approved() {
@@ -370,7 +370,7 @@ EOF
 }
 
 # ========================================
-# Test: PR Goal Tracker Parsing - AC-13
+# Test: PR Goal Tracker Parsing
 # ========================================
 
 test_pr_goal_tracker_parsing() {
@@ -416,7 +416,7 @@ EOF
 }
 
 # ========================================
-# Test: State File Detection - AC-5
+# Test: State File Detection
 # ========================================
 
 test_state_file_detection_active() {
@@ -486,7 +486,7 @@ test_phase_detection_maxiter() {
 }
 
 # ========================================
-# Test: Startup Case Detection - AC-2
+# Test: Startup Case Detection
 # ========================================
 
 test_reviewer_status_case3_all_commented() {
@@ -506,7 +506,7 @@ test_reviewer_status_case3_all_commented() {
 }
 
 # ========================================
-# Test: update_pr_goal_tracker helper - AC-13
+# Test: update_pr_goal_tracker helper
 # ========================================
 
 test_update_pr_goal_tracker() {
@@ -537,7 +537,7 @@ EOF
 }
 
 # ========================================
-# Test: AC-3 Unpushed Commits Detection
+# Test: Unpushed Commits Detection
 # ========================================
 
 test_unpushed_commits_detected() {
@@ -571,7 +571,7 @@ test_unpushed_commits_detected() {
 }
 
 # ========================================
-# Test: AC-4 Force Push Detection Logic
+# Test: Force Push Detection Logic
 # ========================================
 
 test_force_push_ancestry_check() {
@@ -609,7 +609,7 @@ test_force_push_ancestry_check() {
 }
 
 # ========================================
-# Test: AC-7 Approve State Creation
+# Test: Approve State Creation
 # ========================================
 
 test_approve_state_detection() {
@@ -635,7 +635,7 @@ test_approve_state_detection() {
 }
 
 # ========================================
-# Test: AC-12 Goal Tracker Schema
+# Test: Goal Tracker Schema
 # ========================================
 
 test_goal_tracker_schema() {
@@ -654,7 +654,7 @@ test_goal_tracker_schema() {
 }
 
 # ========================================
-# Test: AC-14 Dynamic Startup Case
+# Test: Dynamic Startup Case
 # ========================================
 
 test_startup_case_4_5_detection() {
@@ -715,7 +715,7 @@ EOF
 }
 
 # ========================================
-# Test: Goal Tracker Update Idempotency - AC-12
+# Test: Goal Tracker Update Idempotency
 # ========================================
 
 test_goal_tracker_update_idempotent() {
@@ -763,7 +763,7 @@ EOF
 }
 
 # ========================================
-# Test: Shared Monitor - Find Latest Session - AC-13
+# Test: Shared Monitor - Find Latest Session
 # ========================================
 
 test_shared_monitor_find_latest_session() {
@@ -787,7 +787,7 @@ test_shared_monitor_find_latest_session() {
 }
 
 # ========================================
-# Test: Shared Monitor - Find State File - AC-13
+# Test: Shared Monitor - Find State File
 # ========================================
 
 test_shared_monitor_find_state_file() {
@@ -819,7 +819,7 @@ test_shared_monitor_find_state_file() {
 }
 
 # ========================================
-# Test: Shared Monitor - Get File Size - AC-13
+# Test: Shared Monitor - Get File Size
 # ========================================
 
 test_shared_monitor_get_file_size() {
@@ -842,7 +842,7 @@ test_shared_monitor_get_file_size() {
 }
 
 # ========================================
-# Test: Phase Detection - Codex Analyzing (File Growth) - AC-11
+# Test: Phase Detection - Codex Analyzing (File Growth)
 # ========================================
 
 test_phase_detection_codex_analyzing() {
@@ -898,7 +898,7 @@ EOF
 }
 
 # ========================================
-# Test: AC-11 - Monitor Phase Display Output Assertions
+# Test: Monitor Phase Display Output Assertions
 # ========================================
 
 # Helper: Run monitor with --once and capture output
@@ -1105,11 +1105,11 @@ GOAL
 }
 
 # ========================================
-# Test: AC-5 Case 1 Exception - No Trigger Required
+# Test: Case 1 Exception - No Trigger Required
 # ========================================
 
 test_case1_exception_no_trigger() {
-    # AC-5: For startup_case 1/2/3 in round 0, no trigger is required
+    # For startup_case 1/2/3 in round 0, no trigger is required
     # This tests the logic that determines REQUIRE_TRIGGER
 
     # Test startup_case 1, round 0 -> REQUIRE_TRIGGER=false
@@ -1173,7 +1173,7 @@ test_case1_exception_no_trigger() {
 }
 
 # ========================================
-# Test: AC-12 Goal Tracker Row Inside Table
+# Test: Goal Tracker Row Inside Table
 # ========================================
 
 test_goal_tracker_row_inside_table() {
@@ -1235,7 +1235,7 @@ EOF
 }
 
 # ========================================
-# Test: AC-12 Goal Tracker Partial Update Repair
+# Test: Goal Tracker Partial Update Repair
 # ========================================
 
 test_goal_tracker_partial_update_repair() {
@@ -1308,7 +1308,7 @@ EOF
 }
 
 # ========================================
-# Test: AC-2 Case 4 Emission (all commented + new commits)
+# Test: Case 4 Emission (all commented + new commits)
 # ========================================
 
 test_case4_all_commented_new_commits() {
@@ -1340,7 +1340,7 @@ test_case4_all_commented_new_commits() {
 }
 
 # ========================================
-# Test: AC-2 Case 5 Emission (partial + new commits)
+# Test: Case 5 Emission (partial + new commits)
 # ========================================
 
 test_case5_partial_commented_new_commits() {
@@ -1377,13 +1377,13 @@ test_case5_partial_commented_new_commits() {
 }
 
 # ========================================
-# Test: AC-9 Setup Case 4/5 Failure Path (missing trigger_comment_id)
+# Test: Setup Case 4/5 Failure Path (missing trigger_comment_id)
 # ========================================
 
 test_setup_case45_missing_trigger_comment_id() {
     # Test that setup-pr-loop.sh fails when trigger_comment_id cannot be retrieved
     # for Case 4/5 with --claude option
-    # This tests the AC-9 fix that requires eyes verification
+    # This tests the fix that requires eyes verification
 
     # Set up fixtures for Case 4: All bots commented, new commits after reviews
     # Only claude for simplicity - fixture needs bot comment BEFORE latest commit
@@ -1446,12 +1446,12 @@ test_setup_case45_missing_trigger_comment_id() {
 }
 
 # ========================================
-# Test: AC-12 Goal Tracker Creation/Update Integration Test
+# Test: Goal Tracker Creation/Update Integration Test
 # ========================================
 
 test_goal_tracker_creation_integration() {
     # Test that setup-pr-loop.sh creates goal-tracker.md
-    # This verifies AC-12: goal tracker is created at setup
+    # This verifies: goal tracker is created at setup
 
     # Set up fixtures for Case 1: No comments yet (simplest setup)
     echo '[]' > "$FIXTURES_DIR/issue-comments.json"
@@ -1537,7 +1537,7 @@ test_goal_tracker_creation_integration() {
     return 0
 }
 
-# Test AC-12: Stop hook updates goal tracker with round results
+# Test: Stop hook updates goal tracker with round results
 test_stophook_updates_goal_tracker() {
     # This test verifies that running the stop hook after bot review updates the goal tracker
     local test_dir="$TEST_TEMP_DIR/stophook_goal_test"
@@ -1755,118 +1755,118 @@ main() {
 
     # Run tests
     if [[ -z "$test_filter" || "$test_filter" == "mutual_exclusion" ]]; then
-        run_test "AC-1: Mutual exclusion - RLCR blocks PR" test_mutual_exclusion_rlcr_blocks_pr
-        run_test "AC-1: Mutual exclusion - PR blocks RLCR" test_mutual_exclusion_pr_blocks_rlcr
+        run_test "Mutual exclusion - RLCR blocks PR" test_mutual_exclusion_rlcr_blocks_pr
+        run_test "Mutual exclusion - PR blocks RLCR" test_mutual_exclusion_pr_blocks_rlcr
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "reviewer_status" ]]; then
-        run_test "AC-2: Reviewer status - Case 1 (no comments)" test_reviewer_status_case1_no_comments
-        run_test "AC-2: Reviewer status - Case 2 (partial comments)" test_reviewer_status_case2_partial_comments
+        run_test "Reviewer status - Case 1 (no comments)" test_reviewer_status_case1_no_comments
+        run_test "Reviewer status - Case 2 (partial comments)" test_reviewer_status_case2_partial_comments
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "reactions" ]]; then
-        run_test "AC-8: Codex +1 detection" test_codex_thumbsup_detected
-        run_test "AC-8: Codex +1 with --after filter" test_codex_thumbsup_with_after_filter
-        run_test "AC-9: Claude eyes detection" test_claude_eyes_detected
+        run_test "Codex +1 detection" test_codex_thumbsup_detected
+        run_test "Codex +1 with --after filter" test_codex_thumbsup_with_after_filter
+        run_test "Claude eyes detection" test_claude_eyes_detected
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "pr_reviews" ]]; then
-        run_test "AC-2: PR reviews detection" test_reviewer_status_includes_pr_reviews
+        run_test "PR reviews detection" test_reviewer_status_includes_pr_reviews
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "phase" ]]; then
-        run_test "AC-11: Phase detection - approved" test_phase_detection_approved
-        run_test "AC-11: Phase detection - waiting initial" test_phase_detection_waiting_initial
-        run_test "AC-11: Phase detection - waiting reviewer" test_phase_detection_waiting_reviewer
+        run_test "Phase detection - approved" test_phase_detection_approved
+        run_test "Phase detection - waiting initial" test_phase_detection_waiting_initial
+        run_test "Phase detection - waiting reviewer" test_phase_detection_waiting_reviewer
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker" ]]; then
-        run_test "AC-12: Goal tracker parsing" test_goal_tracker_parsing
+        run_test "Goal tracker parsing" test_goal_tracker_parsing
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "pr_goal_tracker" ]]; then
-        run_test "AC-13: PR goal tracker parsing" test_pr_goal_tracker_parsing
-        run_test "AC-13: update_pr_goal_tracker helper" test_update_pr_goal_tracker
+        run_test "PR goal tracker parsing" test_pr_goal_tracker_parsing
+        run_test "update_pr_goal_tracker helper" test_update_pr_goal_tracker
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "state_file" ]]; then
-        run_test "AC-5: State file detection - active" test_state_file_detection_active
-        run_test "AC-5: State file detection - approve" test_state_file_detection_approve
+        run_test "State file detection - active" test_state_file_detection_active
+        run_test "State file detection - approve" test_state_file_detection_approve
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "phase_extended" ]]; then
-        run_test "AC-11: Phase detection - cancelled" test_phase_detection_cancelled
-        run_test "AC-11: Phase detection - maxiter" test_phase_detection_maxiter
+        run_test "Phase detection - cancelled" test_phase_detection_cancelled
+        run_test "Phase detection - maxiter" test_phase_detection_maxiter
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "reviewer_status_extended" ]]; then
-        run_test "AC-2: Reviewer status - Case 3 (all commented)" test_reviewer_status_case3_all_commented
+        run_test "Reviewer status - Case 3 (all commented)" test_reviewer_status_case3_all_commented
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "unpushed" ]]; then
-        run_test "AC-3: Unpushed commits detection" test_unpushed_commits_detected
+        run_test "Unpushed commits detection" test_unpushed_commits_detected
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "force_push" ]]; then
-        run_test "AC-4: Force push ancestry check" test_force_push_ancestry_check
+        run_test "Force push ancestry check" test_force_push_ancestry_check
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "approve_state" ]]; then
-        run_test "AC-7: Approve state detection" test_approve_state_detection
+        run_test "Approve state detection" test_approve_state_detection
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_schema" ]]; then
-        run_test "AC-12: Goal tracker schema" test_goal_tracker_schema
-        run_test "AC-12: Goal tracker update adds row" test_goal_tracker_update_adds_row
-        run_test "AC-12: Goal tracker update idempotent" test_goal_tracker_update_idempotent
+        run_test "Goal tracker schema" test_goal_tracker_schema
+        run_test "Goal tracker update adds row" test_goal_tracker_update_adds_row
+        run_test "Goal tracker update idempotent" test_goal_tracker_update_idempotent
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "startup_case" ]]; then
-        run_test "AC-14: Startup case 4/5 detection" test_startup_case_4_5_detection
+        run_test "Startup case 4/5 detection" test_startup_case_4_5_detection
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "shared_monitor" ]]; then
-        run_test "AC-13: Shared monitor - find latest session" test_shared_monitor_find_latest_session
-        run_test "AC-13: Shared monitor - find state file" test_shared_monitor_find_state_file
-        run_test "AC-13: Shared monitor - get file size" test_shared_monitor_get_file_size
+        run_test "Shared monitor - find latest session" test_shared_monitor_find_latest_session
+        run_test "Shared monitor - find state file" test_shared_monitor_find_state_file
+        run_test "Shared monitor - get file size" test_shared_monitor_get_file_size
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "phase_analyzing" ]]; then
-        run_test "AC-11: Phase detection - codex analyzing (file growth)" test_phase_detection_codex_analyzing
+        run_test "Phase detection - codex analyzing (file growth)" test_phase_detection_codex_analyzing
     fi
 
-    # AC-11: Monitor output assertions for phase labels
+    # Monitor output assertions for phase labels
     if [[ -z "$test_filter" || "$test_filter" == "monitor_output" ]]; then
-        run_test "AC-11: Monitor output - approved phase display" test_monitor_output_phase_approved
-        run_test "AC-11: Monitor output - waiting initial phase display" test_monitor_output_phase_waiting_initial
-        run_test "AC-11: Monitor output - cancelled phase display" test_monitor_output_phase_cancelled
-        run_test "AC-11: Monitor output - codex analyzing phase display" test_monitor_output_phase_codex_analyzing
+        run_test "Monitor output - approved phase display" test_monitor_output_phase_approved
+        run_test "Monitor output - waiting initial phase display" test_monitor_output_phase_waiting_initial
+        run_test "Monitor output - cancelled phase display" test_monitor_output_phase_cancelled
+        run_test "Monitor output - codex analyzing phase display" test_monitor_output_phase_codex_analyzing
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "case1_exception" ]]; then
-        run_test "AC-5: Case 1 exception - no trigger required for startup_case 1" test_case1_exception_no_trigger
+        run_test "Case 1 exception - no trigger required for startup_case 1" test_case1_exception_no_trigger
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_table" ]]; then
-        run_test "AC-12: Goal tracker row inserted inside table" test_goal_tracker_row_inside_table
+        run_test "Goal tracker row inserted inside table" test_goal_tracker_row_inside_table
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_partial" ]]; then
-        run_test "AC-12: Goal tracker partial update repair" test_goal_tracker_partial_update_repair
+        run_test "Goal tracker partial update repair" test_goal_tracker_partial_update_repair
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "case_4_5" ]]; then
-        run_test "AC-2: Case 4 emission (all commented + new commits)" test_case4_all_commented_new_commits
-        run_test "AC-2: Case 5 emission (partial + new commits)" test_case5_partial_commented_new_commits
+        run_test "Case 4 emission (all commented + new commits)" test_case4_all_commented_new_commits
+        run_test "Case 5 emission (partial + new commits)" test_case5_partial_commented_new_commits
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "setup_failure" ]]; then
-        run_test "AC-9: Setup Case 4/5 failure path (missing trigger_comment_id)" test_setup_case45_missing_trigger_comment_id
+        run_test "Setup Case 4/5 failure path (missing trigger_comment_id)" test_setup_case45_missing_trigger_comment_id
     fi
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_integration" ]]; then
-        run_test "AC-12: Goal tracker creation via setup-pr-loop.sh" test_goal_tracker_creation_integration
-        run_test "AC-12: Stop hook updates goal tracker with round results" test_stophook_updates_goal_tracker
+        run_test "Goal tracker creation via setup-pr-loop.sh" test_goal_tracker_creation_integration
+        run_test "Stop hook updates goal tracker with round results" test_stophook_updates_goal_tracker
     fi
 
     echo ""

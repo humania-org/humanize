@@ -1138,7 +1138,7 @@ test_e2e_pagination_runtime
 test_e2e_trigger_priority_runtime
 
 # ========================================
-# Approval-Only Review Tests (AC-4, AC-7)
+# Approval-Only Review Tests
 # ========================================
 
 echo ""
@@ -1209,7 +1209,7 @@ test_approval_only_review_captured
 test_approval_polls_correctly
 
 # ========================================
-# Fixture-Backed Fetch/Poll Tests (AC-12)
+# Fixture-Backed Fetch/Poll Tests
 # ========================================
 
 echo ""
@@ -1409,7 +1409,7 @@ test_poll_pr_reviews_with_fixtures
 test_poll_pr_reviews_after_filter
 
 # ========================================
-# Wrong-Round Validation Tests (AC-3)
+# Wrong-Round Validation Tests
 # ========================================
 
 echo ""
@@ -1525,7 +1525,7 @@ test_correct_round_pr_resolve_allowed
 test_wrong_round_pr_resolve_edit_blocked
 
 # ========================================
-# Monitor PR Active Bots Tests (AC-10)
+# Monitor PR Active Bots Tests
 # ========================================
 
 echo ""

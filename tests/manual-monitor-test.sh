@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Manual Test Script for AC-1.1 and AC-1.3
+# Manual Test Script for tests
 #
 # This script helps verify that:
-# - AC-1.1: Deleting .humanize/ results in clean exit with user-friendly message
-# - AC-1.3: Terminal state is properly restored after graceful stop
+# - Deleting .humanize/ results in clean exit with user-friendly message
+# - Terminal state is properly restored after graceful stop
 #
 # Usage:
 # 1. In terminal 1: cd to project root, run ./tests/manual-monitor-test.sh setup
@@ -53,7 +53,7 @@ Test
         echo "  - Terminal should be restored (scroll region reset, cursor at bottom)"
         echo "  - No zsh/bash 'no matches found' errors"
         echo ""
-        echo "If everything looks good, AC-1.1 and AC-1.3 are verified!"
+        echo "If everything looks good, the tests are verified!"
         ;;
     cleanup)
         echo "Cleaning up..."

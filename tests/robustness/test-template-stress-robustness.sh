@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for template system stress conditions (AC-8)
+# Robustness tests for template system stress conditions
 #
 # Tests template rendering under stress:
 # - Large variable values
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/../test-helpers.sh"
 setup_test_dir
 
 echo "========================================"
-echo "Template Stress Robustness Tests (AC-8)"
+echo "Template Stress Robustness Tests"
 echo "========================================"
 echo ""
 

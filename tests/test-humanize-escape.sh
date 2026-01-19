@@ -7,8 +7,8 @@
 # 2. git_adds_humanize path variant detection (./.humanize, quoted paths)
 #
 # These tests verify the fixes for:
-# - AC-1.2: No zsh/bash "no matches found" errors
-# - AC-2.1: Block git add .humanize (including path variants)
+# - No zsh/bash "no matches found" errors
+# - Block git add .humanize (including path variants)
 #
 
 set -euo pipefail
@@ -77,7 +77,7 @@ echo ""
 # ========================================
 # Test Group 1: ./.humanize Path Variants
 # ========================================
-echo "Test Group 1: ./.humanize Path Variants (AC-2.1)"
+echo "Test Group 1: ./.humanize Path Variants"
 echo ""
 
 assert_blocks "git add ./.humanize" "Block: ./.humanize prefix"
@@ -90,7 +90,7 @@ assert_blocks "git add ../project/.humanize" "Block: ../project/.humanize"
 # Test Group 2: Quoted Path Variants
 # ========================================
 echo ""
-echo "Test Group 2: Quoted Path Variants (AC-2.1)"
+echo "Test Group 2: Quoted Path Variants"
 echo ""
 
 assert_blocks 'git add ".humanize"' "Block: double-quoted .humanize"
@@ -103,14 +103,14 @@ assert_blocks 'git add "path/to/.humanize"' "Block: double-quoted path/to/.human
 # Test Group 3: Combined Force and Path Variants
 # ========================================
 echo ""
-echo "Test Group 3: Combined Force and Path Variants (AC-2.2)"
+echo "Test Group 3: Combined Force and Path Variants"
 echo ""
 
 assert_blocks "git add -f ./.humanize" "Block: -f with ./.humanize"
 assert_blocks "git add --force ./.humanize" "Block: --force with ./.humanize"
 assert_blocks 'git add -f ".humanize"' "Block: -f with quoted .humanize"
 
-# AC-2.2: Force flag with broad scope (blocks gitignore bypass)
+# Force flag with broad scope (blocks gitignore bypass)
 assert_blocks "git add -f ." "Block: -f . (force with current dir)"
 assert_blocks "git add --force ." "Block: --force . (force with current dir)"
 assert_blocks "git add -f *" "Block: -f * (force with wildcard)"
@@ -119,10 +119,10 @@ assert_blocks "git add -fA" "Block: -fA (combined force and all)"
 assert_blocks "git add -Af" "Block: -Af (combined all and force)"
 
 # ========================================
-# Test Group 3b: git add -A / --all (AC-2.3)
+# Test Group 3b: git add -A / --all
 # ========================================
 echo ""
-echo "Test Group 3b: git add -A / --all (AC-2.3)"
+echo "Test Group 3b: git add -A / --all"
 echo ""
 
 # These tests require .humanize directory to exist for blocking to trigger
@@ -195,7 +195,7 @@ assert_allows "git add src/.humanizerc" "Allow: src/.humanizerc (different file)
 # Test Group 7: Zsh Empty Directory Safety
 # ========================================
 echo ""
-echo "Test Group 7: Zsh Empty Directory Safety (AC-1.2)"
+echo "Test Group 7: Zsh Empty Directory Safety"
 echo ""
 
 # Test find-based iteration in zsh with empty directories
