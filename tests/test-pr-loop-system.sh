@@ -1178,31 +1178,62 @@ test_setup_case45_missing_trigger_comment_id() {
     # for Case 4/5 with --claude option
     # This tests the AC-9 fix that requires eyes verification
 
-    # The setup script should fail if:
-    # 1. STARTUP_CASE is 4 or 5
-    # 2. --claude is specified
-    # 3. trigger_comment_id cannot be retrieved from the posted comment
+    # Set up fixtures for Case 4: All bots commented, new commits after reviews
+    # Only claude for simplicity - fixture needs bot comment BEFORE latest commit
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T08:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[]' > "$FIXTURES_DIR/pr-reviews.json"
 
-    # Check that the error path exists in setup script
-    local setup_script="$PROJECT_ROOT/scripts/setup-pr-loop.sh"
+    # Set latest commit AFTER bot comments to trigger Case 4
+    export MOCK_GH_LATEST_COMMIT_AT="2026-01-18T12:00:00Z"
+    export MOCK_GH_PR_NUMBER=123
+    export MOCK_GH_PR_STATE="OPEN"
+    # Make the regular mock return null for the comment lookup that gets the trigger ID
+    export MOCK_GH_COMMENT_ID_LOOKUP_FAIL=true
 
-    # Verify error message for missing trigger_comment_id exists
-    grep -q "Could not find trigger comment ID" "$setup_script" || {
-        echo "Error message for missing trigger_comment_id not found in setup script"
+    # Run setup-pr-loop.sh with --claude - should fail due to missing trigger_comment_id
+    local result exit_code
+    result=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude 2>&1) && exit_code=0 || exit_code=$?
+
+    # Clean up mock env vars
+    unset MOCK_GH_LATEST_COMMIT_AT MOCK_GH_COMMENT_ID_LOOKUP_FAIL
+
+    # Verify it failed
+    if [[ $exit_code -eq 0 ]]; then
+        echo "Expected setup to fail but it succeeded"
+        echo "Output (last 30 lines): $(echo "$result" | tail -30)"
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[]' > "$FIXTURES_DIR/review-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
         return 1
-    }
+    fi
 
-    # Verify cleanup is performed on failure
-    grep -qE "rm -rf.*LOOP_DIR" "$setup_script" || {
-        echo "Cleanup on failure (rm -rf LOOP_DIR) not found in setup script"
+    # Verify error message about missing trigger comment ID
+    if ! echo "$result" | grep -q "Could not find trigger comment ID"; then
+        echo "Expected error message about missing trigger_comment_id"
+        echo "Got: $result"
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[]' > "$FIXTURES_DIR/review-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
         return 1
-    }
+    fi
 
-    # Verify exit 1 on this error path
-    grep -A15 "Could not find trigger comment ID" "$setup_script" | grep -q "exit 1" || {
-        echo "exit 1 not found after trigger_comment_id error"
+    # Verify loop directory was cleaned up
+    if ls .humanize/pr-loop/*/state.md 2>/dev/null | head -1 | grep -q .; then
+        echo "Loop directory was not cleaned up on failure"
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[]' > "$FIXTURES_DIR/review-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
         return 1
-    }
+    fi
+
+    # Restore fixtures
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
 
     return 0
 }

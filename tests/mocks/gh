@@ -30,10 +30,9 @@ case "$COMMAND" in
         shift || true
         case "$SUBCOMMAND" in
             view)
-                PR_NUM="${1:-}"
-                shift || true
-
-                # Parse flags
+                # Parse flags - PR number may or may not be specified
+                # Handle both: gh pr view 123 --json ... and gh pr view --json ...
+                PR_NUM=""
                 while [[ $# -gt 0 ]]; do
                     case "$1" in
                         --json)
@@ -44,14 +43,22 @@ case "$COMMAND" in
                             JQ_EXPR="$2"
                             shift 2
                             ;;
+                        -*)
+                            # Skip unknown flags
+                            shift
+                            ;;
                         *)
+                            # Positional argument - assume it's PR number
+                            PR_NUM="$1"
                             shift
                             ;;
                     esac
                 done
 
                 # Return based on requested fields
-                if [[ "${FIELDS:-}" == "state" ]]; then
+                if [[ "${FIELDS:-}" == "number" ]]; then
+                    echo "{\"number\": $MOCK_GH_PR_NUMBER}" | jq -r "${JQ_EXPR:-.}"
+                elif [[ "${FIELDS:-}" == "state" ]]; then
                     echo "{\"state\": \"$MOCK_GH_PR_STATE\"}" | jq -r "${JQ_EXPR:-.}"
                 elif [[ "${FIELDS:-}" == "headRefOid,commits" ]]; then
                     echo "{\"headRefOid\": \"$MOCK_GH_HEAD_SHA\", \"commits\": [{\"committedDate\": \"$MOCK_GH_LATEST_COMMIT_AT\"}]}" | jq -r "${JQ_EXPR:-.}"
@@ -143,6 +150,12 @@ case "$COMMAND" in
 
             repos/*/issues/*/comments)
                 # Return mock comments
+                # If MOCK_GH_COMMENT_ID_LOOKUP_FAIL is set and jq is selecting by user.login,
+                # return null to simulate failure to find the posted comment ID
+                if [[ "${MOCK_GH_COMMENT_ID_LOOKUP_FAIL:-}" == "true" && "$JQ_EXPR" == *"select(.user.login"* ]]; then
+                    echo "null"
+                    exit 0
+                fi
                 FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/issue-comments.json"
                 if [[ -f "$FIXTURE_FILE" ]]; then
                     cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
@@ -173,6 +186,37 @@ case "$COMMAND" in
 
             *)
                 echo "Mock gh: Unknown API endpoint: $ENDPOINT" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    repo)
+        SUBCOMMAND="${1:-}"
+        shift || true
+        case "$SUBCOMMAND" in
+            view)
+                # Parse flags
+                FIELDS=""
+                JQ_EXPR="."
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --json) FIELDS="$2"; shift 2 ;;
+                        -q|--jq) JQ_EXPR="$2"; shift 2 ;;
+                        *) shift ;;
+                    esac
+                done
+                # Return mock repo info
+                if [[ "$FIELDS" == "owner" ]]; then
+                    echo '{"owner": {"login": "testowner"}}' | jq -r "$JQ_EXPR"
+                elif [[ "$FIELDS" == "name" ]]; then
+                    echo '{"name": "testrepo"}' | jq -r "$JQ_EXPR"
+                else
+                    echo '{"owner": {"login": "testowner"}, "name": "testrepo"}'
+                fi
+                ;;
+            *)
+                echo "Mock gh: Unknown repo subcommand: $SUBCOMMAND" >&2
                 exit 1
                 ;;
         esac
