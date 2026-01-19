@@ -3,6 +3,12 @@
 # Part of rc.d configuration
 # Compatible with both bash and zsh
 
+# Source shared monitor utilities
+HUMANIZE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [[ -f "$HUMANIZE_SCRIPT_DIR/monitor-common.sh" ]]; then
+    source "$HUMANIZE_SCRIPT_DIR/monitor-common.sh"
+fi
+
 # ========================================
 # Public helper functions (can be called directly for testing)
 # ========================================
@@ -1121,16 +1127,39 @@ _humanize_monitor_pr() {
         printf "${cyan}Session:${reset} ${session_basename}    ${cyan}PR:${reset} #${pr_number}    ${cyan}Branch:${reset} ${start_branch}\n"
         printf "${green}Round:${reset}   ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Codex:${reset} ${codex_model} (${codex_effort})\n"
 
-        # Loop status line with color based on status
+        # Detect phase and determine status color
+        local phase=""
+        local phase_display=""
+        if type get_pr_loop_phase &>/dev/null; then
+            phase=$(get_pr_loop_phase "$session_dir")
+            phase_display=$(get_pr_loop_phase_display "$phase" "$active_bots")
+        fi
+
+        # Loop status line with color based on phase/status
         local status_color="${green}"
-        case "$loop_status" in
-            active) status_color="${green}" ;;
-            completed) status_color="${cyan}" ;;
+        case "$phase" in
+            approved) status_color="${cyan}" ;;
             cancelled) status_color="${yellow}" ;;
-            max-iterations) status_color="${red}" ;;
+            maxiter) status_color="${red}" ;;
+            codex_analyzing) status_color="${magenta}" ;;
+            waiting_initial_review) status_color="${yellow}" ;;
+            waiting_reviewer) status_color="${green}" ;;
             *) status_color="${dim}" ;;
         esac
-        printf "${magenta}Status:${reset}  ${status_color}${loop_status}${reset}\n"
+
+        if [[ -n "$phase_display" ]]; then
+            printf "${magenta}Phase:${reset}   ${status_color}${phase_display}${reset}\n"
+        else
+            # Fallback to loop_status if phase detection not available
+            case "$loop_status" in
+                active) status_color="${green}" ;;
+                completed) status_color="${cyan}" ;;
+                cancelled) status_color="${yellow}" ;;
+                max-iterations) status_color="${red}" ;;
+                *) status_color="${dim}" ;;
+            esac
+            printf "${magenta}Status:${reset}  ${status_color}${loop_status}${reset}\n"
+        fi
 
         # Bot status
         printf "${cyan}Configured Bots:${reset} ${configured_bots}\n"
@@ -1158,6 +1187,52 @@ _humanize_monitor_pr() {
         # Restore cursor position
         tput rc
     }
+
+    # Track state for cleanup
+    local TAIL_PID=""
+    local monitor_running=true
+    local cleanup_done=false
+
+    # Cleanup function - called by trap
+    # AC-10: Must work cleanly in both bash and zsh
+    _pr_cleanup() {
+        # Prevent multiple cleanup calls
+        [[ "$cleanup_done" == "true" ]] && return
+        cleanup_done=true
+        monitor_running=false
+
+        # Reset traps to prevent re-triggering
+        trap - INT TERM EXIT 2>/dev/null || true
+
+        # Kill background tail if running
+        if [[ -n "$TAIL_PID" ]]; then
+            if kill -0 "$TAIL_PID" 2>/dev/null; then
+                kill "$TAIL_PID" 2>/dev/null || true
+                # Use timeout-safe wait
+                ( wait "$TAIL_PID" 2>/dev/null ) &
+                wait $! 2>/dev/null || true
+            fi
+        fi
+
+        # Show cursor and restore terminal
+        tput cnorm 2>/dev/null || true
+        tput rmcup 2>/dev/null || true
+        echo ""
+        echo "Monitor stopped."
+    }
+
+    # Set up signal handlers (bash/zsh compatible)
+    # AC-10: Use TRAPINT/TRAPTERM for zsh, standard trap for bash
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # zsh: use TRAPINT and TRAPTERM for better handling
+        TRAPINT() { _pr_cleanup; return 130; }
+        TRAPTERM() { _pr_cleanup; return 143; }
+        # Also set EXIT trap for clean exit
+        trap '_pr_cleanup' EXIT
+    else
+        # bash: use standard trap
+        trap '_pr_cleanup' EXIT INT TERM
+    fi
 
     # One-shot mode: print status once and exit (for testing and scripting)
     if [[ "$once_mode" == "true" ]]; then
@@ -1227,19 +1302,6 @@ _humanize_monitor_pr() {
         return 0
     fi
 
-    # Cleanup function
-    _pr_cleanup() {
-        # Kill background tail if running
-        [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
-        # Show cursor and restore terminal
-        tput cnorm
-        tput rmcup
-        echo "Monitor stopped."
-    }
-
-    # Set up signal handlers
-    trap _pr_cleanup EXIT INT TERM
-
     # Initialize terminal
     tput smcup  # Save screen
     tput civis  # Hide cursor
@@ -1249,8 +1311,7 @@ _humanize_monitor_pr() {
     tput csr $status_bar_height $(($(tput lines) - 1))
 
     # Main monitoring loop
-    local TAIL_PID=""
-    while true; do
+    while [[ "$monitor_running" == "true" ]]; do
         # Find latest session
         local session_dir=$(_pr_find_latest_session)
         if [[ -z "$session_dir" ]]; then
@@ -1302,4 +1363,12 @@ _humanize_monitor_pr() {
 
         sleep "$check_interval"
     done
+
+    # Reset trap handlers (zsh and bash)
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # zsh: undefine the TRAP* functions
+        unfunction TRAPINT TRAPTERM 2>/dev/null || true
+    else
+        trap - INT TERM EXIT
+    fi
 }

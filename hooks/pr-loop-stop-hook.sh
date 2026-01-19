@@ -335,11 +335,23 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
         if [[ "$IS_ANCESTOR" == "no" ]]; then
             echo "Force push detected: $PR_LATEST_COMMIT_SHA is no longer reachable from $CURRENT_HEAD" >&2
 
+            # Update state file with new commit SHA and clear last_trigger_at
+            # This prevents re-blocking on subsequent attempts after trigger is posted
+            TEMP_FILE="${STATE_FILE}.forcepush.$$"
+            sed -e "s/^latest_commit_sha:.*/latest_commit_sha: $CURRENT_HEAD/" \
+                -e "s/^last_trigger_at:.*/last_trigger_at:/" \
+                "$STATE_FILE" > "$TEMP_FILE"
+            mv "$TEMP_FILE" "$STATE_FILE"
+
+            # Update local variables to reflect the change
+            PR_LATEST_COMMIT_SHA="$CURRENT_HEAD"
+            PR_LAST_TRIGGER_AT=""
+
             REASON="# Step 6.5: Force Push Detected
 
 A force push (history rewrite) has been detected on this branch.
 
-**Previous HEAD:** \`$PR_LATEST_COMMIT_SHA\`
+**Previous HEAD:** (updated in state)
 **Current HEAD:** \`$CURRENT_HEAD\`
 
 The previous commit is no longer reachable from the current HEAD, which indicates:
@@ -355,7 +367,7 @@ You must post a new @bot trigger comment to re-trigger reviews:
 gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review - force push detected, history was rewritten\"
 \`\`\`
 
-After posting the trigger comment, try exiting again. The Stop Hook will update the stored commit SHA."
+After posting the trigger comment, try exiting again."
 
             jq -n --arg reason "$REASON" --arg msg "PR Loop: Force push detected - please re-trigger bots" \
                 '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
@@ -380,31 +392,68 @@ fi
 # Step 8: Check for Codex +1 Reaction (First Round Quick Approval)
 # ========================================
 
-# On first round (round 0), check if Codex has given a +1 reaction on the PR
-# This indicates immediate approval without needing to post a comment
-if [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
-    # Check for codex bot in active/configured bots
-    HAS_CODEX=false
-    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+# On first round (round 0) with startup_case=1 (no prior comments), check if Codex
+# has given a +1 reaction on the PR. This indicates immediate approval.
+# Only applies to startup_case=1 where bots auto-review without trigger.
+if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 ]]; then
+    # Check for codex bot in active bots
+    CODEX_IN_ACTIVE=false
+    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
         if [[ "$bot" == "codex" ]]; then
-            HAS_CODEX=true
+            CODEX_IN_ACTIVE=true
             break
         fi
     done
 
-    if [[ "$HAS_CODEX" == "true" ]]; then
-        echo "Round 0: Checking for Codex +1 reaction on PR..." >&2
+    if [[ "$CODEX_IN_ACTIVE" == "true" ]]; then
+        echo "Round 0, Case 1: Checking for Codex +1 reaction on PR..." >&2
 
         # Check for +1 reaction from Codex after the loop started
         CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "${PR_STARTED_AT}" 2>/dev/null) || CODEX_REACTION=""
 
         if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
             REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
-            echo "Codex +1 detected at $REACTION_AT - marking as approved!" >&2
+            echo "Codex +1 detected at $REACTION_AT - removing codex from active_bots" >&2
 
-            # Create approve-state.md instead of complete-state.md to distinguish
-            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
-            exit 0
+            # Remove only codex from active_bots, keep other bots
+            declare -a NEW_ACTIVE_BOTS_AFTER_THUMBSUP=()
+            for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+                if [[ "$bot" != "codex" ]]; then
+                    NEW_ACTIVE_BOTS_AFTER_THUMBSUP+=("$bot")
+                fi
+            done
+
+            # If no other bots remain, loop is complete
+            if [[ ${#NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]} -eq 0 ]]; then
+                echo "Codex was the only active bot - PR loop approved!" >&2
+                mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+                exit 0
+            fi
+
+            # Update active_bots in state file and continue with other bots
+            echo "Continuing with remaining bots: ${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[*]}" >&2
+            PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
+
+            # Update state file
+            NEW_ACTIVE_BOTS_YAML=""
+            for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+                NEW_ACTIVE_BOTS_YAML="${NEW_ACTIVE_BOTS_YAML}
+  - ${bot}"
+            done
+
+            TEMP_FILE="${STATE_FILE}.thumbsup.$$"
+            # Replace active_bots section in state file
+            awk -v new_bots="$NEW_ACTIVE_BOTS_YAML" '
+                /^active_bots:/ {
+                    print "active_bots:" new_bots
+                    in_bots=1
+                    next
+                }
+                in_bots && /^[[:space:]]+-/ { next }
+                in_bots && /^[a-zA-Z]/ { in_bots=0 }
+                { print }
+            ' "$STATE_FILE" > "$TEMP_FILE"
+            mv "$TEMP_FILE" "$STATE_FILE"
         fi
     fi
 fi
@@ -415,7 +464,7 @@ fi
 
 if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
     echo "All bots have approved. PR loop complete!" >&2
-    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
+    mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
     exit 0
 fi
 
@@ -429,6 +478,7 @@ get_current_user() {
 }
 
 # Find the most recent PR comment from CURRENT USER that contains bot mentions
+# Returns: "timestamp|comment_id" on success
 # This timestamp is used for --after filtering to catch fast bot replies
 # NOTE: Uses --paginate to handle PRs with >30 comments
 detect_trigger_comment() {
@@ -457,14 +507,15 @@ detect_trigger_comment() {
 
     # Find most recent trigger comment from CURRENT USER (sorted by created_at descending)
     # The jq -s combines paginated results into single array before filtering
-    local trigger_timestamp
-    trigger_timestamp=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
+    # Returns both timestamp and comment ID
+    local trigger_info
+    trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
         [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
-        sort_by(.created_at) | reverse | .[0].created_at // empty
+        sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
     ')
 
-    if [[ -n "$trigger_timestamp" && "$trigger_timestamp" != "null" ]]; then
-        echo "$trigger_timestamp"
+    if [[ -n "$trigger_info" && "$trigger_info" != "null|null" && "$trigger_info" != "|" ]]; then
+        echo "$trigger_info"
         return 0
     fi
 
@@ -480,21 +531,56 @@ fi
 # ALWAYS check for newer trigger comments and update last_trigger_at
 # This ensures we use the most recent trigger, not a stale one
 echo "Detecting trigger comment timestamp from user '$CURRENT_USER'..." >&2
-DETECTED_TRIGGER_AT=$(detect_trigger_comment "$PR_NUMBER" "$CURRENT_USER") || true
+DETECTED_TRIGGER_INFO=$(detect_trigger_comment "$PR_NUMBER" "$CURRENT_USER") || true
+DETECTED_TRIGGER_AT=""
+DETECTED_TRIGGER_COMMENT_ID=""
+
+if [[ -n "$DETECTED_TRIGGER_INFO" ]]; then
+    # Parse timestamp and comment ID from "timestamp|id" format
+    DETECTED_TRIGGER_AT="${DETECTED_TRIGGER_INFO%%|*}"
+    DETECTED_TRIGGER_COMMENT_ID="${DETECTED_TRIGGER_INFO##*|}"
+fi
 
 if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
     # Check if detected trigger is newer than stored one
     if [[ -z "$PR_LAST_TRIGGER_AT" ]] || [[ "$DETECTED_TRIGGER_AT" > "$PR_LAST_TRIGGER_AT" ]]; then
-        echo "Found trigger comment at: $DETECTED_TRIGGER_AT" >&2
+        echo "Found trigger comment at: $DETECTED_TRIGGER_AT (ID: $DETECTED_TRIGGER_COMMENT_ID)" >&2
         if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
             echo "  (Updating from older trigger: $PR_LAST_TRIGGER_AT)" >&2
         fi
         PR_LAST_TRIGGER_AT="$DETECTED_TRIGGER_AT"
+        PR_TRIGGER_COMMENT_ID="$DETECTED_TRIGGER_COMMENT_ID"
 
         # Persist to state file
         TEMP_FILE="${STATE_FILE}.trigger.$$"
-        sed "s/^last_trigger_at:.*/last_trigger_at: $DETECTED_TRIGGER_AT/" "$STATE_FILE" > "$TEMP_FILE"
+        sed -e "s/^last_trigger_at:.*/last_trigger_at: $DETECTED_TRIGGER_AT/" \
+            -e "s/^trigger_comment_id:.*/trigger_comment_id: $DETECTED_TRIGGER_COMMENT_ID/" \
+            "$STATE_FILE" > "$TEMP_FILE"
         mv "$TEMP_FILE" "$STATE_FILE"
+
+        # Step 7b: Verify Claude eyes reaction if claude is configured
+        CLAUDE_CONFIGURED=false
+        for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+            if [[ "$bot" == "claude" ]]; then
+                CLAUDE_CONFIGURED=true
+                break
+            fi
+        done
+
+        if [[ "$CLAUDE_CONFIGURED" == "true" && -n "$DETECTED_TRIGGER_COMMENT_ID" ]]; then
+            echo "Verifying Claude eyes reaction on trigger comment (ID: $DETECTED_TRIGGER_COMMENT_ID)..." >&2
+
+            # Check for eyes reaction with 3x5s retry
+            EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$DETECTED_TRIGGER_COMMENT_ID" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
+
+            if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
+                echo "Warning: Claude did not react with eyes to trigger comment" >&2
+                echo "This may indicate Claude bot is not monitoring this repository" >&2
+                # Continue anyway - this is a warning, not a blocker
+            else
+                echo "Claude eyes reaction confirmed!" >&2
+            fi
+        fi
     else
         echo "Using existing trigger timestamp: $PR_LAST_TRIGGER_AT" >&2
     fi
@@ -697,13 +783,49 @@ while true; do
 done
 
 # ========================================
-# Handle No Responses
+# Handle No Responses (AC-6: auto-remove timed-out bots)
 # ========================================
 
 COMMENT_COUNT=$(echo "$ALL_NEW_COMMENTS" | jq 'length' 2>/dev/null || echo "0")
 
 if [[ "$COMMENT_COUNT" == "0" ]]; then
     echo "No new bot reviews received." >&2
+
+    # Check if any bots timed out - they should be auto-removed from active_bots
+    TIMED_OUT_COUNT=0
+    WAITING_COUNT=0
+    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+        if [[ "${BOTS_TIMED_OUT[$bot]:-}" == "true" ]]; then
+            TIMED_OUT_COUNT=$((TIMED_OUT_COUNT + 1))
+        elif [[ "${BOTS_RESPONDED[$bot]}" != "true" ]]; then
+            WAITING_COUNT=$((WAITING_COUNT + 1))
+        fi
+    done
+
+    # If all active bots have timed out, remove them and complete
+    if [[ $TIMED_OUT_COUNT -gt 0 && $WAITING_COUNT -eq 0 ]]; then
+        echo "All remaining bots timed out - removing them and completing loop" >&2
+
+        # Build new active bots list without timed-out bots
+        declare -a NEW_ACTIVE_BOTS_TIMEOUT=()
+        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+            if [[ "${BOTS_TIMED_OUT[$bot]:-}" != "true" ]]; then
+                NEW_ACTIVE_BOTS_TIMEOUT+=("$bot")
+            else
+                echo "Removing '$bot' from active_bots (timed out)" >&2
+            fi
+        done
+
+        # If no bots remain, loop is complete
+        if [[ ${#NEW_ACTIVE_BOTS_TIMEOUT[@]} -eq 0 ]]; then
+            echo "All bots removed (timed out) - PR loop approved!" >&2
+            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+            exit 0
+        fi
+
+        # Update state with remaining bots (shouldn't happen, but handle gracefully)
+        PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_TIMEOUT[@]}")
+    fi
 
     # Build list of bots that didn't respond (check all configured bots)
     MISSING_BOTS=""
@@ -812,6 +934,17 @@ for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     EXPECTED_BOTS_LIST="${EXPECTED_BOTS_LIST}- ${bot}\n"
 done
 
+# Load goal tracker update template (with fallback)
+GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+GOAL_TRACKER_TEMPLATE_VARS=(
+    "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE"
+    "NEXT_ROUND=$NEXT_ROUND"
+)
+GOAL_TRACKER_UPDATE_FALLBACK="## Goal Tracker Update
+After analysis, update the goal tracker at $GOAL_TRACKER_FILE with current status."
+
+GOAL_TRACKER_UPDATE_INSTRUCTIONS=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/codex-goal-tracker-update.md" "$GOAL_TRACKER_UPDATE_FALLBACK" "${GOAL_TRACKER_TEMPLATE_VARS[@]}")
+
 cat > "$CODEX_PROMPT_FILE" << EOF
 # PR Review Validation (Per-Bot Analysis)
 
@@ -848,6 +981,8 @@ List bots that should be removed from active tracking (those with APPROVE status
 - If ALL bots have APPROVE status: End with "APPROVE" on its own line
 - If any bot has ISSUES status: End with "ISSUES_REMAINING" on its own line
 - If any bot has NO_RESPONSE status: End with "WAITING_FOR_BOTS" on its own line
+
+$GOAL_TRACKER_UPDATE_INSTRUCTIONS
 EOF
 
 # Check if codex is available
@@ -916,7 +1051,7 @@ LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//
 # Per AC-8: Use "APPROVE" marker
 if [[ "$LAST_LINE_TRIMMED" == "APPROVE" ]]; then
     echo "All bots have approved! PR loop complete." >&2
-    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
+    mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
     exit 0
 fi
 
@@ -1042,6 +1177,20 @@ done
 NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || NEW_LATEST_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
 NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits --jq '.commits | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
 
+# Re-evaluate startup_case dynamically (AC-14)
+# This allows case to change as bot comments arrive
+BOTS_COMMA_LIST=$(IFS=','; echo "${PR_CONFIGURED_BOTS_ARRAY[*]}")
+NEW_REVIEWER_STATUS=$("$PLUGIN_ROOT/scripts/check-pr-reviewer-status.sh" "$PR_NUMBER" --bots "$BOTS_COMMA_LIST" 2>/dev/null) || NEW_REVIEWER_STATUS=""
+if [[ -n "$NEW_REVIEWER_STATUS" ]]; then
+    NEW_STARTUP_CASE=$(echo "$NEW_REVIEWER_STATUS" | jq -r '.case')
+    if [[ -n "$NEW_STARTUP_CASE" && "$NEW_STARTUP_CASE" != "null" ]]; then
+        if [[ "$NEW_STARTUP_CASE" != "${PR_STARTUP_CASE:-1}" ]]; then
+            echo "Startup case changed: ${PR_STARTUP_CASE:-1} -> $NEW_STARTUP_CASE" >&2
+        fi
+        PR_STARTUP_CASE="$NEW_STARTUP_CASE"
+    fi
+fi
+
 # Create updated state file (with last_trigger_at cleared - will be set when next @mention posted)
 {
     echo "---"
@@ -1069,7 +1218,7 @@ mv "$TEMP_FILE" "$STATE_FILE"
 # Check if all bots are now approved
 if [[ ${#NEW_ACTIVE_BOTS[@]} -eq 0 ]]; then
     echo "All bots have now approved! PR loop complete." >&2
-    mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
+    mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
     exit 0
 fi
 

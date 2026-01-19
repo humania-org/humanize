@@ -116,7 +116,7 @@ COMMIT_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json head
 LATEST_COMMIT_SHA=$(echo "$COMMIT_INFO" | jq -r '.sha')
 LATEST_COMMIT_AT=$(echo "$COMMIT_INFO" | jq -r '.date')
 
-# Fetch all comments (issue comments and review comments)
+# Fetch all comments (issue comments, review comments, and PR review submissions)
 # Using --paginate to handle PRs with many comments
 ISSUE_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
     --paginate --jq '[.[] | {author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || ISSUE_COMMENTS="[]"
@@ -124,8 +124,13 @@ ISSUE_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/iss
 REVIEW_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
     --paginate --jq '[.[] | {author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || REVIEW_COMMENTS="[]"
 
-# Combine all comments
-ALL_COMMENTS=$(echo "$ISSUE_COMMENTS $REVIEW_COMMENTS" | jq -s 'add // []')
+# Also fetch PR review submissions (APPROVE, REQUEST_CHANGES, COMMENT reviews)
+# These are different from inline review comments and may be the only feedback from some bots
+PR_REVIEWS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
+    --paginate --jq '[.[] | {author: .user.login, created_at: .submitted_at, body: .body, state: .state}]' 2>/dev/null) || PR_REVIEWS="[]"
+
+# Combine all comments and reviews
+ALL_COMMENTS=$(echo "$ISSUE_COMMENTS $REVIEW_COMMENTS $PR_REVIEWS" | jq -s 'add // []')
 
 # ========================================
 # Analyze Comments by Bot

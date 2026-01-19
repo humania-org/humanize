@@ -160,6 +160,16 @@ case "$COMMAND" in
                 fi
                 ;;
 
+            repos/*/pulls/*/reviews)
+                # Return mock PR review submissions
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/pr-reviews.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
             *)
                 echo "Mock gh: Unknown API endpoint: $ENDPOINT" >&2
                 exit 1

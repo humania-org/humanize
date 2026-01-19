@@ -27,6 +27,9 @@ POLL_TIMEOUT=900  # 15 minutes per bot
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
 
+# Default timeout for GitHub CLI operations (60 seconds)
+GH_TIMEOUT=60
+
 # Source portable timeout wrapper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
