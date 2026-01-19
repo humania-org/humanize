@@ -33,6 +33,7 @@ echo ""
 # ========================================
 
 # This replicates the logic from setup-rlcr-loop.sh lines 549-567
+# Uses run_with_timeout from portable-timeout.sh for macOS/Linux compatibility
 detect_base_branch() {
     local project_root="$1"
     local git_timeout="${2:-10}"
@@ -40,20 +41,20 @@ detect_base_branch() {
     # Priority 1: Remote default branch (typically main or master)
     # Guard with || true to prevent pipefail from terminating when origin is missing
     local remote_default
-    remote_default=$(timeout "$git_timeout" git -C "$project_root" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//' || true)
+    remote_default=$(run_with_timeout "$git_timeout" git -C "$project_root" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//' || true)
     if [[ -n "$remote_default" && "$remote_default" != "(unknown)" ]]; then
         echo "$remote_default"
         return 0
     fi
 
     # Priority 2: Local main branch
-    if timeout "$git_timeout" git -C "$project_root" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+    if run_with_timeout "$git_timeout" git -C "$project_root" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
         echo "main"
         return 0
     fi
 
     # Priority 3: Local master branch
-    if timeout "$git_timeout" git -C "$project_root" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+    if run_with_timeout "$git_timeout" git -C "$project_root" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
         echo "master"
         return 0
     fi
