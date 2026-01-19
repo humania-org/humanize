@@ -246,6 +246,20 @@ if [[ "$PR_STATE" == "CLOSED" ]]; then
 fi
 
 # ========================================
+# Resolve PR Base Repository (for fork PRs)
+# ========================================
+# IMPORTANT: For fork PRs, comments are on the base repository, not the fork.
+# We need to use the base repo for all comments API calls.
+PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    echo "Warning: Could not resolve PR base repository, using current repo" >&2
+    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+        -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+fi
+
+# ========================================
 # Check Resolution File Exists
 # ========================================
 
@@ -514,6 +528,7 @@ get_current_user() {
 # NOTE: Uses --paginate to handle PRs with >30 comments
 # IMPORTANT: If latest_commit_at is set, only accepts comments AFTER that timestamp
 #            This prevents old triggers from being re-used after force push
+# IMPORTANT: Uses PR_BASE_REPO (not {owner}/{repo}) for fork PR support
 detect_trigger_comment() {
     local pr_num="$1"
     local current_user="$2"
@@ -523,8 +538,9 @@ detect_trigger_comment() {
     # Using --paginate ensures we don't miss the latest @mention on large PRs
     # IMPORTANT: --jq with --paginate runs per-page, so we output objects (not array)
     # and use jq -s to aggregate all pages into a single array before filtering
+    # IMPORTANT: Use PR_BASE_REPO for fork PRs - comments are on base repo, not fork
     local comments_json
-    comments_json=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$pr_num/comments" \
+    comments_json=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$pr_num/comments" \
         --paginate --jq '.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}' 2>/dev/null \
         | jq -s '.') || return 1
 
