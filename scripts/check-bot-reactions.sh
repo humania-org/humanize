@@ -131,8 +131,10 @@ case "$COMMAND" in
         # The PR body is treated as issue #PR_NUMBER, so we use the issues reactions endpoint
         # IMPORTANT: Use PR_BASE_REPO for fork PR support
         # IMPORTANT: Use --paginate to fetch all reactions (default is 30 per page)
+        # NOTE: --paginate with --jq emits one array per page; use jq -s 'add' to merge them
         REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/reactions" \
-            --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
+            --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null \
+            | jq -s 'add // []') || {
             echo "Error: Failed to fetch PR reactions" >&2
             exit 2
         }
@@ -140,7 +142,7 @@ case "$COMMAND" in
         # Look for Codex +1 reaction
         # User login: chatgpt-codex-connector[bot]
         CODEX_REACTION=$(echo "$REACTIONS" | jq -r '
-            [.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | .[0]
+            [.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | .[0] // empty
         ')
 
         if [[ "$CODEX_REACTION" == "null" ]] || [[ -z "$CODEX_REACTION" ]]; then
@@ -227,8 +229,10 @@ case "$COMMAND" in
             # Fetch comment reactions (with pagination to catch all reactions)
             # IMPORTANT: Use PR_BASE_REPO for fork PR support
             # IMPORTANT: Use --paginate to fetch all reactions (default is 30 per page)
+            # NOTE: --paginate with --jq emits one array per page; use jq -s 'add' to merge them
             REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/comments/$COMMENT_ID/reactions" \
-                --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
+                --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null \
+                | jq -s 'add // []') || {
                 # API error - continue to next attempt
                 continue
             }
@@ -236,7 +240,7 @@ case "$COMMAND" in
             # Look for Claude eyes reaction
             # User login: claude[bot]
             CLAUDE_REACTION=$(echo "$REACTIONS" | jq -r '
-                [.[] | select(.user == "claude[bot]" and .content == "eyes")] | .[0]
+                [.[] | select(.user == "claude[bot]" and .content == "eyes")] | .[0] // empty
             ')
 
             if [[ "$CLAUDE_REACTION" != "null" ]] && [[ -n "$CLAUDE_REACTION" ]]; then
