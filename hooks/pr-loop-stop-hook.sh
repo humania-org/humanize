@@ -135,6 +135,12 @@ parse_pr_loop_state() {
     PR_STARTED_AT=$(echo "$STATE_FRONTMATTER" | grep "^started_at:" | sed "s/started_at: *//" || true)
     PR_LAST_TRIGGER_AT=$(echo "$STATE_FRONTMATTER" | grep "^last_trigger_at:" | sed "s/last_trigger_at: *//" || true)
 
+    # New state fields for Cases 1-5 and force push detection
+    PR_STARTUP_CASE=$(echo "$STATE_FRONTMATTER" | grep "^startup_case:" | sed "s/startup_case: *//" | tr -d ' ' || true)
+    PR_LATEST_COMMIT_SHA=$(echo "$STATE_FRONTMATTER" | grep "^latest_commit_sha:" | sed "s/latest_commit_sha: *//" | tr -d ' ' || true)
+    PR_LATEST_COMMIT_AT=$(echo "$STATE_FRONTMATTER" | grep "^latest_commit_at:" | sed "s/latest_commit_at: *//" || true)
+    PR_TRIGGER_COMMENT_ID=$(echo "$STATE_FRONTMATTER" | grep "^trigger_comment_id:" | sed "s/trigger_comment_id: *//" | tr -d ' ' || true)
+
     # Parse configured_bots and active_bots as YAML lists
     # configured_bots: never changes, used for polling all bots (allows re-add)
     # active_bots: current bots with issues, shrinks as bots approve
@@ -293,11 +299,11 @@ $NON_HUMANIZE_STATUS
         exit 0
     fi
 
-    # Check for unpushed commits (PR loop always requires push)
+    # Step 6: Check for unpushed commits (PR loop always requires push)
     GIT_AHEAD=$(run_with_timeout "$GIT_TIMEOUT" git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
     if [[ -n "$GIT_AHEAD" ]]; then
         AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
-        REASON="# Unpushed Commits
+        REASON="# Step 6: Unpushed Commits
 
 You have $AHEAD_COUNT unpushed commit(s). PR loop requires pushing changes so bots can review them.
 
@@ -312,6 +318,53 @@ git push
 fi
 
 # ========================================
+# Step 6.5: Force Push Detection
+# ========================================
+
+# Detect if the remote branch HEAD has changed in a way that indicates force push
+# This happens when previous commits are no longer reachable from current HEAD
+if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
+    CURRENT_HEAD=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || CURRENT_HEAD=""
+
+    # Check if the stored commit SHA is still reachable from current HEAD
+    # If not, a force push (history rewrite) has occurred
+    if [[ -n "$CURRENT_HEAD" && "$CURRENT_HEAD" != "$PR_LATEST_COMMIT_SHA" ]]; then
+        # Check if old commit is ancestor of current HEAD
+        IS_ANCESTOR=$(run_with_timeout "$GIT_TIMEOUT" git merge-base --is-ancestor "$PR_LATEST_COMMIT_SHA" "$CURRENT_HEAD" 2>/dev/null && echo "yes" || echo "no")
+
+        if [[ "$IS_ANCESTOR" == "no" ]]; then
+            echo "Force push detected: $PR_LATEST_COMMIT_SHA is no longer reachable from $CURRENT_HEAD" >&2
+
+            REASON="# Step 6.5: Force Push Detected
+
+A force push (history rewrite) has been detected on this branch.
+
+**Previous HEAD:** \`$PR_LATEST_COMMIT_SHA\`
+**Current HEAD:** \`$CURRENT_HEAD\`
+
+The previous commit is no longer reachable from the current HEAD, which indicates:
+- An interactive rebase was performed
+- A \`git push --force\` was executed
+- Commits were squashed or amended
+
+**What to do:**
+
+You must post a new @bot trigger comment to re-trigger reviews:
+
+\`\`\`bash
+gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review - force push detected, history was rewritten\"
+\`\`\`
+
+After posting the trigger comment, try exiting again. The Stop Hook will update the stored commit SHA."
+
+            jq -n --arg reason "$REASON" --arg msg "PR Loop: Force push detected - please re-trigger bots" \
+                '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+            exit 0
+        fi
+    fi
+fi
+
+# ========================================
 # Check Max Iterations
 # ========================================
 
@@ -321,6 +374,39 @@ if [[ $NEXT_ROUND -gt $PR_MAX_ITERATIONS ]]; then
     echo "PR loop reached max iterations ($PR_MAX_ITERATIONS). Exiting." >&2
     mv "$STATE_FILE" "$LOOP_DIR/maxiter-state.md"
     exit 0
+fi
+
+# ========================================
+# Step 8: Check for Codex +1 Reaction (First Round Quick Approval)
+# ========================================
+
+# On first round (round 0), check if Codex has given a +1 reaction on the PR
+# This indicates immediate approval without needing to post a comment
+if [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
+    # Check for codex bot in active/configured bots
+    HAS_CODEX=false
+    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+        if [[ "$bot" == "codex" ]]; then
+            HAS_CODEX=true
+            break
+        fi
+    done
+
+    if [[ "$HAS_CODEX" == "true" ]]; then
+        echo "Round 0: Checking for Codex +1 reaction on PR..." >&2
+
+        # Check for +1 reaction from Codex after the loop started
+        CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "${PR_STARTED_AT}" 2>/dev/null) || CODEX_REACTION=""
+
+        if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
+            REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
+            echo "Codex +1 detected at $REACTION_AT - marking as approved!" >&2
+
+            # Create approve-state.md instead of complete-state.md to distinguish
+            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+            exit 0
+        fi
+    fi
 fi
 
 # ========================================
@@ -497,10 +583,12 @@ TRIGGER_EPOCH=$(date -d "$AFTER_TIMESTAMP" +%s 2>/dev/null || date -j -f "%Y-%m-
 # This ensures the 15-minute window is measured from when the @mention was posted
 declare -A BOTS_RESPONDED
 declare -A BOTS_TIMEOUT_START
+declare -A BOTS_TIMED_OUT  # Track which bots have timed out for AC-6
 POLL_START_EPOCH=$(date +%s)
 echo "Timeout anchor: trigger at epoch $TRIGGER_EPOCH (poll started at $POLL_START_EPOCH)" >&2
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
     BOTS_RESPONDED["$bot"]="false"
+    BOTS_TIMED_OUT["$bot"]="false"
     # Use TRIGGER_EPOCH for timeout, not poll start
     BOTS_TIMEOUT_START["$bot"]="$TRIGGER_EPOCH"
 done
@@ -522,10 +610,11 @@ while true; do
             continue  # Bot already responded
         fi
 
-        # Check per-bot timeout (15 minutes each)
+        # Check per-bot timeout (15 minutes each) - AC-6: auto-remove after timeout
         BOT_ELAPSED=$((CURRENT_TIME - BOTS_TIMEOUT_START[$bot]))
         if [[ $BOT_ELAPSED -ge $PR_POLL_TIMEOUT ]]; then
-            echo "Bot '$bot' timed out after ${PR_POLL_TIMEOUT}s" >&2
+            echo "Bot '$bot' timed out after ${PR_POLL_TIMEOUT}s - will be removed from active_bots" >&2
+            BOTS_TIMED_OUT["$bot"]="true"  # Mark as timed out for later removal
             if [[ -n "$TIMED_OUT_BOTS" ]]; then
                 TIMED_OUT_BOTS="${TIMED_OUT_BOTS}, ${bot}"
             else
@@ -893,7 +982,14 @@ done <<< "$ISSUES_SECTION"
 
 # Process ALL configured bots (not just currently active)
 # This allows re-adding previously approved bots if they post new issues
+# AC-6: Also handle timed-out bots by removing them from active_bots
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    # AC-6: Check if bot timed out - remove from active_bots
+    if [[ "${BOTS_TIMED_OUT[$bot]:-}" == "true" ]]; then
+        echo "Removing '$bot' from active_bots (timed out after ${PR_POLL_TIMEOUT}s)" >&2
+        continue  # Don't add to NEW_ACTIVE_BOTS
+    fi
+
     if [[ "${BOTS_WITH_ISSUES[$bot]:-}" == "true" ]]; then
         # Bot has issues - add to active list
         if [[ "${BOTS_APPROVED[$bot]:-}" == "true" ]]; then
@@ -942,6 +1038,10 @@ for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
   - ${bot}"
 done
 
+# Update latest_commit_sha to current HEAD (for force push detection in next round)
+NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || NEW_LATEST_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
+NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits --jq '.commits | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
+
 # Create updated state file (with last_trigger_at cleared - will be set when next @mention posted)
 {
     echo "---"
@@ -957,7 +1057,11 @@ done
     echo "poll_interval: $PR_POLL_INTERVAL"
     echo "poll_timeout: $PR_POLL_TIMEOUT"
     echo "started_at: $PR_STARTED_AT"
+    echo "startup_case: ${PR_STARTUP_CASE:-1}"
+    echo "latest_commit_sha: $NEW_LATEST_COMMIT_SHA"
+    echo "latest_commit_at: ${NEW_LATEST_COMMIT_AT:-}"
     echo "last_trigger_at:"
+    echo "trigger_comment_id: ${PR_TRIGGER_COMMENT_ID:-}"
     echo "---"
 } > "$TEMP_FILE"
 mv "$TEMP_FILE" "$STATE_FILE"

@@ -541,6 +541,7 @@ _humanize_monitor_codex() {
     local cleanup_done=false
 
     # Cleanup function - called by trap
+    # AC-10: Must work cleanly in both bash and zsh
     _cleanup() {
         # Prevent multiple cleanup calls
         [[ "$cleanup_done" == "true" ]] && return
@@ -548,12 +549,18 @@ _humanize_monitor_codex() {
         monitor_running=false
 
         # Reset traps to prevent re-triggering
-        trap - INT TERM
+        # Use explicit signal numbers for better zsh compatibility
+        trap - INT TERM 2>/dev/null || true
 
-        # Kill background processes
-        if [[ -n "$tail_pid" ]] && kill -0 $tail_pid 2>/dev/null; then
-            kill $tail_pid 2>/dev/null
-            wait $tail_pid 2>/dev/null
+        # Kill background processes more robustly
+        if [[ -n "$tail_pid" ]]; then
+            # Check if process exists before killing
+            if kill -0 "$tail_pid" 2>/dev/null; then
+                kill "$tail_pid" 2>/dev/null || true
+                # Use timeout-safe wait
+                ( wait "$tail_pid" 2>/dev/null ) &
+                wait $! 2>/dev/null || true
+            fi
         fi
 
         _restore_terminal
@@ -577,7 +584,16 @@ _humanize_monitor_codex() {
     }
 
     # Set up signal handlers (bash/zsh compatible)
-    trap '_cleanup' INT TERM
+    # AC-10: Use function name without quotes for zsh compatibility
+    # In zsh, traps in functions are local by default when using POSIX_TRAPS option
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # zsh: use TRAPINT and TRAPTERM for better handling
+        TRAPINT() { _cleanup; return 130; }
+        TRAPTERM() { _cleanup; return 143; }
+    else
+        # bash: use standard trap
+        trap '_cleanup' INT TERM
+    fi
 
     # Find initial session and log file
     current_session_dir=$(_find_latest_session)
@@ -863,8 +879,13 @@ _humanize_monitor_codex() {
         done
     done
 
-    # Reset trap handlers
-    trap - INT TERM
+    # Reset trap handlers (zsh and bash)
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # zsh: undefine the TRAP* functions
+        unfunction TRAPINT TRAPTERM 2>/dev/null || true
+    else
+        trap - INT TERM
+    fi
 }
 
 # Main humanize function

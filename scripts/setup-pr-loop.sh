@@ -214,6 +214,36 @@ done
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Source loop-common.sh for find_active_loop and find_active_pr_loop functions
+source "$HOOKS_LIB_DIR/loop-common.sh"
+
+# ========================================
+# Mutual Exclusion Check
+# ========================================
+
+# Check for existing active loops (both RLCR and PR loops)
+# Only one loop type can be active at a time
+RLCR_LOOP_DIR=$(find_active_loop "$PROJECT_ROOT/.humanize/rlcr" 2>/dev/null || echo "")
+PR_LOOP_DIR=$(find_active_pr_loop "$PROJECT_ROOT/.humanize/pr-loop" 2>/dev/null || echo "")
+
+if [[ -n "$RLCR_LOOP_DIR" ]]; then
+    echo "Error: An RLCR loop is already active" >&2
+    echo "  Active loop: $RLCR_LOOP_DIR" >&2
+    echo "" >&2
+    echo "Only one loop can be active at a time." >&2
+    echo "Cancel the RLCR loop first with: /humanize:cancel-rlcr-loop" >&2
+    exit 1
+fi
+
+if [[ -n "$PR_LOOP_DIR" ]]; then
+    echo "Error: A PR loop is already active" >&2
+    echo "  Active loop: $PR_LOOP_DIR" >&2
+    echo "" >&2
+    echo "Only one loop can be active at a time." >&2
+    echo "Cancel the PR loop first with: /humanize:cancel-pr-loop" >&2
+    exit 1
+fi
+
 # Check git repo (with timeout)
 if ! run_with_timeout "$GIT_TIMEOUT" git rev-parse --git-dir &>/dev/null; then
     echo "Error: Project must be a git repository (or git command timed out)" >&2
@@ -341,6 +371,80 @@ BOTS_COMMA_LIST=$(IFS=','; echo "${ACTIVE_BOTS_ARRAY[*]}")
 "$SCRIPT_DIR/fetch-pr-comments.sh" "$PR_NUMBER" "$COMMENT_FILE" --bots "$BOTS_COMMA_LIST"
 
 # ========================================
+# Determine Startup Case
+# ========================================
+
+# Call check-pr-reviewer-status.sh to analyze PR state
+REVIEWER_STATUS=$("$SCRIPT_DIR/check-pr-reviewer-status.sh" "$PR_NUMBER" --bots "$BOTS_COMMA_LIST" 2>/dev/null) || {
+    echo "Warning: Failed to check reviewer status, defaulting to Case 1" >&2
+    REVIEWER_STATUS='{"case":1,"reviewers_commented":[],"reviewers_missing":[],"latest_commit_sha":"","latest_commit_at":"","newest_review_at":null,"has_commits_after_reviews":false}'
+}
+
+# Parse reviewer status JSON
+STARTUP_CASE=$(echo "$REVIEWER_STATUS" | jq -r '.case')
+LATEST_COMMIT_SHA=$(echo "$REVIEWER_STATUS" | jq -r '.latest_commit_sha')
+LATEST_COMMIT_AT=$(echo "$REVIEWER_STATUS" | jq -r '.latest_commit_at')
+HAS_COMMITS_AFTER=$(echo "$REVIEWER_STATUS" | jq -r '.has_commits_after_reviews')
+
+# Fallback to git HEAD if API didn't return commit SHA
+if [[ -z "$LATEST_COMMIT_SHA" ]] || [[ "$LATEST_COMMIT_SHA" == "null" ]]; then
+    LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD)
+fi
+
+echo "Startup Case: $STARTUP_CASE" >&2
+echo "Latest Commit: $LATEST_COMMIT_SHA" >&2
+
+# Handle Case 4/5: All reviewers commented but new commits exist
+# Need to trigger re-review by posting @bot comment
+LAST_TRIGGER_AT=""
+TRIGGER_COMMENT_ID=""
+
+if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
+    echo "Case $STARTUP_CASE: Posting trigger comment for re-review..." >&2
+
+    # Post trigger comment
+    TRIGGER_BODY="$BOT_MENTION_STRING please review the latest changes (new commits since last review)"
+    TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --body "$TRIGGER_BODY" 2>&1) || {
+        echo "Warning: Failed to post trigger comment: $TRIGGER_RESULT" >&2
+    }
+
+    LAST_TRIGGER_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    # If --claude is specified, verify eyes reaction
+    if [[ "$BOT_CLAUDE" == "true" ]]; then
+        echo "Verifying Claude eyes reaction (3 attempts x 5 seconds)..." >&2
+
+        # Get the comment ID we just posted
+        # Fetch the latest comment from current user
+        CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
+        if [[ -n "$CURRENT_USER" ]]; then
+            TRIGGER_COMMENT_ID=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+                --paginate --jq "[.[] | select(.user.login == \"$CURRENT_USER\")] | sort_by(.created_at) | reverse | .[0].id" 2>/dev/null) || TRIGGER_COMMENT_ID=""
+        fi
+
+        if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
+            # Check for eyes reaction with retry
+            if ! "$SCRIPT_DIR/check-bot-reactions.sh" claude-eyes "$TRIGGER_COMMENT_ID" --retry 3 --delay 5 >/dev/null 2>&1; then
+                echo "Error: Claude bot did not respond with eyes reaction" >&2
+                echo "" >&2
+                echo "This may indicate:" >&2
+                echo "  - Claude bot is not configured on this repository" >&2
+                echo "  - Network issues preventing Claude from seeing the mention" >&2
+                echo "" >&2
+                echo "Please verify Claude bot is set up correctly on this repository." >&2
+
+                # Clean up the loop directory since we're failing
+                rm -rf "$LOOP_DIR"
+                exit 1
+            fi
+            echo "Claude eyes reaction confirmed!" >&2
+        else
+            echo "Warning: Could not verify Claude eyes (comment ID not found)" >&2
+        fi
+    fi
+fi
+
+# ========================================
 # Create State File
 # ========================================
 
@@ -369,18 +473,99 @@ codex_timeout: $CODEX_TIMEOUT
 poll_interval: $POLL_INTERVAL
 poll_timeout: $POLL_TIMEOUT
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-last_trigger_at:
+startup_case: $STARTUP_CASE
+latest_commit_sha: $LATEST_COMMIT_SHA
+latest_commit_at: ${LATEST_COMMIT_AT:-}
+last_trigger_at: ${LAST_TRIGGER_AT:-}
+trigger_comment_id: ${TRIGGER_COMMENT_ID:-}
 ---
 EOF
+
+# ========================================
+# Create Goal Tracker (AC-12)
+# ========================================
+
+GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+
+# Build display string for active bots
+ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${ACTIVE_BOTS_ARRAY[*]}")
+
+# Build acceptance criteria rows for each bot
+BOT_AC_ROWS=""
+AC_NUM=1
+for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
+    BOT_AC_ROWS="${BOT_AC_ROWS}| AC-${AC_NUM} | Get approval from ${bot} | ${bot} | pending |
+"
+    AC_NUM=$((AC_NUM + 1))
+done
+
+# Current timestamp for log
+STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Goal tracker template variables
+GOAL_TRACKER_VARS=(
+    "PR_NUMBER=$PR_NUMBER"
+    "START_BRANCH=$START_BRANCH"
+    "ACTIVE_BOTS_DISPLAY=$ACTIVE_BOTS_DISPLAY"
+    "STARTUP_CASE=$STARTUP_CASE"
+    "BOT_AC_ROWS=$BOT_AC_ROWS"
+    "STARTED_AT=$STARTED_AT"
+)
+
+FALLBACK_GOAL_TRACKER="# PR Loop Goal Tracker
+
+## PR Information
+
+- **PR Number:** #$PR_NUMBER
+- **Branch:** $START_BRANCH
+- **Monitored Bots:** $ACTIVE_BOTS_DISPLAY
+- **Startup Case:** $STARTUP_CASE
+
+## Ultimate Goal
+
+Get all monitored bot reviewers ($ACTIVE_BOTS_DISPLAY) to approve this PR.
+
+## Acceptance Criteria
+
+| AC | Description | Bot | Status |
+|----|-------------|-----|--------|
+${BOT_AC_ROWS}
+## Current Status
+
+### Round 0: Initialization
+
+- **Phase:** Waiting for initial bot reviews
+- **Active Bots:** $ACTIVE_BOTS_DISPLAY
+- **Approved Bots:** (none yet)
+
+### Open Issues
+
+| Round | Bot | Issue | Status |
+|-------|-----|-------|--------|
+| - | - | (awaiting initial reviews) | pending |
+
+### Addressed Issues
+
+| Round | Bot | Issue | Resolution |
+|-------|-----|-------|------------|
+
+## Log
+
+| Round | Timestamp | Event |
+|-------|-----------|-------|
+| 0 | $STARTED_AT | PR loop initialized (Case $STARTUP_CASE) |
+"
+
+GOAL_TRACKER_CONTENT=$(load_and_render_safe "$TEMPLATE_DIR" "pr-loop/goal-tracker-init.md" "$FALLBACK_GOAL_TRACKER" "${GOAL_TRACKER_VARS[@]}")
+echo "$GOAL_TRACKER_CONTENT" > "$GOAL_TRACKER_FILE"
+
+echo "Goal tracker created: $GOAL_TRACKER_FILE" >&2
 
 # ========================================
 # Create Initial Prompt
 # ========================================
 
 RESOLVE_PATH="$LOOP_DIR/round-0-pr-resolve.md"
-
-# Build display string for active bots
-ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${ACTIVE_BOTS_ARRAY[*]}")
 
 # Detect if comments exist by checking for the "No comments found" sentinel
 # fetch-pr-comments.sh outputs "*No comments found.*" only when there are zero comments
