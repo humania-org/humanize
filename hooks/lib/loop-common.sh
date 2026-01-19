@@ -48,7 +48,7 @@ readonly EXIT_UNEXPECTED="unexpected"
 # Returns: 0 if valid JSON with tool_name, 1 if invalid
 # Sets: VALIDATED_TOOL_NAME, VALIDATED_TOOL_INPUT
 #
-# Non-UTF8 handling behavior (AC-7):
+# Non-UTF8 handling behavior:
 # - Null bytes (0x00): Rejected with exit 1
 # - Invalid UTF-8 sequences (0x80-0xFF outside valid UTF-8): Rejected by jq as invalid JSON
 # - Valid UTF-8 non-ASCII characters: Accepted (jq handles Unicode correctly)
@@ -903,7 +903,7 @@ git_adds_humanize() {
             continue
         fi
 
-        # git add -A/--all when .humanize exists (AC-2.3)
+        # git add -A/--all when .humanize exists
         # Always block because -A adds all changes including untracked files
         if [[ "$has_all" == "true" ]]; then
             return 0
@@ -1162,7 +1162,7 @@ update_pr_goal_tracker() {
 
     # Step 2: Add row to Issue Summary table (only if needed)
     if [[ "$need_summary_row" == "true" ]]; then
-        # AC-12 FIX: Insert row INSIDE the table (after last table row, before blank line)
+        # Insert row INSIDE the table (after last table row, before blank line)
         local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
 
         # Use awk to find the last row of the Issue Summary table and insert after it

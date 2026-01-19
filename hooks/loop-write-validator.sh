@@ -160,7 +160,7 @@ if is_state_file_path "$FILE_PATH_LOWER"; then
 fi
 
 # ========================================
-# Allow Finalize Summary File (AC-7)
+# Allow Finalize Summary File
 # ========================================
 # In Finalize Phase, allow writes to finalize-summary.md
 # This must be checked BEFORE the "summary files outside .humanize/rlcr" check

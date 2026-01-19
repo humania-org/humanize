@@ -492,7 +492,7 @@ _humanize_monitor_codex() {
     local cleanup_done=false
 
     # Cleanup function - called by trap
-    # AC-10: Must work cleanly in both bash and zsh
+    # Must work cleanly in both bash and zsh
     _cleanup() {
         # Prevent multiple cleanup calls
         [[ "${cleanup_done:-false}" == "true" ]] && return
@@ -535,7 +535,7 @@ _humanize_monitor_codex() {
     }
 
     # Set up signal handlers (bash/zsh compatible)
-    # AC-10: Use function name without quotes for zsh compatibility
+    # Use function name without quotes for zsh compatibility
     # In zsh, traps in functions are local by default when using POSIX_TRAPS option
     if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use TRAPINT and TRAPTERM for better handling
@@ -1095,7 +1095,7 @@ _humanize_monitor_pr() {
             printf "${yellow}Active Bots:${reset}     ${active_bots}\n"
         fi
 
-        # Goal tracker issue stats (AC-13)
+        # Goal tracker issue stats
         local goal_tracker_file="$session_dir/goal-tracker.md"
         if [[ -f "$goal_tracker_file" ]] && type humanize_parse_pr_goal_tracker &>/dev/null; then
             local tracker_stats=$(humanize_parse_pr_goal_tracker "$goal_tracker_file")
@@ -1131,7 +1131,7 @@ _humanize_monitor_pr() {
     local cleanup_done=false
 
     # Cleanup function - called by trap
-    # AC-10: Must work cleanly in both bash and zsh
+    # Must work cleanly in both bash and zsh
     _pr_cleanup() {
         # Prevent multiple cleanup calls
         [[ "${cleanup_done:-false}" == "true" ]] && return
@@ -1159,7 +1159,7 @@ _humanize_monitor_pr() {
     }
 
     # Set up signal handlers (bash/zsh compatible)
-    # AC-10: Use TRAPINT/TRAPTERM for zsh, standard trap for bash
+    # Use TRAPINT/TRAPTERM for zsh, standard trap for bash
     if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use TRAPINT and TRAPTERM for better handling
         TRAPINT() { _pr_cleanup; return 130; }
@@ -1191,7 +1191,7 @@ _humanize_monitor_pr() {
         local state_values=$(_pr_parse_state_md "$state_file")
         IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
 
-        # AC-11: Get phase for --once mode display
+        # Get phase for --once mode display
         local phase=""
         local phase_display=""
         if declare -f get_pr_loop_phase &>/dev/null; then

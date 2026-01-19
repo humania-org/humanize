@@ -451,7 +451,7 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         echo "Verifying Claude eyes reaction (3 attempts x 5 seconds)..." >&2
 
         if [[ -z "$TRIGGER_COMMENT_ID" ]]; then
-            # AC-9 FIX: Fail if trigger comment ID not found (can't verify eyes without it)
+            # Fail if trigger comment ID not found (can't verify eyes without it)
             echo "Error: Could not find trigger comment ID for eyes verification" >&2
             echo "" >&2
             echo "The trigger comment was posted but its ID could not be retrieved." >&2
@@ -520,7 +520,7 @@ trigger_comment_id: ${TRIGGER_COMMENT_ID:-}
 EOF
 
 # ========================================
-# Create Goal Tracker (AC-12)
+# Create Goal Tracker
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"

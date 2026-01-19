@@ -8,7 +8,7 @@
 # Key features:
 # - Polls until ALL active bots respond (per-bot tracking with 15min timeout each)
 # - Checks PR state before polling (detects CLOSED/MERGED)
-# - Uses APPROVE marker per AC-8
+# - Uses APPROVE marker for Codex approval
 # - Updates active_bots list based on per-bot approval
 #
 # State directory: .humanize/pr-loop/<timestamp>/
@@ -351,7 +351,7 @@ Please push: git push origin $CURRENT_BRANCH"
 fi
 
 # ========================================
-# Step 6.5: Force Push Detection
+# Force Push Detection
 # ========================================
 
 # Detect if the remote branch HEAD has changed in a way that indicates force push
@@ -368,7 +368,7 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
         if [[ "$IS_ANCESTOR" == "no" ]]; then
             echo "Force push detected: $PR_LATEST_COMMIT_SHA is no longer reachable from $CURRENT_HEAD" >&2
 
-            # AC-4 FIX: Preserve OLD commit SHA before updating state
+            # Preserve OLD commit SHA before updating state
             OLD_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
 
             # Get the timestamp of the new HEAD commit for trigger validation
@@ -397,7 +397,7 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
             PR_LAST_TRIGGER_AT=""
             PR_TRIGGER_COMMENT_ID=""
 
-            FALLBACK_MSG="# Step 6.5: Force Push Detected
+            FALLBACK_MSG="# Force Push Detected
 
 A force push (history rewrite) has been detected. Post a new @bot trigger comment: $PR_BOT_MENTION_STRING"
             REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/force-push-detected.md" "$FALLBACK_MSG" \
@@ -586,7 +586,7 @@ fi
 # ========================================
 # Refresh latest_commit_at from PR Before Trigger Detection
 # ========================================
-# AC-5 FIX: Ensure trigger validation uses the CURRENT latest commit timestamp,
+# Ensure trigger validation uses the CURRENT latest commit timestamp,
 # not a stale value from state. This prevents old triggers from being accepted
 # after new (non-force) commits are pushed.
 
@@ -661,7 +661,7 @@ fi
 # Determine if Trigger is Required (needed for Claude eyes check below)
 # ========================================
 
-# Trigger requirement logic (AC-5):
+# Trigger requirement logic:
 # - Round 0, startup_case 1: No trigger required (waiting for initial auto-reviews)
 # - Round 0, startup_case 2/3: No trigger required (process existing comments)
 # - Round 0, startup_case 4/5: Trigger required (new commits after reviews)
@@ -698,7 +698,7 @@ fi
 # Validate Trigger Comment Exists (Based on startup_case and round)
 # ========================================
 
-# AC-5: Validate trigger FIRST, before Claude eyes check
+# Validate trigger FIRST, before Claude eyes check
 # This ensures we don't waste time checking eyes on a stale trigger_comment_id
 
 if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
@@ -726,7 +726,7 @@ fi
 # Claude Eyes Verification (AFTER trigger validation)
 # ========================================
 
-# AC-9/AC-5 FIX: Verify Claude eyes ONLY AFTER trigger is confirmed to exist
+# Verify Claude eyes ONLY AFTER trigger is confirmed to exist
 # This prevents checking eyes on a stale trigger_comment_id
 # Conditions:
 # 1. Claude is configured AND
@@ -753,7 +753,7 @@ if [[ "$CLAUDE_CONFIGURED" == "true" && "$REQUIRE_TRIGGER" == "true" ]]; then
         EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --pr "$PR_NUMBER" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
 
         if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
-            # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
+            # Claude eyes verification is BLOCKING - error after 3x5s retries
             FALLBACK_MSG="# Claude Bot Not Responding
 
 The Claude bot did not respond with an 'eyes' reaction within 15 seconds (3 x 5s retries).
@@ -894,7 +894,7 @@ while true; do
             continue  # Bot already responded
         fi
 
-        # Check per-bot timeout (15 minutes each) - AC-6: auto-remove after timeout
+        # Check per-bot timeout (15 minutes each) - auto-remove after timeout
         BOT_ELAPSED=$((CURRENT_TIME - $(_map_get BOTS_TIMEOUT_START "$bot")))
         if [[ $BOT_ELAPSED -ge $PR_POLL_TIMEOUT ]]; then
             echo "Bot '$bot' timed out after ${PR_POLL_TIMEOUT}s - will be removed from active_bots" >&2
@@ -958,7 +958,7 @@ while true; do
         done
     done
 
-    # AC-8: Check for Codex +1 reaction during polling (Round 0, startup_case=1 only)
+    # Check for Codex +1 reaction during polling (Round 0, startup_case=1 only)
     # Codex may give +1 instead of commenting if no issues found on initial auto-review
     if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 && "$(_map_get BOTS_RESPONDED codex)" != "true" ]]; then
         # Check if codex is a configured bot
@@ -1036,7 +1036,7 @@ while true; do
 done
 
 # ========================================
-# Handle No Responses (AC-6: auto-remove timed-out bots)
+# Handle No Responses (auto-remove timed-out bots)
 # ========================================
 
 COMMENT_COUNT=$(echo "$ALL_NEW_COMMENTS" | jq 'length' 2>/dev/null || echo "0")
@@ -1044,7 +1044,7 @@ COMMENT_COUNT=$(echo "$ALL_NEW_COMMENTS" | jq 'length' 2>/dev/null || echo "0")
 if [[ "$COMMENT_COUNT" == "0" ]]; then
     echo "No new bot reviews received." >&2
 
-    # AC-6: Always remove timed-out bots from active_bots (per-bot timeout behavior)
+    # Always remove timed-out bots from active_bots (per-bot timeout behavior)
     # Don't wait for ALL bots to timeout - remove each bot as it times out
     TIMED_OUT_COUNT=0
     WAITING_COUNT=0
@@ -1338,7 +1338,7 @@ CHECK_CONTENT=$(cat "$CHECK_FILE")
 LAST_LINE=$(echo "$CHECK_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# Per AC-8: Use "APPROVE" marker
+# Use "APPROVE" marker to indicate all bots approved
 if [[ "$LAST_LINE_TRIMMED" == "APPROVE" ]]; then
     echo "All bots have approved! PR loop complete." >&2
 
@@ -1428,9 +1428,9 @@ done <<< "$ISSUES_SECTION"
 
 # Process ALL configured bots (not just currently active)
 # This allows re-adding previously approved bots if they post new issues
-# AC-6: Also handle timed-out bots by removing them from active_bots
+# Also handle timed-out bots by removing them from active_bots
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    # AC-6: Check if bot timed out - remove from active_bots
+    # Check if bot timed out - remove from active_bots
     if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" == "true" ]]; then
         echo "Removing '$bot' from active_bots (timed out after ${PR_POLL_TIMEOUT}s)" >&2
         continue  # Don't add to NEW_ACTIVE_BOTS
@@ -1474,7 +1474,7 @@ TEMP_FILE="${STATE_FILE}.tmp.$$"
 NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${NEW_ACTIVE_BOTS[@]}")
 
 # ========================================
-# Update PR Goal Tracker (AC-12)
+# Update PR Goal Tracker
 # ========================================
 # Extract issue counts from Codex output and update goal tracker
 # Count issues by looking at the Issues Found section
@@ -1517,7 +1517,7 @@ NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/de
 NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
     --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
 
-# Re-evaluate startup_case dynamically (AC-14)
+# Re-evaluate startup_case dynamically
 # This allows case to change as bot comments arrive
 BOTS_COMMA_LIST=$(IFS=','; echo "${PR_CONFIGURED_BOTS_ARRAY[*]}")
 NEW_REVIEWER_STATUS=$("$PLUGIN_ROOT/scripts/check-pr-reviewer-status.sh" "$PR_NUMBER" --bots "$BOTS_COMMA_LIST" 2>/dev/null) || NEW_REVIEWER_STATUS=""
