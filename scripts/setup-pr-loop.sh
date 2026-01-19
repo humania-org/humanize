@@ -448,10 +448,10 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         fi
     fi
 
-    # Fallback to local time if we couldn't get GitHub timestamp
-    if [[ -z "$LAST_TRIGGER_AT" ]]; then
-        LAST_TRIGGER_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    fi
+    # NOTE: Do NOT fall back to local time if GitHub timestamp fetch failed.
+    # Local clock skew could set a future timestamp, causing stop hook to filter
+    # out all comments. The stop hook has its own trigger detection logic that
+    # will find the trigger comment if LAST_TRIGGER_AT is empty.
 
     # If --claude is specified, verify eyes reaction (MANDATORY per plan)
     if [[ "$BOT_CLAUDE" == "true" ]]; then
