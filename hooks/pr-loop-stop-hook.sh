@@ -510,9 +510,12 @@ detect_trigger_comment() {
 
     # Fetch ALL issue comments on the PR (paginated to handle >30 comments)
     # Using --paginate ensures we don't miss the latest @mention on large PRs
+    # IMPORTANT: --jq with --paginate runs per-page, so we output objects (not array)
+    # and use jq -s to aggregate all pages into a single array before filtering
     local comments_json
     comments_json=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$pr_num/comments" \
-        --paginate --jq '[.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || return 1
+        --paginate --jq '.[] | {id: .id, author: .user.login, created_at: .created_at, body: .body}' 2>/dev/null \
+        | jq -s '.') || return 1
 
     if [[ -z "$comments_json" || "$comments_json" == "[]" ]]; then
         return 1
@@ -529,13 +532,13 @@ detect_trigger_comment() {
     done
 
     # Find most recent trigger comment from CURRENT USER (sorted by created_at descending)
-    # The jq -s combines paginated results into single array before filtering
+    # comments_json is already aggregated from all pages into a single array
     # If after_timestamp is set, only accept comments created after that timestamp
     # Returns both timestamp and comment ID
     local trigger_info
     if [[ -n "$after_timestamp" ]]; then
         # Filter to only comments AFTER the specified timestamp (force push protection)
-        trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r \
+        trigger_info=$(echo "$comments_json" | jq -r \
             --arg pattern "$bot_pattern" \
             --arg user "$current_user" \
             --arg after "$after_timestamp" '
@@ -547,7 +550,7 @@ detect_trigger_comment() {
             sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
         ')
     else
-        trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
+        trigger_info=$(echo "$comments_json" | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
             [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
             sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
         ')

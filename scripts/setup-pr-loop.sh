@@ -424,8 +424,10 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
     if [[ -n "$CURRENT_USER" ]]; then
         # Fetch both ID and created_at from the comment we just posted
+        # IMPORTANT: --jq with --paginate runs per-page, so aggregate first then filter
         COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-            --paginate --jq "[.[] | select(.user.login == \"$CURRENT_USER\")] | sort_by(.created_at) | reverse | .[0] | {id: .id, created_at: .created_at}" 2>/dev/null) || COMMENT_DATA=""
+            --paginate --jq ".[] | select(.user.login == \"$CURRENT_USER\") | {id: .id, created_at: .created_at}" 2>/dev/null \
+            | jq -s 'sort_by(.created_at) | reverse | .[0]') || COMMENT_DATA=""
 
         if [[ -n "$COMMENT_DATA" && "$COMMENT_DATA" != "null" ]]; then
             TRIGGER_COMMENT_ID=$(echo "$COMMENT_DATA" | jq -r '.id // empty')
