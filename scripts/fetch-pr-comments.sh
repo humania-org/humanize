@@ -123,15 +123,21 @@ fi
 # Get Repository Info
 # ========================================
 
-REPO_OWNER=$(gh repo view --json owner -q .owner.login 2>/dev/null) || {
-    echo "Error: Failed to get repository owner" >&2
+# IMPORTANT: Use the PR's base repository, not the local checkout's repo
+# When working with forks, gh repo view returns the fork, but the PR number
+# belongs to the upstream/base repository where comments are posted
+PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
+    echo "Error: Failed to get PR base repository" >&2
     exit 1
 }
 
-REPO_NAME=$(gh repo view --json name -q .name 2>/dev/null) || {
-    echo "Error: Failed to get repository name" >&2
+REPO_OWNER="${PR_BASE_REPO%%/*}"
+REPO_NAME="${PR_BASE_REPO##*/}"
+
+if [[ -z "$REPO_OWNER" || -z "$REPO_NAME" ]]; then
+    echo "Error: Could not parse repository owner/name from: $PR_BASE_REPO" >&2
     exit 1
-}
+fi
 
 # ========================================
 # Fetch Comments
