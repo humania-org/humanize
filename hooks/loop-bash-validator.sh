@@ -402,7 +402,14 @@ fi  # End of RLCR-specific checks
 
 if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
     # Block PR loop state.md modifications
+    # Check both full path pattern AND bare filename to catch relative path bypass
+    # (e.g., cd .humanize/pr-loop/timestamp && sed -i state.md)
     if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/state\.md"; then
+        pr_loop_state_blocked_message >&2
+        exit 2
+    fi
+    # Bare filename check for state.md (catches relative path usage)
+    if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
         pr_loop_state_blocked_message >&2
         exit 2
     fi
@@ -422,7 +429,13 @@ if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
     )
 
     for pattern in "${PR_LOOP_READONLY_PATTERNS[@]}"; do
+        # Check both full path pattern AND bare filename to catch relative path bypass
         if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/${pattern}"; then
+            pr_loop_prompt_blocked_message >&2
+            exit 2
+        fi
+        # Bare filename check (catches relative path usage from within loop dir)
+        if command_modifies_file "$COMMAND_LOWER" "${pattern}"; then
             pr_loop_prompt_blocked_message >&2
             exit 2
         fi
