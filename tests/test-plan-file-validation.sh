@@ -683,6 +683,7 @@ fi
 
 # Test 11: Both --plan-file and positional should fail
 echo "Test 11: Reject both --plan-file and positional"
+rm -rf "$TEST_DIR/.humanize/rlcr" 2>/dev/null || true
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --plan-file "plans/a.md" "plans/b.md" 2>&1)
 EXIT_CODE=$?
@@ -702,6 +703,7 @@ echo ""
 echo "Test 12: Reject codex model with YAML-unsafe characters"
 setup_test_repo
 mock_codex
+rm -rf "$TEST_DIR/.humanize/rlcr" 2>/dev/null || true
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model 'model$inject:high' "plans/test-plan.md" 2>&1)
 EXIT_CODE=$?
@@ -714,6 +716,7 @@ fi
 
 # Test 13: Reject codex effort with YAML-unsafe characters
 echo "Test 13: Reject codex effort with YAML-unsafe characters"
+rm -rf "$TEST_DIR/.humanize/rlcr" 2>/dev/null || true
 set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.2-codex:high#comment" "plans/test-plan.md" 2>&1)
 EXIT_CODE=$?

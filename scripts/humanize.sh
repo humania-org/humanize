@@ -18,7 +18,7 @@ fi
 humanize_split_to_array() {
     local arr_name="$1"
     local input="$2"
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use parameter expansion to split on |
         eval "$arr_name=(\"\${(@s:|:)input}\")"
     else
@@ -219,7 +219,7 @@ humanize_parse_git_status() {
 _humanize_monitor_codex() {
     # Enable 0-indexed arrays in zsh for bash compatibility
     # This affects all _split_to_array calls within this function
-    [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+    [[ -n "${ZSH_VERSION:-}" ]] && setopt localoptions ksharrays
 
     local loop_dir=".humanize/rlcr"
     local current_file=""
@@ -495,7 +495,7 @@ _humanize_monitor_codex() {
     # AC-10: Must work cleanly in both bash and zsh
     _cleanup() {
         # Prevent multiple cleanup calls
-        [[ "$cleanup_done" == "true" ]] && return
+        [[ "${cleanup_done:-false}" == "true" ]] && return
         cleanup_done=true
         monitor_running=false
 
@@ -524,7 +524,7 @@ _humanize_monitor_codex() {
     _graceful_stop() {
         local reason="$1"
         # Prevent multiple cleanup calls (checked again in _cleanup but check here too)
-        [[ "$cleanup_done" == "true" ]] && return
+        [[ "${cleanup_done:-false}" == "true" ]] && return
 
         # Call _cleanup to do the actual cleanup work (per plan requirement)
         _cleanup
@@ -537,7 +537,7 @@ _humanize_monitor_codex() {
     # Set up signal handlers (bash/zsh compatible)
     # AC-10: Use function name without quotes for zsh compatibility
     # In zsh, traps in functions are local by default when using POSIX_TRAPS option
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use TRAPINT and TRAPTERM for better handling
         TRAPINT() { _cleanup; return 130; }
         TRAPTERM() { _cleanup; return 143; }
@@ -831,7 +831,7 @@ _humanize_monitor_codex() {
     done
 
     # Reset trap handlers (zsh and bash)
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: undefine the TRAP* functions
         unfunction TRAPINT TRAPTERM 2>/dev/null || true
     else
@@ -1134,7 +1134,7 @@ _humanize_monitor_pr() {
     # AC-10: Must work cleanly in both bash and zsh
     _pr_cleanup() {
         # Prevent multiple cleanup calls
-        [[ "$cleanup_done" == "true" ]] && return
+        [[ "${cleanup_done:-false}" == "true" ]] && return
         cleanup_done=true
         monitor_running=false
 
@@ -1160,7 +1160,7 @@ _humanize_monitor_pr() {
 
     # Set up signal handlers (bash/zsh compatible)
     # AC-10: Use TRAPINT/TRAPTERM for zsh, standard trap for bash
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use TRAPINT and TRAPTERM for better handling
         TRAPINT() { _pr_cleanup; return 130; }
         TRAPTERM() { _pr_cleanup; return 143; }
@@ -1302,7 +1302,7 @@ _humanize_monitor_pr() {
     done
 
     # Reset trap handlers (zsh and bash)
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: undefine the TRAP* functions
         unfunction TRAPINT TRAPTERM 2>/dev/null || true
     else

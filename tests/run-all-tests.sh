@@ -49,6 +49,8 @@ TEST_SUITES=(
     "test-monitor-runtime.sh"
     "test-monitor-e2e-real.sh"
     "test-gen-plan.sh"
+    "test-pr-loop.sh"
+    "test-pr-loop-system.sh"
     # Robustness tests (AC-1 through AC-11)
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"

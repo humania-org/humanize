@@ -2483,10 +2483,305 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
+# Test: Step 6 - unpushed commits block exit
+test_stophook_step6_unpushed_commits() {
+    local test_subdir="$TEST_DIR/stophook_step6_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - codex
+active_bots:
+  - codex
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at:
+trigger_comment_id:
+startup_case: 1
+latest_commit_sha: abc123
+latest_commit_at: 2026-01-18T10:00:00Z
+---
+EOF
+
+    echo "# Resolution" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    # Mock git that reports unpushed commits
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "abc123"
+        elif [[ "$2" == "--git-dir" ]]; then
+            echo ".git"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status)
+        if [[ "$2" == "--porcelain" ]]; then
+            echo ""  # Clean working directory
+        elif [[ "$2" == "-sb" ]]; then
+            echo "## test-branch...origin/test-branch [ahead 2]"  # 2 unpushed commits
+        fi
+        ;;
+    branch)
+        echo "test-branch"
+        ;;
+    merge-base) exit 0 ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_output
+    hook_output=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1) || true
+
+    # Should block with unpushed commits message
+    if echo "$hook_output" | grep -qi "unpushed\|ahead\|push.*commit"; then
+        pass "T-STOPHOOK-5: Step 6 blocks on unpushed commits"
+    else
+        fail "T-STOPHOOK-5: Step 6 should block on unpushed commits" "unpushed/ahead message" "got: $hook_output"
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
+# Test: Step 6.5 - force push detection with actual history rewrite simulation
+test_stophook_step65_force_push_detection() {
+    local test_subdir="$TEST_DIR/stophook_step65_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # State with old commit SHA
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - codex
+active_bots:
+  - codex
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at: 2026-01-18T10:30:00Z
+trigger_comment_id: 999
+startup_case: 1
+latest_commit_sha: oldsha123
+latest_commit_at: 2026-01-18T10:00:00Z
+---
+EOF
+
+    echo "# Resolution" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    pr)
+        if [[ "$*" == *"commits"* ]]; then
+            echo '{"commits":[{"committedDate":"2026-01-18T12:00:00Z"}]}'
+            exit 0
+        fi
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    # Mock git that simulates force push: old commit is NOT ancestor of current HEAD
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "newsha456"  # Different from oldsha123 in state
+        elif [[ "$2" == "--git-dir" ]]; then
+            echo ".git"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status)
+        if [[ "$2" == "--porcelain" ]]; then
+            echo ""
+        elif [[ "$2" == "-sb" ]]; then
+            echo "## test-branch"
+        fi
+        ;;
+    merge-base)
+        # Simulate force push: old commit is NOT an ancestor
+        # --is-ancestor exits 1 when not ancestor
+        exit 1
+        ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_output
+    hook_output=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1) || true
+
+    # Should detect force push and block
+    if echo "$hook_output" | grep -qi "force.*push\|history.*rewrite\|re-trigger"; then
+        pass "T-STOPHOOK-6: Step 6.5 detects force push (history rewrite)"
+    else
+        fail "T-STOPHOOK-6: Step 6.5 should detect force push" "force push message" "got: $hook_output"
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
+# Test: Step 7 - missing trigger comment blocks (Case 4/5)
+test_stophook_step7_missing_trigger() {
+    local test_subdir="$TEST_DIR/stophook_step7_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # State with startup_case=4 (requires trigger) but no trigger
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - codex
+active_bots:
+  - codex
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at:
+trigger_comment_id:
+startup_case: 4
+latest_commit_sha: abc123
+latest_commit_at: 2026-01-18T12:00:00Z
+---
+EOF
+
+    echo "# Resolution" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    # Mock gh that returns no trigger comments
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+case "$1" in
+    api)
+        if [[ "$2" == "user" ]]; then
+            echo "testuser"
+            exit 0
+        fi
+        if [[ "$2" == *"/issues/"*"/comments"* ]]; then
+            echo '[]'  # No comments
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "$*" == *"commits"* ]]; then
+            echo '{"commits":[{"committedDate":"2026-01-18T12:00:00Z"}]}'
+            exit 0
+        fi
+        if [[ "$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "abc123"
+        elif [[ "$2" == "--git-dir" ]]; then
+            echo ".git"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status)
+        if [[ "$2" == "--porcelain" ]]; then
+            echo ""
+        elif [[ "$2" == "-sb" ]]; then
+            echo "## test-branch"
+        fi
+        ;;
+    merge-base) exit 0 ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    local hook_output
+    hook_output=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1) || true
+
+    # Should block with missing trigger message
+    if echo "$hook_output" | grep -qi "trigger\|@.*mention\|comment"; then
+        pass "T-STOPHOOK-7: Step 7 blocks on missing trigger (Case 4)"
+    else
+        fail "T-STOPHOOK-7: Step 7 should block on missing trigger" "trigger/mention message" "got: $hook_output"
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
 # Run stop-hook integration tests
 test_stophook_force_push_rejects_old_trigger
 test_stophook_case1_no_trigger_required
 test_stophook_approve_creates_state
+test_stophook_step6_unpushed_commits
+test_stophook_step65_force_push_detection
+test_stophook_step7_missing_trigger
 # Note: test_stophook_dynamic_startup_case requires extended polling which makes
 # the test slow. The dynamic startup_case update is verified by checking that
 # check-pr-reviewer-status.sh is called in the stop hook when reviewer status changes.

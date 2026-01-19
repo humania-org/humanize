@@ -550,6 +550,28 @@ if [[ -z "$CURRENT_USER" ]]; then
     echo "Warning: Could not determine current GitHub user" >&2
 fi
 
+# ========================================
+# Refresh latest_commit_at from PR Before Trigger Detection
+# ========================================
+# AC-5 FIX: Ensure trigger validation uses the CURRENT latest commit timestamp,
+# not a stale value from state. This prevents old triggers from being accepted
+# after new (non-force) commits are pushed.
+
+CURRENT_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+    --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || CURRENT_LATEST_COMMIT_AT=""
+
+if [[ -n "$CURRENT_LATEST_COMMIT_AT" && "$CURRENT_LATEST_COMMIT_AT" != "$PR_LATEST_COMMIT_AT" ]]; then
+    echo "Updating latest_commit_at: $PR_LATEST_COMMIT_AT -> $CURRENT_LATEST_COMMIT_AT" >&2
+
+    # Persist to state file
+    TEMP_FILE="${STATE_FILE}.commitrefresh.$$"
+    sed -e "s/^latest_commit_at:.*/latest_commit_at: $CURRENT_LATEST_COMMIT_AT/" \
+        "$STATE_FILE" > "$TEMP_FILE"
+    mv "$TEMP_FILE" "$STATE_FILE"
+
+    PR_LATEST_COMMIT_AT="$CURRENT_LATEST_COMMIT_AT"
+fi
+
 # ALWAYS check for newer trigger comments and update last_trigger_at
 # This ensures we use the most recent trigger, not a stale one
 # IMPORTANT: Pass latest_commit_at to filter out old triggers (force push protection)
@@ -625,14 +647,43 @@ elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
 fi
 
 # ========================================
-# Claude Eyes Verification (ONLY when trigger is required and exists)
+# Validate Trigger Comment Exists (Based on startup_case and round)
 # ========================================
 
-# AC-9/AC-5: Verify Claude eyes ONLY when:
+# AC-5: Validate trigger FIRST, before Claude eyes check
+# This ensures we don't waste time checking eyes on a stale trigger_comment_id
+
+if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
+    # Determine startup case description for template
+    STARTUP_CASE_DESC="requires trigger comment"
+    case "${PR_STARTUP_CASE:-1}" in
+        4) STARTUP_CASE_DESC="New commits after all bots reviewed" ;;
+        5) STARTUP_CASE_DESC="New commits after partial bot reviews" ;;
+        *) STARTUP_CASE_DESC="Subsequent round requires trigger" ;;
+    esac
+
+    FALLBACK_MSG="# Missing Trigger Comment
+
+No @bot mention found. Please run: gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review\""
+    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/no-trigger-comment.md" "$FALLBACK_MSG" \
+        "STARTUP_CASE=${PR_STARTUP_CASE:-1}" "STARTUP_CASE_DESC=$STARTUP_CASE_DESC" \
+        "CURRENT_ROUND=$PR_CURRENT_ROUND" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING")
+
+    jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment - please @mention bots first" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
+# Claude Eyes Verification (AFTER trigger validation)
+# ========================================
+
+# AC-9/AC-5 FIX: Verify Claude eyes ONLY AFTER trigger is confirmed to exist
+# This prevents checking eyes on a stale trigger_comment_id
+# Conditions:
 # 1. Claude is configured AND
 # 2. A trigger is actually required (REQUIRE_TRIGGER=true) AND
-# 3. A trigger comment ID exists
-# This allows startup_case 1/2/3 to proceed without eyes verification (no trigger needed)
+# 3. A trigger comment ID exists (PR_TRIGGER_COMMENT_ID from confirmed detection above)
 
 CLAUDE_CONFIGURED=false
 for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
@@ -643,7 +694,7 @@ for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
 done
 
 if [[ "$CLAUDE_CONFIGURED" == "true" && "$REQUIRE_TRIGGER" == "true" ]]; then
-    # Use trigger comment ID from state or newly detected
+    # Use the confirmed trigger comment ID (updated by detect_trigger_comment above)
     TRIGGER_ID_TO_CHECK="${PR_TRIGGER_COMMENT_ID:-}"
 
     if [[ -n "$TRIGGER_ID_TO_CHECK" ]]; then
@@ -667,38 +718,12 @@ Please verify the Claude bot is installed and configured for this repository."
         else
             echo "Claude eyes reaction confirmed!" >&2
         fi
+    else
+        # Trigger exists (PR_LAST_TRIGGER_AT is set) but no ID - should not happen normally
+        echo "Warning: Trigger exists but no comment ID for eyes verification" >&2
     fi
-    # Note: If REQUIRE_TRIGGER=true but no trigger ID, the trigger validation below will block
 elif [[ "$CLAUDE_CONFIGURED" == "true" ]]; then
     echo "Claude is configured but trigger not required (startup_case=${PR_STARTUP_CASE:-1}, round=$PR_CURRENT_ROUND) - skipping eyes verification" >&2
-fi
-
-# ========================================
-# Validate Trigger Comment Exists (Based on startup_case and round)
-# ========================================
-
-# Note: REQUIRE_TRIGGER was already determined above (before Claude eyes check)
-# Re-use that value here for trigger validation
-
-if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
-    # Determine startup case description for template
-    STARTUP_CASE_DESC="requires trigger comment"
-    case "${PR_STARTUP_CASE:-1}" in
-        4) STARTUP_CASE_DESC="New commits after all bots reviewed" ;;
-        5) STARTUP_CASE_DESC="New commits after partial bot reviews" ;;
-        *) STARTUP_CASE_DESC="Subsequent round requires trigger" ;;
-    esac
-
-    FALLBACK_MSG="# Missing Trigger Comment
-
-No @bot mention found. Please run: gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review\""
-    REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/no-trigger-comment.md" "$FALLBACK_MSG" \
-        "STARTUP_CASE=${PR_STARTUP_CASE:-1}" "STARTUP_CASE_DESC=$STARTUP_CASE_DESC" \
-        "CURRENT_ROUND=$PR_CURRENT_ROUND" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING")
-
-    jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment - please @mention bots first" \
-        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
-    exit 0
 fi
 
 # ========================================
