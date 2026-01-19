@@ -950,21 +950,35 @@ update_pr_goal_tracker() {
         return 1
     fi
 
-    # IDEMPOTENCY CHECK: Only skip if BOTH Issue Summary row AND Issue Log entry exist
-    # This allows partial updates to be repaired (if Codex only wrote one section)
+    # Extract reviewer early for idempotency check (need to check round+reviewer combo)
+    local reviewer="Codex"
+    if [[ -n "$bot_results" && "$bot_results" != "null" ]]; then
+        reviewer=$(echo "$bot_results" | jq -r '.bot // "Codex"' 2>/dev/null || echo "Codex")
+    fi
+
+    # IDEMPOTENCY CHECK: Check for BOTH round AND reviewer to support multi-bot rounds
+    # This allows multiple bots to add their own rows for the same round
     local has_summary_row=false
     local has_log_entry=false
 
-    if grep -qE "^\|[[:space:]]*${round}[[:space:]]*\|" "$tracker_file" 2>/dev/null; then
+    # Check if this specific round+reviewer combo already exists in Issue Summary
+    # Table format: | Round | Reviewer | Issues Found | Issues Resolved | Status |
+    if grep -qE "^\|[[:space:]]*${round}[[:space:]]*\|[[:space:]]*${reviewer}[[:space:]]*\|" "$tracker_file" 2>/dev/null; then
         has_summary_row=true
     fi
 
-    if grep -qE "^### Round ${round}$" "$tracker_file" 2>/dev/null; then
+    # Check if this specific round+reviewer combo already exists in Issue Log
+    # Log format: "### Round N" followed by "Reviewer: ..."
+    if awk -v round="$round" -v reviewer="$reviewer" '
+        /^### Round / { current_round = $3 }
+        current_round == round && $1 == reviewer":" { found = 1; exit }
+        END { exit !found }
+    ' "$tracker_file" 2>/dev/null; then
         has_log_entry=true
     fi
 
     if [[ "$has_summary_row" == "true" && "$has_log_entry" == "true" ]]; then
-        echo "Goal tracker: Round $round already has both Issue Summary and Issue Log entries, skipping update" >&2
+        echo "Goal tracker: Round $round/$reviewer already has both Issue Summary and Issue Log entries, skipping update" >&2
         return 0
     fi
 
@@ -975,7 +989,7 @@ update_pr_goal_tracker() {
     [[ "$has_log_entry" == "true" ]] && need_log_entry=false
 
     if [[ "$has_summary_row" == "true" || "$has_log_entry" == "true" ]]; then
-        echo "Goal tracker: Round $round has partial update (summary=$has_summary_row, log=$has_log_entry), completing..." >&2
+        echo "Goal tracker: Round $round/$reviewer has partial update (summary=$has_summary_row, log=$has_log_entry), completing..." >&2
     fi
 
     # Extract current totals
@@ -987,15 +1001,13 @@ update_pr_goal_tracker() {
     current_resolved=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
     current_resolved=${current_resolved:-0}
 
-    # Parse bot results if provided
+    # Parse bot results if provided (reviewer already extracted above for idempotency check)
     local new_issues=0
     local new_resolved=0
-    local reviewer="Codex"
 
     if [[ -n "$bot_results" && "$bot_results" != "null" ]]; then
         new_issues=$(echo "$bot_results" | jq -r '.issues // 0' 2>/dev/null || echo "0")
         new_resolved=$(echo "$bot_results" | jq -r '.resolved // 0' 2>/dev/null || echo "0")
-        reviewer=$(echo "$bot_results" | jq -r '.bot // "Codex"' 2>/dev/null || echo "Codex")
     fi
 
     # Calculate new totals
