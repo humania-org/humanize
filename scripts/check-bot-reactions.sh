@@ -116,9 +116,21 @@ case "$COMMAND" in
             exit 2
         fi
 
+        # IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
+        # Reactions are on the base repo, not the fork
+        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+            -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+
+        if [[ -z "$PR_BASE_REPO" ]]; then
+            # Fallback to current repo if PR base repo resolution fails
+            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+                -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+        fi
+
         # Fetch PR reactions
         # The PR body is treated as issue #PR_NUMBER, so we use the issues reactions endpoint
-        REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/reactions" \
+        # IMPORTANT: Use PR_BASE_REPO for fork PR support
+        REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/reactions" \
             --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
             echo "Error: Failed to fetch PR reactions" >&2
             exit 2
@@ -153,6 +165,7 @@ case "$COMMAND" in
     claude-eyes)
         # Parse claude-eyes arguments
         COMMENT_ID=""
+        PR_NUMBER=""
         MAX_RETRIES="$DEFAULT_MAX_RETRIES"
         RETRY_DELAY="$DEFAULT_RETRY_DELAY"
 
@@ -164,6 +177,10 @@ case "$COMMAND" in
                     ;;
                 --delay)
                     RETRY_DELAY="$2"
+                    shift 2
+                    ;;
+                --pr)
+                    PR_NUMBER="$2"
                     shift 2
                     ;;
                 -*)
@@ -187,13 +204,28 @@ case "$COMMAND" in
             exit 2
         fi
 
+        # IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
+        # Reactions are on the base repo, not the fork
+        PR_BASE_REPO=""
+        if [[ -n "$PR_NUMBER" ]]; then
+            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+                -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+        fi
+
+        if [[ -z "$PR_BASE_REPO" ]]; then
+            # Fallback to current repo if PR base repo resolution fails or PR not provided
+            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+                -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+        fi
+
         # Retry loop for eyes reaction
         for attempt in $(seq 1 "$MAX_RETRIES"); do
             # Wait before checking (gives Claude time to react)
             sleep "$RETRY_DELAY"
 
             # Fetch comment reactions
-            REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/comments/$COMMENT_ID/reactions" \
+            # IMPORTANT: Use PR_BASE_REPO for fork PR support
+            REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/comments/$COMMENT_ID/reactions" \
                 --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
                 # API error - continue to next attempt
                 continue

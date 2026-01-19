@@ -763,7 +763,8 @@ if [[ "$CLAUDE_CONFIGURED" == "true" && "$REQUIRE_TRIGGER" == "true" ]]; then
         echo "Verifying Claude eyes reaction on trigger comment (ID: $TRIGGER_ID_TO_CHECK)..." >&2
 
         # Check for eyes reaction with 3x5s retry
-        EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
+        # Pass --pr for fork PR support (reactions are on base repo)
+        EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --pr "$PR_NUMBER" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
 
         if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
             # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries

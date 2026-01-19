@@ -106,6 +106,17 @@ map_bot_to_author() {
 # Parse bot list into array
 IFS=',' read -ra BOTS <<< "$BOT_LIST"
 
+# IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
+# Comments and reviews are on the base repo, not the fork
+PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    echo "Warning: Could not resolve PR base repository, using current repo" >&2
+    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+        -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+fi
+
 # Get latest commit info
 COMMIT_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json headRefOid,commits \
     --jq '{sha: .headRefOid, date: (.commits | sort_by(.committedDate) | last | .committedDate)}' 2>/dev/null) || {
@@ -118,15 +129,16 @@ LATEST_COMMIT_AT=$(echo "$COMMIT_INFO" | jq -r '.date')
 
 # Fetch all comments (issue comments, review comments, and PR review submissions)
 # Using --paginate to handle PRs with many comments
-ISSUE_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+# IMPORTANT: Use PR_BASE_REPO for fork PR support
+ISSUE_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
     --paginate --jq '[.[] | {author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || ISSUE_COMMENTS="[]"
 
-REVIEW_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
+REVIEW_COMMENTS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/pulls/$PR_NUMBER/comments" \
     --paginate --jq '[.[] | {author: .user.login, created_at: .created_at, body: .body}]' 2>/dev/null) || REVIEW_COMMENTS="[]"
 
 # Also fetch PR review submissions (APPROVE, REQUEST_CHANGES, COMMENT reviews)
 # These are different from inline review comments and may be the only feedback from some bots
-PR_REVIEWS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews" \
+PR_REVIEWS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/pulls/$PR_NUMBER/reviews" \
     --paginate --jq '[.[] | {author: .user.login, created_at: .submitted_at, body: .body, state: .state}]' 2>/dev/null) || PR_REVIEWS="[]"
 
 # Combine all comments and reviews

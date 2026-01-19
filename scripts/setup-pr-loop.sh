@@ -320,6 +320,17 @@ if [[ "$PR_STATE" == "CLOSED" ]]; then
     exit 1
 fi
 
+# IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
+# Comments are on the base repo, not the fork
+PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    echo "Warning: Could not resolve PR base repository, using current repo" >&2
+    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+        -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+fi
+
 # ========================================
 # Validate YAML Safety
 # ========================================
@@ -425,7 +436,8 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     if [[ -n "$CURRENT_USER" ]]; then
         # Fetch both ID and created_at from the comment we just posted
         # IMPORTANT: --jq with --paginate runs per-page, so aggregate first then filter
-        COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+        # IMPORTANT: Use PR_BASE_REPO for fork PR support
+        COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
             --paginate --jq ".[] | select(.user.login == \"$CURRENT_USER\") | {id: .id, created_at: .created_at}" 2>/dev/null \
             | jq -s 'sort_by(.created_at) | reverse | .[0]') || COMMENT_DATA=""
 
@@ -463,7 +475,8 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         fi
 
         # Check for eyes reaction with retry
-        if ! "$SCRIPT_DIR/check-bot-reactions.sh" claude-eyes "$TRIGGER_COMMENT_ID" --retry 3 --delay 5 >/dev/null 2>&1; then
+        # Pass --pr for fork PR support (reactions are on base repo)
+        if ! "$SCRIPT_DIR/check-bot-reactions.sh" claude-eyes "$TRIGGER_COMMENT_ID" --pr "$PR_NUMBER" --retry 3 --delay 5 >/dev/null 2>&1; then
             echo "Error: Claude bot did not respond with eyes reaction" >&2
             echo "" >&2
             echo "This may indicate:" >&2
