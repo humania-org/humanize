@@ -1007,7 +1007,7 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
             # Write updated state with empty active_bots before moving to approve-state.md
             {
                 echo "---"
-                echo "current_round: $CURRENT_ROUND"
+                echo "current_round: $PR_CURRENT_ROUND"
                 echo "max_iterations: $PR_MAX_ITERATIONS"
                 echo "pr_number: $PR_NUMBER"
                 echo "start_branch: $PR_START_BRANCH"
