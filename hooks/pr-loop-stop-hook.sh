@@ -1396,11 +1396,15 @@ fi
 
 # Extract approved bots from Codex output and remove them from active_bots
 # Look for "### Approved Bots" section
-APPROVED_SECTION=$(sed -n '/### Approved Bots/,/^###/p' "$CHECK_FILE" | grep -v '^###' || true)
+# NOTE: Use awk for more robust extraction that handles:
+#   - Section at end of file (no following ###)
+#   - Section immediately followed by ### (empty section)
+APPROVED_SECTION=$(awk '/^### Approved Bots/{found=1; next} found && /^###/{exit} found{print}' "$CHECK_FILE" || true)
 
 # Extract bots with issues from Codex output (for re-add logic)
 # Look for "### Per-Bot Status" table and find bots with ISSUES status
-ISSUES_SECTION=$(sed -n '/### Per-Bot Status/,/^###/p' "$CHECK_FILE" || true)
+# NOTE: Use awk for more robust extraction
+ISSUES_SECTION=$(awk '/^### Per-Bot Status/{found=1; next} found && /^###/{exit} found{print}' "$CHECK_FILE" || true)
 
 # Build new active_bots array with re-add logic
 # IMPORTANT: Process ALL configured bots, not just currently active ones
@@ -1489,7 +1493,8 @@ ISSUES_RESOLVED_COUNT=0
 # Count issues in the "### Issues Found" section
 if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
     # Count list items: numbered (1., 2.) or bullet (-, *) in Issues Found section
-    ISSUES_FOUND_COUNT=$(sed -n '/### Issues Found/,/^###/p' "$CHECK_FILE" \
+    # NOTE: Use awk for robust extraction (handles section at end of file)
+    ISSUES_FOUND_COUNT=$(awk '/^### Issues Found/{found=1; next} found && /^###/{exit} found{print}' "$CHECK_FILE" \
         | grep -cE '^[0-9]+\.|^- |^\* ' 2>/dev/null || echo "0")
 fi
 
