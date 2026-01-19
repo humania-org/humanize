@@ -1082,9 +1082,15 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
             echo "Codex review stdout saved to: $CODEX_REVIEW_STDOUT_FILE" >&2
             echo "Codex review stderr saved to: $CODEX_REVIEW_STDERR_FILE" >&2
 
+            # Track whether review was skipped due to failure/empty output
+            REVIEW_SKIPPED=""
+            REVIEW_SKIP_REASON=""
+
             # Handle codex review failure - skip to finalize
             if [[ "$CODEX_REVIEW_EXIT_CODE" -ne 0 ]]; then
                 echo "Warning: Codex review failed (exit code $CODEX_REVIEW_EXIT_CODE). Skipping to finalize phase." >&2
+                REVIEW_SKIPPED="true"
+                REVIEW_SKIP_REASON="Codex review failed with exit code $CODEX_REVIEW_EXIT_CODE"
                 # Fall through to finalize phase
             else
                 # Copy stdout to result file if needed
@@ -1095,6 +1101,8 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
                 # Handle missing or empty review output as failure (skip to finalize with warning)
                 if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
                     echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
+                    REVIEW_SKIPPED="true"
+                    REVIEW_SKIP_REASON="Codex review produced no output"
                     # Fall through to finalize phase (same as exit code failure)
                 # Check for issues using [P0-9] pattern
                 elif grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
@@ -1149,8 +1157,10 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
             fi
         fi
 
-        # Finalize phase entry
-        if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
+        # Finalize phase entry - different messaging based on whether review was skipped
+        if [[ "$REVIEW_SKIPPED" == "true" ]]; then
+            echo "Code review was skipped ($REVIEW_SKIP_REASON). Entering Finalize Phase..." >&2
+        elif [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
             echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
         else
             echo "Codex review passed. Entering Finalize Phase..." >&2
@@ -1160,9 +1170,47 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
         mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
         echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
 
-        # Build Finalize Phase prompt
+        # Build Finalize Phase prompt - use different prompt for skipped review
         FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-        FINALIZE_PROMPT_FALLBACK="# Finalize Phase
+
+        if [[ "$REVIEW_SKIPPED" == "true" ]]; then
+            # Failure-specific finalize prompt when review was skipped
+            FINALIZE_PROMPT_FALLBACK="# Finalize Phase (Review Skipped)
+
+**Warning**: Code review was skipped due to: {{REVIEW_SKIP_REASON}}
+
+The implementation could not be fully validated. You are now in the **Finalize Phase**.
+
+## Important Notice
+Since the code review was skipped, please manually verify your changes before finalizing:
+1. Review your code changes for any obvious issues
+2. Run any available tests to verify correctness
+3. Check for common code quality issues
+
+## Simplification (Optional)
+If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+            FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-skipped-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
+                "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
+                "PLAN_FILE=$PLAN_FILE" \
+                "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+                "REVIEW_SKIP_REASON=$REVIEW_SKIP_REASON")
+
+            SYSTEM_MSG="Loop: Finalize Phase - Review skipped, manual verification needed"
+        else
+            # Normal finalize prompt when review passed
+            FINALIZE_PROMPT_FALLBACK="# Finalize Phase
 
 Codex review has passed. The implementation is complete.
 
@@ -1182,12 +1230,13 @@ Focus on the code changes made during this RLCR session.
 2. Commit your changes
 3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
 
-        FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-            "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-            "PLAN_FILE=$PLAN_FILE" \
-            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
+            FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
+                "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
+                "PLAN_FILE=$PLAN_FILE" \
+                "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
 
-        SYSTEM_MSG="Loop: Finalize Phase - Simplify and refactor code before completion"
+            SYSTEM_MSG="Loop: Finalize Phase - Simplify and refactor code before completion"
+        fi
 
         jq -n \
             --arg reason "$FINALIZE_PROMPT" \
