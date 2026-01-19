@@ -106,19 +106,39 @@ map_bot_to_author() {
 # Parse bot list into array
 IFS=',' read -ra BOTS <<< "$BOT_LIST"
 
-# IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
-# Comments and reviews are on the base repo, not the fork
-PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
-    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+# IMPORTANT: For fork PRs, we need to resolve the base (upstream) repository
+# gh pr view without --repo fails in forks because the PR number doesn't exist there
+# Strategy: First get current repo, then try to get PR's base repo with --repo flag
+
+# Step 1: Get the current repo (works in both forks and base repos)
+CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+    -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
+
+# Step 2: Try to get PR base repo using --repo flag (handles fork case)
+PR_BASE_REPO=""
+if [[ -n "$CURRENT_REPO" ]]; then
+    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" \
+        --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+fi
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    # If current repo doesn't have this PR, it might be a fork - try parent repo
+    PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
+        -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+    if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" \
+            --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+    fi
+fi
 
 if [[ -z "$PR_BASE_REPO" ]]; then
     echo "Warning: Could not resolve PR base repository, using current repo" >&2
-    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
-        -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+    PR_BASE_REPO="$CURRENT_REPO"
 fi
 
-# Get latest commit info
-COMMIT_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json headRefOid,commits \
+# Get latest commit info (use --repo for fork support)
+COMMIT_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_BASE_REPO" \
+    --json headRefOid,commits \
     --jq '{sha: .headRefOid, date: (.commits | sort_by(.committedDate) | last | .committedDate)}' 2>/dev/null) || {
     echo "Error: Failed to fetch PR commit info" >&2
     exit 1
