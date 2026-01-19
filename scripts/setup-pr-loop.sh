@@ -444,8 +444,9 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     echo "Case $STARTUP_CASE: Posting trigger comment for re-review..." >&2
 
     # Post trigger comment (abort on failure to prevent orphaned state)
+    # NOTE: Uses --repo for fork PR support (comments go to base repo, not fork)
     TRIGGER_BODY="$BOT_MENTION_STRING please review the latest changes (new commits since last review)"
-    TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --body "$TRIGGER_BODY" 2>&1) || {
+    TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --repo "$PR_BASE_REPO" --body "$TRIGGER_BODY" 2>&1) || {
         echo "Error: Failed to post trigger comment: $TRIGGER_RESULT" >&2
         echo "" >&2
         echo "Cannot proceed without a trigger comment - bots would not be notified." >&2

@@ -118,13 +118,32 @@ case "$COMMAND" in
 
         # IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
         # Reactions are on the base repo, not the fork
-        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
-            -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+        # Strategy: Try current repo first, then parent repo if that fails (fork case)
 
+        # Step 1: Get current repo
+        CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+            -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
+
+        # Step 2: Try to get PR base repo from current repo
+        PR_BASE_REPO=""
+        if [[ -n "$CURRENT_REPO" ]]; then
+            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json baseRepository \
+                -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+        fi
+
+        # Step 3: If not found in current repo, try parent repo (fork case)
         if [[ -z "$PR_BASE_REPO" ]]; then
-            # Fallback to current repo if PR base repo resolution fails
-            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
-                -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+            PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
+                -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+            if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+                PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json baseRepository \
+                    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+            fi
+        fi
+
+        # Step 4: Final fallback to current repo
+        if [[ -z "$PR_BASE_REPO" ]]; then
+            PR_BASE_REPO="$CURRENT_REPO"
         fi
 
         # Fetch PR reactions (with pagination to catch all reactions)
@@ -209,16 +228,32 @@ case "$COMMAND" in
 
         # IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
         # Reactions are on the base repo, not the fork
+        # Strategy: Try current repo first, then parent repo if that fails (fork case)
+
+        # Step 1: Get current repo
+        CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+            -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
+
+        # Step 2: Try to get PR base repo from current repo (if PR number provided)
         PR_BASE_REPO=""
-        if [[ -n "$PR_NUMBER" ]]; then
-            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+        if [[ -n "$PR_NUMBER" && -n "$CURRENT_REPO" ]]; then
+            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json baseRepository \
                 -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
         fi
 
+        # Step 3: If not found in current repo and PR number provided, try parent repo (fork case)
+        if [[ -z "$PR_BASE_REPO" && -n "$PR_NUMBER" ]]; then
+            PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
+                -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+            if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+                PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json baseRepository \
+                    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+            fi
+        fi
+
+        # Step 4: Final fallback to current repo
         if [[ -z "$PR_BASE_REPO" ]]; then
-            # Fallback to current repo if PR base repo resolution fails or PR not provided
-            PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
-                -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+            PR_BASE_REPO="$CURRENT_REPO"
         fi
 
         # Retry loop for eyes reaction
