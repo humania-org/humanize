@@ -875,12 +875,13 @@ humanize() {
     case "$cmd" in
         monitor)
             local target="$1"
+            shift 2>/dev/null || true
             case "$target" in
                 rlcr)
-                    _humanize_monitor_codex
+                    _humanize_monitor_codex "$@"
                     ;;
                 pr)
-                    _humanize_monitor_pr
+                    _humanize_monitor_pr "$@"
                     ;;
                 *)
                     echo "Usage: humanize monitor <rlcr|pr>"
@@ -913,122 +914,371 @@ humanize() {
 # PR Loop Monitor Function
 # ========================================
 
-# Monitor the latest PR loop from .humanize/pr-loop
+# Monitor the latest PR loop from .humanize/pr-loop with fixed status bar and rolling tail
 _humanize_monitor_pr() {
+    # Enable 0-indexed arrays in zsh for bash compatibility
+    [[ -n "${ZSH_VERSION:-}" ]] && setopt localoptions ksharrays
+
     local loop_dir=".humanize/pr-loop"
+    local current_file=""
+    local current_session_dir=""
+    local check_interval=2  # seconds between checking for new files
+    local status_bar_height=10  # number of lines for status bar
+    local once_mode=false
 
-    # Find the newest loop directory
-    local session_dir
-    session_dir=$(ls -1d "$loop_dir"/*/ 2>/dev/null | sort -r | head -1) || true
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --once)
+                once_mode=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
 
-    if [[ -z "$session_dir" ]]; then
-        echo "No PR loop sessions found in $loop_dir"
+    # Check if .humanize/pr-loop exists
+    if [[ ! -d "$loop_dir" ]]; then
+        echo "Error: $loop_dir directory not found in current directory"
+        echo "Are you in a project with an active PR loop?"
         return 1
     fi
 
-    session_dir="${session_dir%/}"
-    local state_file="$session_dir/state.md"
+    # Function to find the latest session directory
+    _pr_find_latest_session() {
+        if [[ ! -d "$loop_dir" ]]; then
+            echo ""
+            return
+        fi
+        local latest_session=""
+        while IFS= read -r session_dir; do
+            [[ -z "$session_dir" ]] && continue
+            [[ ! -d "$session_dir" ]] && continue
+            local session_name=$(basename "$session_dir")
+            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
+                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
+                    latest_session="$session_dir"
+                fi
+            fi
+        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+        echo "$latest_session"
+    }
 
-    # Check for active state
-    local loop_status="unknown"
-    if [[ -f "$state_file" ]]; then
-        loop_status="active"
-    elif [[ -f "$session_dir/complete-state.md" ]]; then
-        loop_status="completed"
-        state_file="$session_dir/complete-state.md"
-    elif [[ -f "$session_dir/cancel-state.md" ]]; then
-        loop_status="cancelled"
-        state_file="$session_dir/cancel-state.md"
-    elif [[ -f "$session_dir/maxiter-state.md" ]]; then
-        loop_status="max-iterations"
-        state_file="$session_dir/maxiter-state.md"
-    else
-        echo "No state file found in $session_dir"
-        return 1
+    # Function to find the latest monitorable file (pr-check, pr-feedback, or pr-comment)
+    _pr_find_latest_file() {
+        local session_dir="$1"
+        [[ ! -d "$session_dir" ]] && return
+
+        local latest=""
+        local latest_mtime=0
+
+        # Check for pr-check files (Codex analysis output)
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null)
+
+        # Check for pr-feedback files
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-feedback.md' -type f 2>/dev/null)
+
+        # Check for pr-comment files
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-comment.md' -type f 2>/dev/null)
+
+        echo "$latest"
+    }
+
+    # Function to find and parse state file
+    _pr_find_state_file() {
+        local session_dir="$1"
+        local state_file=""
+        local loop_status="unknown"
+
+        if [[ -f "$session_dir/state.md" ]]; then
+            state_file="$session_dir/state.md"
+            loop_status="active"
+        elif [[ -f "$session_dir/complete-state.md" ]]; then
+            state_file="$session_dir/complete-state.md"
+            loop_status="completed"
+        elif [[ -f "$session_dir/cancel-state.md" ]]; then
+            state_file="$session_dir/cancel-state.md"
+            loop_status="cancelled"
+        elif [[ -f "$session_dir/maxiter-state.md" ]]; then
+            state_file="$session_dir/maxiter-state.md"
+            loop_status="max-iterations"
+        fi
+
+        echo "$state_file|$loop_status"
+    }
+
+    # Function to parse state.md and return key values
+    _pr_parse_state_md() {
+        local state_file="$1"
+        [[ ! -f "$state_file" ]] && echo "0|42|?|?|?|?|N/A" && return
+
+        local frontmatter
+        frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+
+        local current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
+        local max_iterations=$(echo "$frontmatter" | grep "^max_iterations:" | sed "s/max_iterations: *//" | tr -d ' ')
+        local pr_number=$(echo "$frontmatter" | grep "^pr_number:" | sed "s/pr_number: *//" | tr -d ' ')
+        local start_branch=$(echo "$frontmatter" | grep "^start_branch:" | sed "s/start_branch: *//" | tr -d '"' || true)
+        local configured_bots=$(echo "$frontmatter" | sed -n '/^configured_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
+        local active_bots=$(echo "$frontmatter" | sed -n '/^active_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
+        local codex_model=$(echo "$frontmatter" | grep "^codex_model:" | sed "s/codex_model: *//" | tr -d ' ')
+        local codex_effort=$(echo "$frontmatter" | grep "^codex_effort:" | sed "s/codex_effort: *//" | tr -d ' ')
+        local started_at=$(echo "$frontmatter" | grep "^started_at:" | sed "s/started_at: *//" || true)
+
+        # Apply defaults
+        current_round=${current_round:-0}
+        max_iterations=${max_iterations:-42}
+        pr_number=${pr_number:-"?"}
+        start_branch=${start_branch:-"?"}
+        configured_bots=${configured_bots:-"none"}
+        active_bots=${active_bots:-"none"}
+        codex_model=${codex_model:-"gpt-5.2-codex"}
+        codex_effort=${codex_effort:-"medium"}
+        started_at=${started_at:-"N/A"}
+
+        echo "$current_round|$max_iterations|$pr_number|$start_branch|$configured_bots|$active_bots|$codex_model|$codex_effort|$started_at"
+    }
+
+    # Draw the status bar at the top
+    _pr_draw_status_bar() {
+        local session_dir="$1"
+        local monitored_file="$2"
+        local loop_status="$3"
+        local term_width=$(tput cols)
+
+        # Parse state file
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local state_file="${state_info%|*}"
+        [[ -z "$loop_status" ]] && loop_status="${state_info#*|}"
+
+        local state_values=$(_pr_parse_state_md "$state_file")
+        IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
+
+        # Save cursor position and move to top
+        tput sc
+        tput cup 0 0
+
+        # ANSI color codes
+        local green="\033[1;32m" yellow="\033[1;33m" cyan="\033[1;36m"
+        local magenta="\033[1;35m" red="\033[1;31m" reset="\033[0m"
+        local bg="\033[44m" bold="\033[1m" dim="\033[2m"
+
+        # Clear status bar area
+        tput cup 0 0
+        for _ in {1..10}; do printf "%-${term_width}s\n" ""; done
+
+        # Draw header and session info
+        tput cup 0 0
+        local session_basename=$(basename "$session_dir")
+        printf "${bg}${bold}%-${term_width}s${reset}\n" " PR Loop Monitor"
+        printf "${cyan}Session:${reset} ${session_basename}    ${cyan}PR:${reset} #${pr_number}    ${cyan}Branch:${reset} ${start_branch}\n"
+        printf "${green}Round:${reset}   ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Codex:${reset} ${codex_model} (${codex_effort})\n"
+
+        # Loop status line with color based on status
+        local status_color="${green}"
+        case "$loop_status" in
+            active) status_color="${green}" ;;
+            completed) status_color="${cyan}" ;;
+            cancelled) status_color="${yellow}" ;;
+            max-iterations) status_color="${red}" ;;
+            *) status_color="${dim}" ;;
+        esac
+        printf "${magenta}Status:${reset}  ${status_color}${loop_status}${reset}\n"
+
+        # Bot status
+        printf "${cyan}Configured Bots:${reset} ${configured_bots}\n"
+        if [[ "$active_bots" == "none" ]] || [[ -z "$active_bots" ]]; then
+            printf "${green}Active Bots:${reset}     ${green}all approved${reset}\n"
+        else
+            printf "${yellow}Active Bots:${reset}     ${active_bots}\n"
+        fi
+
+        # Started time
+        local start_display="$started_at"
+        if [[ "$started_at" != "N/A" ]]; then
+            start_display=$(echo "$started_at" | sed 's/T/ /; s/Z/ UTC/')
+        fi
+        printf "${dim}Started:${reset} ${start_display}\n"
+
+        # Currently monitoring
+        local file_basename=""
+        [[ -n "$monitored_file" ]] && file_basename=$(basename "$monitored_file")
+        printf "${dim}Watching:${reset} ${file_basename:-none}\n"
+
+        # Separator
+        printf "%-${term_width}s\n" "$(printf '%*s' "$term_width" | tr ' ' '-')"
+
+        # Restore cursor position
+        tput rc
+    }
+
+    # One-shot mode: print status once and exit (for testing and scripting)
+    if [[ "$once_mode" == "true" ]]; then
+        local session_dir=$(_pr_find_latest_session)
+        if [[ -z "$session_dir" ]]; then
+            echo "No PR loop sessions found in $loop_dir"
+            return 1
+        fi
+
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local state_file="${state_info%|*}"
+        local loop_status="${state_info#*|}"
+
+        if [[ -z "$state_file" ]]; then
+            echo "No state file found in $session_dir"
+            return 1
+        fi
+
+        local state_values=$(_pr_parse_state_md "$state_file")
+        IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
+
+        echo "=========================================="
+        echo " PR Loop Monitor"
+        echo "=========================================="
+        echo ""
+        echo "Session: $(basename "$session_dir")"
+        echo "Status:  $loop_status"
+        echo ""
+        echo "PR Number:       #$pr_number"
+        echo "Branch:          $start_branch"
+        echo "Configured Bots: ${configured_bots:-none}"
+        echo "Active Bots:     ${active_bots:-none}"
+        echo ""
+        echo "Round:         $current_round / $max_iterations"
+        echo "Codex:         $codex_model:$codex_effort"
+        echo "Started:       $started_at"
+        echo ""
+        echo "=========================================="
+        echo " Recent Files"
+        echo "=========================================="
+        echo ""
+
+        # List recent round files
+        local round_files
+        round_files=$(find "$session_dir" -maxdepth 1 -name 'round-*.md' -type f 2>/dev/null)
+        if [[ -n "$round_files" ]]; then
+            echo "$round_files" | xargs ls -lt 2>/dev/null | head -10 | while read -r line; do
+                echo "  $line"
+            done
+        fi
+
+        echo ""
+        echo "=========================================="
+        echo " Latest Activity"
+        echo "=========================================="
+        echo ""
+
+        local latest_file=$(_pr_find_latest_file "$session_dir")
+        if [[ -n "$latest_file" && -f "$latest_file" ]]; then
+            echo "Latest: $(basename "$latest_file")"
+            echo "----------------------------------------"
+            tail -20 "$latest_file"
+            echo ""
+        fi
+
+        echo "=========================================="
+        return 0
     fi
 
-    # Parse state file
-    local frontmatter
-    frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+    # Cleanup function
+    _pr_cleanup() {
+        # Kill background tail if running
+        [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
+        # Show cursor and restore terminal
+        tput cnorm
+        tput rmcup
+        echo "Monitor stopped."
+    }
 
-    local current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
-    local max_iterations=$(echo "$frontmatter" | grep "^max_iterations:" | sed "s/max_iterations: *//" | tr -d ' ')
-    local pr_number=$(echo "$frontmatter" | grep "^pr_number:" | sed "s/pr_number: *//" | tr -d ' ')
-    local start_branch=$(echo "$frontmatter" | grep "^start_branch:" | sed "s/start_branch: *//" || true)
-    # Parse active_bots as YAML list (lines starting with "  - ")
-    local active_bots=$(echo "$frontmatter" | sed -n '/^active_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
-    # Also parse configured_bots for display
-    local configured_bots=$(echo "$frontmatter" | sed -n '/^configured_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
-    local codex_model=$(echo "$frontmatter" | grep "^codex_model:" | sed "s/codex_model: *//" | tr -d ' ')
-    local codex_effort=$(echo "$frontmatter" | grep "^codex_effort:" | sed "s/codex_effort: *//" | tr -d ' ')
-    local started_at=$(echo "$frontmatter" | grep "^started_at:" | sed "s/started_at: *//" || true)
+    # Set up signal handlers
+    trap _pr_cleanup EXIT INT TERM
 
-    # Set defaults
-    current_round=${current_round:-0}
-    max_iterations=${max_iterations:-42}
-    pr_number=${pr_number:-"?"}
-    codex_model=${codex_model:-"gpt-5.2-codex"}
-    codex_effort=${codex_effort:-"medium"}
+    # Initialize terminal
+    tput smcup  # Save screen
+    tput civis  # Hide cursor
+    clear
 
-    # Print status
-    echo "=========================================="
-    echo " PR Loop Monitor"
-    echo "=========================================="
-    echo ""
-    echo "Session: $(basename "$session_dir")"
-    echo "Status:  $loop_status"
-    echo ""
-    echo "PR Number:       #$pr_number"
-    echo "Branch:          $start_branch"
-    echo "Configured Bots: ${configured_bots:-none}"
-    echo "Active Bots:     ${active_bots:-none}"
-    echo ""
-    echo "Round:         $current_round / $max_iterations"
-    echo "Codex:         $codex_model:$codex_effort"
-    echo "Started:       $started_at"
-    echo ""
-    echo "=========================================="
-    echo " Recent Files"
-    echo "=========================================="
-    echo ""
+    # Create scrolling region below status bar
+    tput csr $status_bar_height $(($(tput lines) - 1))
 
-    # List recent round files (use find to avoid zsh glob errors)
-    local round_files
-    round_files=$(find "$session_dir" -maxdepth 1 -name 'round-*.md' -type f 2>/dev/null)
-    if [[ -n "$round_files" ]]; then
-        echo "$round_files" | xargs ls -lt 2>/dev/null | head -10 | while read -r line; do
-            echo "  $line"
-        done
-    fi
+    # Main monitoring loop
+    local TAIL_PID=""
+    while true; do
+        # Find latest session
+        local session_dir=$(_pr_find_latest_session)
+        if [[ -z "$session_dir" ]]; then
+            tput cup $status_bar_height 0
+            echo "Waiting for PR loop session..."
+            sleep "$check_interval"
+            continue
+        fi
 
-    echo ""
-    echo "=========================================="
-    echo " Latest Activity"
-    echo "=========================================="
-    echo ""
+        # Check if session changed
+        if [[ "$session_dir" != "$current_session_dir" ]]; then
+            current_session_dir="$session_dir"
+            current_file=""
+            [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
+            TAIL_PID=""
+        fi
 
-    # Show latest resolve or comment file
-    # Use find instead of glob to avoid zsh "no matches found" errors
-    local latest_resolve=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-resolve.md' -type f 2>/dev/null | sort -r | head -1)
-    local latest_comment=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-comment.md' -type f 2>/dev/null | sort -r | head -1)
-    local latest_check=$(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null | sort -r | head -1)
+        # Find latest file to monitor
+        local latest_file=$(_pr_find_latest_file "$session_dir")
 
-    if [[ -n "$latest_check" && -f "$latest_check" ]]; then
-        echo "Latest Check ($latest_check):"
-        echo "----------------------------------------"
-        tail -20 "$latest_check"
-        echo ""
-    elif [[ -n "$latest_resolve" && -f "$latest_resolve" ]]; then
-        echo "Latest Resolve ($latest_resolve):"
-        echo "----------------------------------------"
-        tail -20 "$latest_resolve"
-        echo ""
-    elif [[ -n "$latest_comment" && -f "$latest_comment" ]]; then
-        echo "Latest Comments ($latest_comment):"
-        echo "----------------------------------------"
-        tail -20 "$latest_comment"
-        echo ""
-    fi
+        # Get loop status
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local loop_status="${state_info#*|}"
 
-    echo "=========================================="
+        # Update status bar
+        _pr_draw_status_bar "$session_dir" "$latest_file" "$loop_status"
+
+        # Check if file changed or new file appeared
+        if [[ "$latest_file" != "$current_file" ]] && [[ -n "$latest_file" ]]; then
+            current_file="$latest_file"
+
+            # Kill old tail process
+            [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
+
+            # Clear content area and show new file
+            tput cup $status_bar_height 0
+            tput ed  # Clear to end of screen
+
+            # Start tailing the new file
+            tail -n +1 -f "$current_file" 2>/dev/null &
+            TAIL_PID=$!
+        fi
+
+        # If no file to monitor yet, show waiting message
+        if [[ -z "$current_file" ]]; then
+            tput cup $status_bar_height 0
+            echo "Waiting for PR loop activity..."
+        fi
+
+        sleep "$check_interval"
+    done
 }

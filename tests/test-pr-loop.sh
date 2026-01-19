@@ -2004,10 +2004,10 @@ test_monitor_yaml_list_parsing() {
     # Use helper script to create state file (avoids validator blocking)
     "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" yaml_list >/dev/null
 
-    # Source the humanize script and run monitor from test subdirectory
+    # Source the humanize script and run monitor from test subdirectory (use --once for non-interactive)
     cd "$test_subdir"
     local output
-    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr --once 2>&1) || true
     cd "$SCRIPT_DIR"
 
     # Check that active bots are displayed correctly (comma-separated)
@@ -2031,10 +2031,10 @@ test_monitor_configured_bots() {
     # Use helper script to create state file (avoids validator blocking)
     "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" configured >/dev/null
 
-    # Source the humanize script and run monitor from test subdirectory
+    # Source the humanize script and run monitor from test subdirectory (use --once for non-interactive)
     cd "$test_subdir"
     local output
-    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr --once 2>&1) || true
     cd "$SCRIPT_DIR"
 
     # Check that both configured and active bots are displayed
@@ -2053,10 +2053,10 @@ test_monitor_empty_active_bots() {
     # Use helper script to create state file (avoids validator blocking)
     "$SCRIPT_DIR/setup-monitor-test-env.sh" "$test_subdir" empty >/dev/null
 
-    # Source the humanize script and run monitor from test subdirectory
+    # Source the humanize script and run monitor from test subdirectory (use --once for non-interactive)
     cd "$test_subdir"
     local output
-    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr 2>&1) || true
+    output=$(source "$PROJECT_ROOT/scripts/humanize.sh" && humanize monitor pr --once 2>&1) || true
     cd "$SCRIPT_DIR"
 
     # Check that active bots shows 'none'

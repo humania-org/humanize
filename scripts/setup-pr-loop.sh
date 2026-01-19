@@ -382,8 +382,13 @@ RESOLVE_PATH="$LOOP_DIR/round-0-pr-resolve.md"
 # Build display string for active bots
 ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${ACTIVE_BOTS_ARRAY[*]}")
 
-# Count comments early to determine prompt type
-COMMENT_COUNT=$(grep -c '^## Comment' "$COMMENT_FILE" 2>/dev/null || echo "0")
+# Detect if comments exist by checking for the "No comments found" sentinel
+# fetch-pr-comments.sh outputs "*No comments found.*" only when there are zero comments
+if grep -q '^\*No comments found\.\*$' "$COMMENT_FILE" 2>/dev/null; then
+    COMMENT_COUNT=0
+else
+    COMMENT_COUNT=1  # Non-zero indicates comments exist
+fi
 
 # Template variables for rendering
 TEMPLATE_VARS=(
