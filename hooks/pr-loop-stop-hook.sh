@@ -303,20 +303,31 @@ $NON_HUMANIZE_STATUS
     # Step 6: Check for unpushed commits (PR loop always requires push)
     CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
     AHEAD_COUNT=0
+    LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || LOCAL_HEAD=""
 
     # First try: git status -sb works when upstream is configured
     GIT_AHEAD=$(run_with_timeout "$GIT_TIMEOUT" git status -sb 2>/dev/null | grep -o 'ahead [0-9]*' || true)
     if [[ -n "$GIT_AHEAD" ]]; then
         AHEAD_COUNT=$(echo "$GIT_AHEAD" | grep -o '[0-9]*')
     else
-        # Fallback: Check if upstream exists, if not compare with origin/branch
+        # Fallback: Check if upstream exists, if not compare with origin/branch or PR head
         if ! git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
-            # No upstream configured - compare local HEAD with origin/branch
-            LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null) || LOCAL_HEAD=""
+            # No upstream configured - try origin/branch first
             REMOTE_HEAD=$(git rev-parse "origin/$CURRENT_BRANCH" 2>/dev/null) || REMOTE_HEAD=""
             if [[ -n "$LOCAL_HEAD" && -n "$REMOTE_HEAD" && "$LOCAL_HEAD" != "$REMOTE_HEAD" ]]; then
                 # Count commits ahead of remote
                 AHEAD_COUNT=$(git rev-list --count "origin/$CURRENT_BRANCH..HEAD" 2>/dev/null) || AHEAD_COUNT=0
+            elif [[ -z "$REMOTE_HEAD" && -n "$PR_NUMBER" ]]; then
+                # No origin/branch exists - compare with PR's headRefOid from GitHub
+                # This handles cases where branch was never pushed or remote ref is missing
+                PR_HEAD_SHA=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid' 2>/dev/null) || PR_HEAD_SHA=""
+                if [[ -n "$LOCAL_HEAD" && -n "$PR_HEAD_SHA" && "$LOCAL_HEAD" != "$PR_HEAD_SHA" ]]; then
+                    # Local differs from PR head - count commits since PR head
+                    AHEAD_COUNT=$(git rev-list --count "$PR_HEAD_SHA..HEAD" 2>/dev/null) || {
+                        # PR head not in local history (force push?) - treat as 1 unpushed
+                        AHEAD_COUNT=1
+                    }
+                fi
             fi
         fi
     fi
@@ -580,6 +591,9 @@ fi
 CURRENT_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
     --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || CURRENT_LATEST_COMMIT_AT=""
 
+# Track if new commits were detected (used to override REQUIRE_TRIGGER for cases 2/3)
+NEW_COMMITS_DETECTED=false
+
 if [[ -n "$CURRENT_LATEST_COMMIT_AT" && "$CURRENT_LATEST_COMMIT_AT" != "$PR_LATEST_COMMIT_AT" ]]; then
     echo "Updating latest_commit_at: $PR_LATEST_COMMIT_AT -> $CURRENT_LATEST_COMMIT_AT" >&2
     echo "  Clearing stale trigger fields (new commits require new @bot mention)" >&2
@@ -596,6 +610,7 @@ if [[ -n "$CURRENT_LATEST_COMMIT_AT" && "$CURRENT_LATEST_COMMIT_AT" != "$PR_LATE
     PR_LATEST_COMMIT_AT="$CURRENT_LATEST_COMMIT_AT"
     PR_LAST_TRIGGER_AT=""
     PR_TRIGGER_COMMENT_ID=""
+    NEW_COMMITS_DETECTED=true
 fi
 
 # ALWAYS check for newer trigger comments and update last_trigger_at
@@ -649,10 +664,15 @@ fi
 # - Round 0, startup_case 2/3: No trigger required (process existing comments)
 # - Round 0, startup_case 4/5: Trigger required (new commits after reviews)
 # - Round > 0: Always require trigger
+# - NEW: If new commits detected during this poll, require trigger (overrides cases 2/3)
 
 REQUIRE_TRIGGER=false
 if [[ "$PR_CURRENT_ROUND" -gt 0 ]]; then
     # Subsequent rounds always require a trigger
+    REQUIRE_TRIGGER=true
+elif [[ "$NEW_COMMITS_DETECTED" == "true" ]]; then
+    # New commits detected during this poll - require fresh trigger
+    # This overrides cases 2/3 to prevent reusing stale reviews
     REQUIRE_TRIGGER=true
 elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
     case "${PR_STARTUP_CASE:-1}" in
