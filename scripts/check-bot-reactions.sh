@@ -127,11 +127,12 @@ case "$COMMAND" in
                 -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
         fi
 
-        # Fetch PR reactions
+        # Fetch PR reactions (with pagination to catch all reactions)
         # The PR body is treated as issue #PR_NUMBER, so we use the issues reactions endpoint
         # IMPORTANT: Use PR_BASE_REPO for fork PR support
+        # IMPORTANT: Use --paginate to fetch all reactions (default is 30 per page)
         REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/reactions" \
-            --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
+            --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
             echo "Error: Failed to fetch PR reactions" >&2
             exit 2
         }
@@ -223,10 +224,11 @@ case "$COMMAND" in
             # Wait before checking (gives Claude time to react)
             sleep "$RETRY_DELAY"
 
-            # Fetch comment reactions
+            # Fetch comment reactions (with pagination to catch all reactions)
             # IMPORTANT: Use PR_BASE_REPO for fork PR support
+            # IMPORTANT: Use --paginate to fetch all reactions (default is 30 per page)
             REACTIONS=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/comments/$COMMENT_ID/reactions" \
-                --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
+                --paginate --jq '[.[] | {user: .user.login, content: .content, created_at: .created_at}]' 2>/dev/null) || {
                 # API error - continue to next attempt
                 continue
             }
