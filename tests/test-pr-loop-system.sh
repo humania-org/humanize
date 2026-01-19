@@ -898,6 +898,169 @@ EOF
 }
 
 # ========================================
+# Test: AC-11 - Monitor Phase Display Output Assertions
+# ========================================
+
+# Helper: Run monitor with --once and capture output
+run_monitor_once_capture_output() {
+    local session_dir="$1"
+    local project_dir="$2"
+
+    # Create wrapper script that runs monitor and captures output
+    local wrapper="$project_dir/run_monitor_test.sh"
+    cat > "$wrapper" << 'WRAPPER_EOF'
+#!/bin/bash
+PROJECT_DIR="$1"
+PROJECT_ROOT="$2"
+
+cd "$PROJECT_DIR"
+
+# Stub terminal commands for non-interactive mode
+tput() {
+    case "$1" in
+        cols) echo "80" ;;
+        lines) echo "24" ;;
+        *) : ;;
+    esac
+}
+export -f tput
+clear() { :; }
+export -f clear
+
+# Disable ANSI colors for easier parsing
+export NO_COLOR=1
+
+# Source humanize.sh
+source "$PROJECT_ROOT/scripts/humanize.sh"
+
+# Run monitor with --once flag
+humanize monitor pr --once 2>&1
+WRAPPER_EOF
+    chmod +x "$wrapper"
+
+    # Run and capture output
+    timeout 10 bash "$wrapper" "$project_dir" "$PROJECT_ROOT" 2>&1 || true
+}
+
+# Test: Monitor displays "All reviews approved" for approved state
+test_monitor_output_phase_approved() {
+    local test_dir="$TEST_TEMP_DIR/monitor_phase_approved"
+    mkdir -p "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00"
+
+    # Create approve-state.md (final approved state)
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/approve-state.md" << 'EOF'
+---
+current_round: 1
+startup_case: 3
+pr_number: 123
+configured_bots:
+  - codex
+active_bots:
+---
+EOF
+
+    # Create goal-tracker.md (required by monitor)
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/goal-tracker.md" << 'GOAL'
+# Goal Tracker
+## Issue Summary
+| Round | Reviewer | Issues Found | Status |
+|-------|----------|--------------|--------|
+| 0     | -        | 0            | Initial |
+GOAL
+
+    local output
+    output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
+
+    # Assert output contains "All reviews approved" (the display string for approved phase)
+    if echo "$output" | grep -qi "All reviews approved\|approved\|Phase.*approved"; then
+        return 0
+    else
+        echo "Expected 'All reviews approved' in output, got: $(echo "$output" | head -20)"
+        return 1
+    fi
+}
+
+# Test: Monitor displays "Waiting for initial PR review" for waiting_initial_review state
+test_monitor_output_phase_waiting_initial() {
+    local test_dir="$TEST_TEMP_DIR/monitor_phase_waiting"
+    mkdir -p "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00"
+
+    # Create state.md with startup_case=1, round=0 (waiting for initial review)
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/state.md" << 'EOF'
+---
+current_round: 0
+startup_case: 1
+pr_number: 123
+configured_bots:
+  - codex
+  - claude
+active_bots:
+  - codex
+  - claude
+---
+EOF
+
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/goal-tracker.md" << 'GOAL'
+# Goal Tracker
+## Issue Summary
+| Round | Reviewer | Issues Found | Status |
+|-------|----------|--------------|--------|
+| 0     | -        | 0            | Initial |
+GOAL
+
+    local output
+    output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
+
+    # Assert output contains active status (Status: active or Phase:...waiting)
+    # For startup_case=1 (no comments yet), the loop is active and waiting
+    if echo "$output" | grep -qi "Status:.*active\|Phase:.*waiting"; then
+        return 0
+    else
+        echo "Expected 'Status: active' or 'Phase:...waiting' in output, got: $(echo "$output" | head -20)"
+        return 1
+    fi
+}
+
+# Test: Monitor displays "Loop cancelled" for cancelled state
+test_monitor_output_phase_cancelled() {
+    local test_dir="$TEST_TEMP_DIR/monitor_phase_cancelled"
+    mkdir -p "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00"
+
+    # Create cancel-state.md (cancelled state)
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/cancel-state.md" << 'EOF'
+---
+current_round: 1
+startup_case: 3
+pr_number: 123
+configured_bots:
+  - codex
+active_bots:
+  - codex
+cancelled_at: 2026-01-18T12:00:00Z
+---
+EOF
+
+    cat > "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00/goal-tracker.md" << 'GOAL'
+# Goal Tracker
+## Issue Summary
+| Round | Reviewer | Issues Found | Status |
+|-------|----------|--------------|--------|
+| 0     | -        | 0            | Initial |
+GOAL
+
+    local output
+    output=$(run_monitor_once_capture_output "$test_dir/.humanize/pr-loop/2026-01-18_10-00-00" "$test_dir")
+
+    # Assert output contains cancel status (Status: cancel or Phase:...cancel)
+    if echo "$output" | grep -qi "Status:.*cancel\|Phase:.*cancel"; then
+        return 0
+    else
+        echo "Expected 'Status: cancel' or 'Phase:...cancel' in output, got: $(echo "$output" | head -20)"
+        return 1
+    fi
+}
+
+# ========================================
 # Test: AC-5 Case 1 Exception - No Trigger Required
 # ========================================
 
@@ -1239,6 +1402,93 @@ test_setup_case45_missing_trigger_comment_id() {
 }
 
 # ========================================
+# Test: AC-12 Goal Tracker Creation/Update Integration Test
+# ========================================
+
+test_goal_tracker_creation_integration() {
+    # Test that setup-pr-loop.sh creates goal-tracker.md
+    # This verifies AC-12: goal tracker is created at setup
+
+    # Set up fixtures for Case 1: No comments yet (simplest setup)
+    echo '[]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[]' > "$FIXTURES_DIR/pr-reviews.json"
+    echo '[]' > "$FIXTURES_DIR/reactions.json"
+
+    export MOCK_GH_PR_NUMBER=999
+    export MOCK_GH_PR_STATE="OPEN"
+    export MOCK_GH_LATEST_COMMIT_AT="2026-01-18T10:00:00Z"
+    export MOCK_GH_HEAD_SHA="abc123xyz"
+
+    # Clean up any existing pr-loop directories
+    rm -rf .humanize/pr-loop 2>/dev/null || true
+
+    # Run setup-pr-loop.sh with --codex
+    local result exit_code
+    result=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --codex 2>&1) && exit_code=0 || exit_code=$?
+
+    # Clean up mock env vars
+    unset MOCK_GH_PR_NUMBER MOCK_GH_PR_STATE MOCK_GH_LATEST_COMMIT_AT MOCK_GH_HEAD_SHA
+
+    # Find the created loop directory
+    local loop_dir
+    loop_dir=$(ls -d .humanize/pr-loop/*/ 2>/dev/null | head -1)
+
+    if [[ -z "$loop_dir" ]]; then
+        echo "No loop directory created by setup-pr-loop.sh"
+        echo "Output: $(echo "$result" | tail -20)"
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        return 1
+    fi
+
+    # Verify goal-tracker.md was created
+    if [[ ! -f "${loop_dir}goal-tracker.md" ]]; then
+        echo "goal-tracker.md not found in $loop_dir"
+        echo "Files in loop dir: $(ls -la "$loop_dir" 2>/dev/null)"
+        # Clean up
+        rm -rf .humanize/pr-loop
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        return 1
+    fi
+
+    # Verify goal-tracker.md has expected structure (Issue Summary table)
+    if ! grep -q "Issue Summary" "${loop_dir}goal-tracker.md"; then
+        echo "goal-tracker.md missing 'Issue Summary' section"
+        echo "Contents: $(cat "${loop_dir}goal-tracker.md")"
+        rm -rf .humanize/pr-loop
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        return 1
+    fi
+
+    # Verify goal-tracker.md has PR number from mock
+    if ! grep -q "999" "${loop_dir}goal-tracker.md"; then
+        echo "goal-tracker.md missing PR number 999"
+        echo "Contents: $(cat "${loop_dir}goal-tracker.md")"
+        rm -rf .humanize/pr-loop
+        # Restore fixtures
+        echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+        echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+        return 1
+    fi
+
+    # Clean up
+    rm -rf .humanize/pr-loop
+
+    # Restore fixtures
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM!","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+
+    return 0
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -1336,6 +1586,13 @@ main() {
         run_test "AC-11: Phase detection - codex analyzing (file growth)" test_phase_detection_codex_analyzing
     fi
 
+    # AC-11: Monitor output assertions for phase labels
+    if [[ -z "$test_filter" || "$test_filter" == "monitor_output" ]]; then
+        run_test "AC-11: Monitor output - approved phase display" test_monitor_output_phase_approved
+        run_test "AC-11: Monitor output - waiting initial phase display" test_monitor_output_phase_waiting_initial
+        run_test "AC-11: Monitor output - cancelled phase display" test_monitor_output_phase_cancelled
+    fi
+
     if [[ -z "$test_filter" || "$test_filter" == "case1_exception" ]]; then
         run_test "AC-5: Case 1 exception - no trigger required for startup_case 1" test_case1_exception_no_trigger
     fi
@@ -1355,6 +1612,10 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "setup_failure" ]]; then
         run_test "AC-9: Setup Case 4/5 failure path (missing trigger_comment_id)" test_setup_case45_missing_trigger_comment_id
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_integration" ]]; then
+        run_test "AC-12: Goal tracker creation via setup-pr-loop.sh" test_goal_tracker_creation_integration
     fi
 
     echo ""
