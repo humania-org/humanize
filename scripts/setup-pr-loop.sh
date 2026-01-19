@@ -201,24 +201,17 @@ if [[ "$BOT_CODEX" == "true" ]]; then
     ACTIVE_BOTS_ARRAY+=("codex")
 fi
 
-# Build dynamic mention string from active bots (no hardcoded bot names)
-BOT_MENTION_STRING=""
-for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
-    if [[ -n "$BOT_MENTION_STRING" ]]; then
-        BOT_MENTION_STRING="${BOT_MENTION_STRING} @${bot}"
-    else
-        BOT_MENTION_STRING="@${bot}"
-    fi
-done
-
 # ========================================
 # Validate Prerequisites
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# Source loop-common.sh for find_active_loop and find_active_pr_loop functions
+# Source loop-common.sh for find_active_loop, find_active_pr_loop, and helper functions
 source "$HOOKS_LIB_DIR/loop-common.sh"
+
+# Build dynamic mention string from active bots (using shared helper)
+BOT_MENTION_STRING=$(build_bot_mention_string "${ACTIVE_BOTS_ARRAY[@]}")
 
 # ========================================
 # Mutual Exclusion Check
@@ -497,12 +490,8 @@ fi
 # Create State File
 # ========================================
 
-# Build YAML list for active_bots and configured_bots
-ACTIVE_BOTS_YAML=""
-for bot in "${ACTIVE_BOTS_ARRAY[@]}"; do
-    ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}
-  - ${bot}"
-done
+# Build YAML list for active_bots and configured_bots (using shared helper)
+ACTIVE_BOTS_YAML=$(build_yaml_list "${ACTIVE_BOTS_ARRAY[@]}")
 
 # configured_bots is identical to active_bots at start, but never changes
 # This allows re-polling previously approved bots if they post new issues

@@ -31,34 +31,9 @@ DEFAULT_CODEX_TIMEOUT=900
 DEFAULT_POLL_INTERVAL=30
 DEFAULT_POLL_TIMEOUT=900  # 15 minutes per bot
 
-# ========================================
-# Bot Name Mapping
-# ========================================
-
-# Map bot names to GitHub comment author names:
-# - claude -> claude[bot]
-# - codex -> chatgpt-codex-connector[bot]
-map_bot_to_author() {
-    local bot="$1"
-    case "$bot" in
-        codex) echo "chatgpt-codex-connector[bot]" ;;
-        *) echo "${bot}[bot]" ;;
-    esac
-}
-
-# Reverse mapping: author name to bot name
-# - chatgpt-codex-connector[bot] -> codex
-# - chatgpt-codex-connector -> codex
-# - claude[bot] -> claude
-map_author_to_bot() {
-    local author="$1"
-    # Remove [bot] suffix if present
-    local author_clean="${author%\[bot\]}"
-    case "$author_clean" in
-        chatgpt-codex-connector) echo "codex" ;;
-        *) echo "$author_clean" ;;
-    esac
-}
+# Note: Bot name mapping functions (map_bot_to_author, map_author_to_bot)
+# and helper functions (build_yaml_list, build_bot_mention_string) are
+# provided by loop-common.sh which is sourced below.
 
 # ========================================
 # Read Hook Input
@@ -86,23 +61,8 @@ source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
 GIT_TIMEOUT=30
 GH_TIMEOUT=60
 
-# Find newest PR loop directory with state.md
-find_pr_loop_dir() {
-    local base_dir="$1"
-    if [[ ! -d "$base_dir" ]]; then
-        echo ""
-        return
-    fi
-    local newest_dir
-    newest_dir=$(ls -1d "$base_dir"/*/ 2>/dev/null | sort -r | head -1)
-    if [[ -n "$newest_dir" && -f "${newest_dir}state.md" ]]; then
-        echo "${newest_dir%/}"
-    else
-        echo ""
-    fi
-}
-
-LOOP_DIR=$(find_pr_loop_dir "$LOOP_BASE_DIR")
+# Use shared find_active_pr_loop function from loop-common.sh
+LOOP_DIR=$(find_active_pr_loop "$LOOP_BASE_DIR")
 
 # If no active PR loop, let other hooks handle
 if [[ -z "$LOOP_DIR" ]]; then
@@ -220,14 +180,7 @@ PR_ACTIVE_BOTS_DISPLAY=$(IFS=', '; echo "${PR_ACTIVE_BOTS_ARRAY[*]}")
 PR_CONFIGURED_BOTS_DISPLAY=$(IFS=', '; echo "${PR_CONFIGURED_BOTS_ARRAY[*]}")
 
 # Build mention string from configured bots (for detecting trigger comments)
-PR_BOT_MENTION_STRING=""
-for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    if [[ -n "$PR_BOT_MENTION_STRING" ]]; then
-        PR_BOT_MENTION_STRING="${PR_BOT_MENTION_STRING} @${bot}"
-    else
-        PR_BOT_MENTION_STRING="@${bot}"
-    fi
-done
+PR_BOT_MENTION_STRING=$(build_bot_mention_string "${PR_CONFIGURED_BOTS_ARRAY[@]}")
 
 # Validate required fields
 if [[ -z "$PR_NUMBER" ]]; then
@@ -517,11 +470,7 @@ if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 ]]; then
             PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
 
             # Update state file
-            NEW_ACTIVE_BOTS_YAML=""
-            for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-                NEW_ACTIVE_BOTS_YAML="${NEW_ACTIVE_BOTS_YAML}
-  - ${bot}"
-            done
+            NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
 
             TEMP_FILE="${STATE_FILE}.thumbsup.$$"
             # Replace active_bots section in state file
@@ -1045,12 +994,7 @@ while true; do
                     exit 0
                 else
                     # Update state file with remaining bots
-                    # Build YAML with actual newlines (BSD sed doesn't interpret \n in replacement)
-                    ACTIVE_BOTS_YAML=""
-                    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-                        ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}
-  - ${bot}"
-                    done
+                    ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
                     # Use awk to replace active_bots section (portable across GNU/BSD)
                     TEMP_FILE="${STATE_FILE}.thumbsup.$$"
                     awk -v bots="$ACTIVE_BOTS_YAML" '
@@ -1127,12 +1071,8 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
         # If no bots remain, loop is complete
         if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
             echo "All bots removed (timed out) - PR loop approved!" >&2
-            # Build configured_bots YAML inline (CONFIGURED_BOTS_YAML not yet populated)
-            TIMEOUT_CONFIGURED_BOTS_YAML=""
-            for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-                TIMEOUT_CONFIGURED_BOTS_YAML="${TIMEOUT_CONFIGURED_BOTS_YAML}
-  - ${bot}"
-            done
+            # Build configured_bots YAML
+            TIMEOUT_CONFIGURED_BOTS_YAML=$(build_yaml_list "${PR_CONFIGURED_BOTS_ARRAY[@]}")
             # Write updated state with empty active_bots before moving to approve-state.md
             {
                 echo "---"
@@ -1161,11 +1101,7 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
 
         # Persist updated active_bots to state file (some bots timed out, others still waiting)
         echo "Updating state file with ${#PR_ACTIVE_BOTS_ARRAY[@]} remaining active bots" >&2
-        TIMEOUT_ACTIVE_BOTS_YAML=""
-        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-            TIMEOUT_ACTIVE_BOTS_YAML="${TIMEOUT_ACTIVE_BOTS_YAML}
-  - ${bot}"
-        done
+        TIMEOUT_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
         TEMP_FILE="${STATE_FILE}.timeout.$$"
         awk -v bots="$TIMEOUT_ACTIVE_BOTS_YAML" '
             /^active_bots:$/ {
@@ -1535,11 +1471,7 @@ done
 TEMP_FILE="${STATE_FILE}.tmp.$$"
 
 # Build new YAML list for active_bots
-NEW_ACTIVE_BOTS_YAML=""
-for bot in "${NEW_ACTIVE_BOTS[@]}"; do
-    NEW_ACTIVE_BOTS_YAML="${NEW_ACTIVE_BOTS_YAML}
-  - ${bot}"
-done
+NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${NEW_ACTIVE_BOTS[@]}")
 
 # ========================================
 # Update PR Goal Tracker (AC-12)
@@ -1577,11 +1509,7 @@ if [[ -f "$GOAL_TRACKER_FILE" ]]; then
 fi
 
 # Build YAML list for configured_bots (never changes)
-CONFIGURED_BOTS_YAML=""
-for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    CONFIGURED_BOTS_YAML="${CONFIGURED_BOTS_YAML}
-  - ${bot}"
-done
+CONFIGURED_BOTS_YAML=$(build_yaml_list "${PR_CONFIGURED_BOTS_ARRAY[@]}")
 
 # Update latest_commit_sha to current HEAD (for force push detection in next round)
 NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || NEW_LATEST_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
@@ -1639,14 +1567,7 @@ fi
 # ========================================
 
 # Build new bot mention string
-NEW_BOT_MENTION_STRING=""
-for bot in "${NEW_ACTIVE_BOTS[@]}"; do
-    if [[ -n "$NEW_BOT_MENTION_STRING" ]]; then
-        NEW_BOT_MENTION_STRING="${NEW_BOT_MENTION_STRING} @${bot}"
-    else
-        NEW_BOT_MENTION_STRING="@${bot}"
-    fi
-done
+NEW_BOT_MENTION_STRING=$(build_bot_mention_string "${NEW_ACTIVE_BOTS[@]}")
 
 # Create feedback file for next round
 cat > "$FEEDBACK_FILE" << EOF
