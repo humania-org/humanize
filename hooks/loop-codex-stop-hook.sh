@@ -1011,9 +1011,15 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             exit 0
         fi
 
+        # Initialize skip tracking variables before any skip paths
+        REVIEW_SKIPPED=""
+        REVIEW_SKIP_REASON=""
+
         # Check if base_branch is available for code review
         if [[ -z "$BASE_BRANCH" ]]; then
             echo "Warning: No base_branch configured, skipping code review phase." >&2
+            REVIEW_SKIPPED="true"
+            REVIEW_SKIP_REASON="No base_branch configured for code review"
             # Fall through to finalize phase
         else
             echo "Implementation complete. Entering Review Phase..." >&2
@@ -1081,10 +1087,6 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
             echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
             echo "Codex review stdout saved to: $CODEX_REVIEW_STDOUT_FILE" >&2
             echo "Codex review stderr saved to: $CODEX_REVIEW_STDERR_FILE" >&2
-
-            # Track whether review was skipped due to failure/empty output
-            REVIEW_SKIPPED=""
-            REVIEW_SKIP_REASON=""
 
             # Handle codex review failure - skip to finalize
             if [[ "$CODEX_REVIEW_EXIT_CODE" -ne 0 ]]; then
