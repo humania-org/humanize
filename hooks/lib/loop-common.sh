@@ -15,6 +15,7 @@
 # State file field names
 readonly FIELD_PLAN_TRACKED="plan_tracked"
 readonly FIELD_START_BRANCH="start_branch"
+readonly FIELD_BASE_BRANCH="base_branch"
 readonly FIELD_PLAN_FILE="plan_file"
 readonly FIELD_CURRENT_ROUND="current_round"
 readonly FIELD_MAX_ITERATIONS="max_iterations"
@@ -22,6 +23,7 @@ readonly FIELD_PUSH_EVERY_ROUND="push_every_round"
 readonly FIELD_CODEX_MODEL="codex_model"
 readonly FIELD_CODEX_EFFORT="codex_effort"
 readonly FIELD_CODEX_TIMEOUT="codex_timeout"
+readonly FIELD_REVIEW_STARTED="review_started"
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -190,6 +192,7 @@ get_current_round() {
 #   STATE_FRONTMATTER - raw frontmatter content
 #   STATE_PLAN_TRACKED - "true" or "false"
 #   STATE_START_BRANCH - branch name
+#   STATE_BASE_BRANCH - base branch for code review
 #   STATE_PLAN_FILE - plan file path
 #   STATE_CURRENT_ROUND - current round number
 #   STATE_MAX_ITERATIONS - max iterations
@@ -197,6 +200,7 @@ get_current_round() {
 #   STATE_CODEX_MODEL - codex model name
 #   STATE_CODEX_EFFORT - codex effort level
 #   STATE_CODEX_TIMEOUT - codex timeout in seconds
+#   STATE_REVIEW_STARTED - "true" or "false"
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -212,6 +216,7 @@ parse_state_file() {
     # Legacy quote-stripping kept for backward compatibility with older state files
     STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
     STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
     STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
     STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
     STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
@@ -219,11 +224,13 @@ parse_state_file() {
     STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
     STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
 
     # Apply defaults
     STATE_CURRENT_ROUND="${STATE_CURRENT_ROUND:-0}"
     STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
+    STATE_REVIEW_STARTED="${STATE_REVIEW_STARTED:-false}"
 
     return 0
 }
@@ -259,6 +266,7 @@ parse_state_file_strict() {
     # Parse fields
     STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
     STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
     STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
     STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
     STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
@@ -266,6 +274,7 @@ parse_state_file_strict() {
     STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
     STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
 
     # Validate required fields exist
     if [[ -z "$STATE_CURRENT_ROUND" ]]; then
@@ -291,6 +300,7 @@ parse_state_file_strict() {
 
     # Apply defaults for optional fields only
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
+    STATE_REVIEW_STARTED="${STATE_REVIEW_STARTED:-false}"
 
     return 0
 }
