@@ -896,7 +896,7 @@ Since the code review was skipped, please manually verify your changes before fi
 3. Check for common code quality issues
 
 ## Simplification (Optional)
-If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
 
 ## Constraints
 - Must NOT change existing functionality
@@ -913,7 +913,9 @@ If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task 
             "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
             "PLAN_FILE=$PLAN_FILE" \
             "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
-            "REVIEW_SKIP_REASON=$skip_reason")
+            "REVIEW_SKIP_REASON=$skip_reason" \
+            "BASE_BRANCH=$BASE_BRANCH" \
+            "START_BRANCH=$START_BRANCH")
     else
         local fallback="# Finalize Phase
 
@@ -928,7 +930,7 @@ You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier
 - Only perform functionality-equivalent code refactoring and simplification
 
 ## Focus
-Focus on the code changes made during this RLCR session.
+Focus on the code changes made during this RLCR session. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
 
 ## Before Exiting
 1. Complete all todos
@@ -938,7 +940,9 @@ Focus on the code changes made during this RLCR session.
         finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$fallback" \
             "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
             "PLAN_FILE=$PLAN_FILE" \
-            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+            "BASE_BRANCH=$BASE_BRANCH" \
+            "START_BRANCH=$START_BRANCH")
     fi
 
     jq -n \

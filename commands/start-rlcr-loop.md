@@ -19,7 +19,10 @@ This command starts an iterative development loop where:
 2. Write a summary of your work to the specified summary file
 3. When you try to exit, Codex reviews your summary
 4. If Codex finds issues, you receive feedback and continue
-5. If Codex outputs "COMPLETE", the loop ends
+5. If Codex outputs "COMPLETE", the loop enters **Review Phase**
+6. In Review Phase, `codex review --base <branch>` performs code review
+7. If code review finds issues (`[P0-9]` markers), you fix them and continue
+8. When no issues are found, the loop ends with a Finalize Phase
 
 ## Goal Tracker System
 
@@ -51,5 +54,14 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 ## Stopping the Loop
 
 - Reach the maximum iteration count
-- Codex confirms completion with "COMPLETE" (all ACs met or validly deferred)
+- Codex confirms completion with "COMPLETE", followed by successful code review (no `[P0-9]` issues)
 - User runs `/humanize:cancel-rlcr-loop`
+
+## Two-Phase System
+
+The RLCR loop has two phases within the active loop:
+
+1. **Implementation Phase**: Work on the plan, Codex reviews your summary
+2. **Review Phase**: After COMPLETE, `codex review` checks code quality with `[P0-9]` severity markers
+
+The `--base-branch` option specifies the base branch for code review comparison. If not provided, it auto-detects from: remote default > local main > local master.

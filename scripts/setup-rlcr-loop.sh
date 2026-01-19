@@ -549,7 +549,8 @@ if [[ -n "$BASE_BRANCH" ]]; then
 else
     # Auto-detect base branch
     # Priority 1: Remote default branch (typically main or master)
-    REMOTE_DEFAULT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//')
+    # Guard with || true to prevent pipefail from terminating script when origin is missing
+    REMOTE_DEFAULT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//' || true)
     if [[ -n "$REMOTE_DEFAULT" && "$REMOTE_DEFAULT" != "(unknown)" ]]; then
         BASE_BRANCH="$REMOTE_DEFAULT"
     # Priority 2: Local main branch

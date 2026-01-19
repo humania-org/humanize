@@ -60,10 +60,16 @@ claude --plugin-dir /path/to/humanize
 ```mermaid
 flowchart LR
     Plan["Your Plan<br/>(plan.md)"] --> Claude["Claude Implements<br/>& Summarizes"]
-    Claude --> Codex["Codex Reviews<br/>& Critiques"]
+    Claude --> Codex["Codex Reviews<br/>Summary"]
     Codex -->|Feedback Loop| Claude
-    Codex -->|COMPLETE or max iterations| Done((Done))
+    Codex -->|COMPLETE| Review["Code Review<br/>(codex review)"]
+    Review -->|Issues Found| Claude
+    Review -->|No Issues| Done((Done))
 ```
+
+The loop has two phases:
+1. **Implementation Phase**: Claude works, Codex reviews summaries until COMPLETE
+2. **Review Phase**: `codex review --base <branch>` checks code quality with `[P0-9]` severity markers
 
 ### Quick Start
 

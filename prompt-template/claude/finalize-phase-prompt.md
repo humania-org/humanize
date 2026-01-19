@@ -26,6 +26,7 @@ These constraints are **non-negotiable**:
 
 The code-simplifier agent should focus on:
 - Code that was added or modified during this RLCR session
+- Focus more on changes between branch from `{{BASE_BRANCH}}` to `{{START_BRANCH}}`
 - Removing unnecessary complexity
 - Improving readability and maintainability
 - Consolidating duplicate code
