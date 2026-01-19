@@ -1142,7 +1142,7 @@ _humanize_monitor_pr() {
         trap - INT TERM EXIT 2>/dev/null || true
 
         # Kill background tail if running
-        if [[ -n "$TAIL_PID" ]]; then
+        if [[ -n "${TAIL_PID:-}" ]]; then
             if kill -0 "$TAIL_PID" 2>/dev/null; then
                 kill "$TAIL_PID" 2>/dev/null || true
                 # Use timeout-safe wait
