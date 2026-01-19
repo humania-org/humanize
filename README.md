@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.3.4**
+**Current Version: 1.4.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -85,20 +85,24 @@ flowchart LR
 | `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
+| `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
+| `/cancel-pr-loop` | Cancel active PR loop |
 
 ### Command Options
 
 #### start-rlcr-loop
 
 ```
-/humanize:start-rlcr-loop <path/to/plan.md> [OPTIONS]
+/humanize:start-rlcr-loop [path/to/plan.md | --plan-file path/to/plan.md] [OPTIONS]
 
 OPTIONS:
+  --plan-file <path>     Explicit plan file path (alternative to positional arg)
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
                          Codex model and reasoning effort (default: gpt-5.2-codex:high)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 5400)
+  --track-plan-file      Indicate plan file should be tracked in git (must be clean)
   --push-every-round     Require git push after each round (default: commits stay local)
   -h, --help             Show help message
 ```
@@ -120,6 +124,44 @@ Workflow:
 3. Analyzes draft for clarity, consistency, completeness, and functionality
 4. Engages user to resolve any issues found
 5. Generates a structured plan.md with AC-X acceptance criteria
+```
+
+#### start-pr-loop
+
+```
+/humanize:start-pr-loop --claude|--codex [OPTIONS]
+
+BOT FLAGS (at least one required):
+  --claude   Monitor reviews from claude[bot] (trigger with @claude)
+  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger with @codex)
+
+OPTIONS:
+  --max <N>              Maximum iterations before auto-stop (default: 42)
+  --codex-model <MODEL:EFFORT>
+                         Codex model and reasoning effort (default: gpt-5.2-codex:medium)
+  --codex-timeout <SECONDS>
+                         Timeout for each Codex review in seconds (default: 900)
+  -h, --help             Show help message
+```
+
+The PR loop automates the process of handling GitHub PR reviews from remote bots:
+
+1. Detects the PR associated with the current branch
+2. Fetches review comments from the specified bot(s)
+3. Claude analyzes and fixes issues identified by the bot(s)
+4. Pushes changes and triggers re-review by commenting @bot
+5. Stop Hook polls for new bot reviews (every 30s, 15min timeout per bot)
+6. Local Codex validates if remote concerns are approved or have issues
+7. Loop continues until all bots approve or max iterations reached
+
+**Prerequisites:**
+- GitHub CLI (`gh`) must be installed and authenticated
+- Codex CLI must be installed
+- Current branch must have an associated open PR
+
+**Monitoring:**
+```bash
+humanize monitor pr
 ```
 
 ## License

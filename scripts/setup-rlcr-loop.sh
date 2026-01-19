@@ -185,6 +185,37 @@ done
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Source loop-common.sh for find_active_loop and find_active_pr_loop functions
+HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
+source "$HOOKS_LIB_DIR/loop-common.sh"
+
+# ========================================
+# Mutual Exclusion Check
+# ========================================
+
+# Check for existing active loops (both RLCR and PR loops)
+# Only one loop type can be active at a time
+RLCR_LOOP_DIR=$(find_active_loop "$PROJECT_ROOT/.humanize/rlcr" 2>/dev/null || echo "")
+PR_LOOP_DIR=$(find_active_pr_loop "$PROJECT_ROOT/.humanize/pr-loop" 2>/dev/null || echo "")
+
+if [[ -n "$RLCR_LOOP_DIR" ]]; then
+    echo "Error: An RLCR loop is already active" >&2
+    echo "  Active loop: $RLCR_LOOP_DIR" >&2
+    echo "" >&2
+    echo "Only one loop can be active at a time." >&2
+    echo "Cancel the RLCR loop first with: /humanize:cancel-rlcr-loop" >&2
+    exit 1
+fi
+
+if [[ -n "$PR_LOOP_DIR" ]]; then
+    echo "Error: A PR loop is already active" >&2
+    echo "  Active loop: $PR_LOOP_DIR" >&2
+    echo "" >&2
+    echo "Only one loop can be active at a time." >&2
+    echo "Cancel the PR loop first with: /humanize:cancel-pr-loop" >&2
+    exit 1
+fi
+
 # Merge explicit and positional plan file
 if [[ -n "$PLAN_FILE_EXPLICIT" && -n "$PLAN_FILE" ]]; then
     echo "Error: Cannot specify both --plan-file and positional plan file" >&2

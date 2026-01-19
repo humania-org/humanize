@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for plan file validation (AC-9)
+# Robustness tests for plan file validation
 #
 # Tests production plan file validation in scripts/setup-rlcr-loop.sh:
 # - Empty files
@@ -96,7 +96,7 @@ git add README.md
 git commit -m "Initial commit" --quiet
 
 echo "========================================"
-echo "Plan File Robustness Tests (AC-9)"
+echo "Plan File Robustness Tests"
 echo "========================================"
 echo ""
 

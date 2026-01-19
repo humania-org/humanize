@@ -1,0 +1,42 @@
+[
+  {
+    "id": 3001,
+    "user": {
+      "login": "claude[bot]",
+      "type": "Bot"
+    },
+    "state": "APPROVED",
+    "body": "",
+    "submitted_at": "2026-01-18T13:00:00Z"
+  },
+  {
+    "id": 3002,
+    "user": {
+      "login": "chatgpt-codex-connector[bot]",
+      "type": "Bot"
+    },
+    "state": "APPROVED",
+    "body": null,
+    "submitted_at": "2026-01-18T13:30:00Z"
+  },
+  {
+    "id": 3003,
+    "user": {
+      "login": "chatgpt-codex-connector[bot]",
+      "type": "Bot"
+    },
+    "state": "CHANGES_REQUESTED",
+    "body": "Please address the security concerns before merging",
+    "submitted_at": "2026-01-18T11:00:00Z"
+  },
+  {
+    "id": 3004,
+    "user": {
+      "login": "humanreviewer",
+      "type": "User"
+    },
+    "state": "APPROVED",
+    "body": "LGTM!",
+    "submitted_at": "2026-01-18T09:00:00Z"
+  }
+]

@@ -1,0 +1,243 @@
+#!/bin/bash
+#
+# Mock gh CLI for testing PR loop functionality
+#
+# This mock intercepts gh commands and returns predefined responses
+# based on environment variables and fixture files.
+#
+# Environment variables:
+#   MOCK_GH_FIXTURES_DIR - Directory containing response fixtures
+#   MOCK_GH_PR_STATE - PR state (OPEN, CLOSED, MERGED)
+#   MOCK_GH_PR_NUMBER - PR number
+#   MOCK_GH_REACTIONS - JSON array of reactions
+#   MOCK_GH_COMMENTS - JSON array of comments
+
+set -euo pipefail
+
+MOCK_GH_FIXTURES_DIR="${MOCK_GH_FIXTURES_DIR:-$(dirname "$0")/../fixtures}"
+MOCK_GH_PR_STATE="${MOCK_GH_PR_STATE:-OPEN}"
+MOCK_GH_PR_NUMBER="${MOCK_GH_PR_NUMBER:-123}"
+MOCK_GH_HEAD_SHA="${MOCK_GH_HEAD_SHA:-abc123def456}"
+MOCK_GH_LATEST_COMMIT_AT="${MOCK_GH_LATEST_COMMIT_AT:-2026-01-18T10:00:00Z}"
+
+# Parse command
+COMMAND="${1:-}"
+shift || true
+
+case "$COMMAND" in
+    pr)
+        SUBCOMMAND="${1:-}"
+        shift || true
+        case "$SUBCOMMAND" in
+            view)
+                # Parse flags - PR number may or may not be specified
+                # Handle both: gh pr view 123 --json ... and gh pr view --json ...
+                PR_NUM=""
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --json)
+                            FIELDS="$2"
+                            shift 2
+                            ;;
+                        -q|--jq)
+                            JQ_EXPR="$2"
+                            shift 2
+                            ;;
+                        -*)
+                            # Skip unknown flags
+                            shift
+                            ;;
+                        *)
+                            # Positional argument - assume it's PR number
+                            PR_NUM="$1"
+                            shift
+                            ;;
+                    esac
+                done
+
+                # Return based on requested fields
+                if [[ "${FIELDS:-}" == "number" ]]; then
+                    echo "{\"number\": $MOCK_GH_PR_NUMBER}" | jq -r "${JQ_EXPR:-.}"
+                elif [[ "${FIELDS:-}" == "state" ]]; then
+                    echo "{\"state\": \"$MOCK_GH_PR_STATE\"}" | jq -r "${JQ_EXPR:-.}"
+                elif [[ "${FIELDS:-}" == "headRefOid,commits" ]]; then
+                    echo "{\"headRefOid\": \"$MOCK_GH_HEAD_SHA\", \"commits\": [{\"committedDate\": \"$MOCK_GH_LATEST_COMMIT_AT\"}]}" | jq -r "${JQ_EXPR:-.}"
+                elif [[ "${FIELDS:-}" == "commits" ]]; then
+                    echo "{\"commits\": [{\"committedDate\": \"$MOCK_GH_LATEST_COMMIT_AT\"}]}" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "{\"number\": $MOCK_GH_PR_NUMBER, \"state\": \"$MOCK_GH_PR_STATE\", \"headRefOid\": \"$MOCK_GH_HEAD_SHA\"}"
+                fi
+                ;;
+
+            comment)
+                # Mock posting a comment
+                PR_NUM="${1:-}"
+                shift || true
+                COMMENT_BODY=""
+
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --body)
+                            COMMENT_BODY="$2"
+                            shift 2
+                            ;;
+                        *)
+                            shift
+                            ;;
+                    esac
+                done
+
+                # Return success
+                echo "Created comment on PR #$PR_NUM"
+                ;;
+
+            *)
+                echo "Mock gh: Unknown pr subcommand: $SUBCOMMAND" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    api)
+        ENDPOINT="${1:-}"
+        shift || true
+
+        # Parse flags
+        JQ_EXPR=""
+        PAGINATE=false
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --jq|-q)
+                    JQ_EXPR="$2"
+                    shift 2
+                    ;;
+                --paginate)
+                    PAGINATE=true
+                    shift
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+
+        # Route to appropriate fixture
+        # IMPORTANT: More specific patterns must come BEFORE less specific ones
+        case "$ENDPOINT" in
+            user)
+                echo "{\"login\": \"testuser\"}" | jq -r "${JQ_EXPR:-.}"
+                ;;
+
+            repos/*/issues/comments/*/reactions)
+                # Return mock comment reactions (more specific - must come first)
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/comment-reactions.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
+            repos/*/issues/*/reactions)
+                # Return mock PR/issue reactions
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/reactions.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
+            repos/*/issues/*/comments)
+                # Return mock comments
+                # If MOCK_GH_COMMENT_ID_LOOKUP_FAIL is set and jq is selecting by user.login,
+                # return null to simulate failure to find the posted comment ID
+                if [[ "${MOCK_GH_COMMENT_ID_LOOKUP_FAIL:-}" == "true" && "$JQ_EXPR" == *"select(.user.login"* ]]; then
+                    echo "null"
+                    exit 0
+                fi
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/issue-comments.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
+            repos/*/pulls/*/comments)
+                # Return mock review comments
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/review-comments.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
+            repos/*/pulls/*/reviews)
+                # Return mock PR review submissions
+                FIXTURE_FILE="$MOCK_GH_FIXTURES_DIR/pr-reviews.json"
+                if [[ -f "$FIXTURE_FILE" ]]; then
+                    cat "$FIXTURE_FILE" | jq -r "${JQ_EXPR:-.}"
+                else
+                    echo "[]"
+                fi
+                ;;
+
+            *)
+                echo "Mock gh: Unknown API endpoint: $ENDPOINT" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    repo)
+        SUBCOMMAND="${1:-}"
+        shift || true
+        case "$SUBCOMMAND" in
+            view)
+                # Parse flags
+                FIELDS=""
+                JQ_EXPR="."
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --json) FIELDS="$2"; shift 2 ;;
+                        -q|--jq) JQ_EXPR="$2"; shift 2 ;;
+                        *) shift ;;
+                    esac
+                done
+                # Return mock repo info
+                if [[ "$FIELDS" == "owner" ]]; then
+                    echo '{"owner": {"login": "testowner"}}' | jq -r "$JQ_EXPR"
+                elif [[ "$FIELDS" == "name" ]]; then
+                    echo '{"name": "testrepo"}' | jq -r "$JQ_EXPR"
+                else
+                    echo '{"owner": {"login": "testowner"}, "name": "testrepo"}'
+                fi
+                ;;
+            *)
+                echo "Mock gh: Unknown repo subcommand: $SUBCOMMAND" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    auth)
+        SUBCOMMAND="${1:-}"
+        case "$SUBCOMMAND" in
+            status)
+                echo "Logged in to github.com as testuser"
+                exit 0
+                ;;
+            *)
+                echo "Mock gh: Unknown auth subcommand: $SUBCOMMAND" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    *)
+        echo "Mock gh: Unknown command: $COMMAND" >&2
+        exit 1
+        ;;
+esac

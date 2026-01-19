@@ -1,12 +1,15 @@
 #!/bin/bash
 #
-# PreToolUse Hook: Validate Read access for RLCR loop files
+# PreToolUse Hook: Validate Read access for RLCR loop and PR loop files
 #
 # Blocks Claude from reading:
 # - Wrong round's prompt/summary files (outdated information)
 # - Round files from wrong locations (not in .humanize/rlcr/)
 # - Round files from old session directories
 # - Todos files (should use native TodoWrite instead)
+#
+# PR loop files (.humanize/pr-loop/) are generally allowed to read
+# to give Claude access to comments, prompts, and feedback.
 #
 
 set -euo pipefail

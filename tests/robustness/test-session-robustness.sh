@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for concurrent session handling (AC-2)
+# Robustness tests for concurrent session handling
 #
 # Tests session detection and management under edge cases:
 # - Multiple concurrent sessions
@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/../test-helpers.sh"
 setup_test_dir
 
 echo "========================================"
-echo "Session Robustness Tests (AC-2)"
+echo "Session Robustness Tests"
 echo "========================================"
 echo ""
 

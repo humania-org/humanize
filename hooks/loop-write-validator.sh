@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PreToolUse Hook: Validate Write paths for RLCR loop
+# PreToolUse Hook: Validate Write paths for RLCR loop and PR loop
 #
 # Blocks Claude from writing to:
 # - Todos files (should use native TodoWrite instead)
@@ -8,6 +8,8 @@
 # - Wrong round number summary files
 # - Summary files outside .humanize/rlcr/
 # - Goal tracker after Round 0
+# - PR loop state files (.humanize/pr-loop/)
+# - PR loop read-only files (pr-comment, prompt, codex-prompt, pr-check, pr-feedback)
 #
 
 set -euo pipefail
@@ -63,6 +65,32 @@ fi
 if is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
     prompt_write_blocked_message >&2
     exit 2
+fi
+
+# ========================================
+# PR Loop File Protection
+# ========================================
+
+IN_PR_LOOP_DIR=$(is_in_pr_loop_dir "$FILE_PATH" && echo "true" || echo "false")
+
+if [[ "$IN_PR_LOOP_DIR" == "true" ]]; then
+    # Block state.md writes in PR loop
+    if is_state_file_path "$FILE_PATH_LOWER"; then
+        pr_loop_state_blocked_message >&2
+        exit 2
+    fi
+
+    # Block read-only PR loop files
+    if is_pr_loop_readonly_file "$FILE_PATH_LOWER"; then
+        pr_loop_prompt_blocked_message >&2
+        exit 2
+    fi
+
+    # For round-N-pr-resolve.md (Claude's resolution summary), validate round number
+    if is_pr_round_file_type "$FILE_PATH_LOWER" "pr-resolve"; then
+        validate_pr_resolve_round "$FILE_PATH_LOWER" "write to" || exit $?
+        exit 0
+    fi
 fi
 
 # ========================================
@@ -132,7 +160,7 @@ if is_state_file_path "$FILE_PATH_LOWER"; then
 fi
 
 # ========================================
-# Allow Finalize Summary File (AC-7)
+# Allow Finalize Summary File
 # ========================================
 # In Finalize Phase, allow writes to finalize-summary.md
 # This must be checked BEFORE the "summary files outside .humanize/rlcr" check

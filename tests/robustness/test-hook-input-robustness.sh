@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for hook input parsing (AC-7) and monitor edge cases (AC-6)
+# Robustness tests for hook input parsing and monitor edge cases
 #
 # Tests production hook validators by piping JSON to them:
 # - Well-formed JSON parsing (loop-read-validator.sh, loop-write-validator.sh)
@@ -20,16 +20,16 @@ setup_test_dir
 
 echo "========================================"
 echo "Hook Input & Monitor Robustness Tests"
-echo "(AC-6 & AC-7)"
+echo ""
 echo "========================================"
 echo ""
 
 # ========================================
-# Hook Input Parsing Tests (AC-7)
+# Hook Input Parsing Tests
 # ========================================
 # These tests pipe JSON to actual hook validators and check their behavior
 
-echo "--- Hook Input Parsing Tests (AC-7) ---"
+echo "--- Hook Input Parsing Tests ---"
 echo ""
 
 # Test 1: Well-formed JSON with Read tool (should pass through)
@@ -200,7 +200,7 @@ fi
 
 # Test 10b: Non-UTF8 content in command (binary bytes) - MUST reject
 echo ""
-echo "Test 10b: Hook rejects non-UTF8 binary content (AC-7)"
+echo "Test 10b: Hook rejects non-UTF8 binary content"
 # Create JSON with embedded binary/non-UTF8 bytes using hex escape
 BINARY_JSON=$(printf '{"tool_name":"Bash","tool_input":{"command":"echo \x80\x81\x82\xff"}}')
 set +e
@@ -235,11 +235,11 @@ else
 fi
 
 # ========================================
-# Monitor Edge Cases (AC-6)
+# Monitor Edge Cases
 # ========================================
 
 echo ""
-echo "--- Monitor Edge Cases (AC-6) ---"
+echo "--- Monitor Edge Cases ---"
 echo ""
 
 # Test 11: Terminal width handling
@@ -370,12 +370,12 @@ else
 fi
 
 # ========================================
-# Monitor Helper Integration Tests (AC-6)
+# Monitor Helper Integration Tests
 # ========================================
 # These tests verify the production helper functions used by monitor are available
 
 echo ""
-echo "--- Monitor Helper Integration Tests (AC-6) ---"
+echo "--- Monitor Helper Integration Tests ---"
 echo ""
 
 # Test 21: Production goal tracker parser is available and works
@@ -433,12 +433,12 @@ else
 fi
 
 # ========================================
-# Monitor Loop Integration Tests (AC-6)
+# Monitor Loop Integration Tests
 # ========================================
 # These tests invoke the real _humanize_monitor_codex function
 
 echo ""
-echo "--- Monitor Loop Integration Tests (AC-6) ---"
+echo "--- Monitor Loop Integration Tests ---"
 echo ""
 
 # Test 24: Monitor exits gracefully when session directory missing

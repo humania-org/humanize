@@ -3,6 +3,12 @@
 # Part of rc.d configuration
 # Compatible with both bash and zsh
 
+# Source shared monitor utilities (per plan: scripts/lib/monitor-common.sh)
+HUMANIZE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+if [[ -f "$HUMANIZE_SCRIPT_DIR/lib/monitor-common.sh" ]]; then
+    source "$HUMANIZE_SCRIPT_DIR/lib/monitor-common.sh"
+fi
+
 # ========================================
 # Public helper functions (can be called directly for testing)
 # ========================================
@@ -12,7 +18,7 @@
 humanize_split_to_array() {
     local arr_name="$1"
     local input="$2"
-    if [[ -n "$ZSH_VERSION" ]]; then
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
         # zsh: use parameter expansion to split on |
         eval "$arr_name=(\"\${(@s:|:)input}\")"
     else
@@ -213,7 +219,7 @@ humanize_parse_git_status() {
 _humanize_monitor_codex() {
     # Enable 0-indexed arrays in zsh for bash compatibility
     # This affects all _split_to_array calls within this function
-    [[ -n "$ZSH_VERSION" ]] && setopt localoptions ksharrays
+    [[ -n "${ZSH_VERSION:-}" ]] && setopt localoptions ksharrays
 
     local loop_dir=".humanize/rlcr"
     local current_file=""
@@ -228,28 +234,9 @@ _humanize_monitor_codex() {
         return 1
     fi
 
-    # Function to find the latest session directory
+    # Use shared monitor helper for finding latest session
     _find_latest_session() {
-        local latest_session=""
-        # Check if loop_dir exists before glob operation (prevents zsh "no matches found" error)
-        if [[ ! -d "$loop_dir" ]]; then
-            echo ""
-            return
-        fi
-        # Use find instead of glob to avoid zsh "no matches found" errors
-        # find is safe even when directory is empty or has no matching files
-        while IFS= read -r session_dir; do
-            [[ -z "$session_dir" ]] && continue
-            [[ ! -d "$session_dir" ]] && continue
-
-            local session_name=$(basename "$session_dir")
-            if [[ "$session_name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]; then
-                if [[ -z "$latest_session" ]] || [[ "$session_name" > "$(basename "$latest_session")" ]]; then
-                    latest_session="$session_dir"
-                fi
-            fi
-        done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        echo "$latest_session"
+        monitor_find_latest_session "$loop_dir"
     }
 
     # Function to find the latest codex log file
@@ -313,45 +300,9 @@ _humanize_monitor_codex() {
         echo "$latest"
     }
 
-    # Find the state file for a session directory
-    # Returns: state_file_path|loop_status
-    # - If state.md exists: returns "state.md|active"
-    # - If <STOP_REASON>-state.md exists: returns "<file>|<stop_reason>"
-    # - If no state file found: returns "|unknown"
+    # Use shared monitor helper for finding state file
     _find_state_file() {
-        local session_dir="$1"
-        if [[ -z "$session_dir" || ! -d "$session_dir" ]]; then
-            echo "|unknown"
-            return
-        fi
-
-        # Priority 1: state.md indicates active loop
-        if [[ -f "$session_dir/state.md" ]]; then
-            echo "$session_dir/state.md|active"
-            return
-        fi
-
-        # Priority 2: Look for <STOP_REASON>-state.md files
-        # Common stop reasons: completed, failed, cancelled, timeout, error
-        # Use find instead of glob to avoid zsh "no matches found" errors
-        local state_file=""
-        local stop_reason=""
-        while IFS= read -r f; do
-            [[ -z "$f" ]] && continue
-            if [[ -f "$f" ]]; then
-                state_file="$f"
-                # Extract stop reason from filename (e.g., "completed-state.md" -> "completed")
-                local basename=$(basename "$f")
-                stop_reason="${basename%-state.md}"
-                break
-            fi
-        done < <(find "$session_dir" -maxdepth 1 -name '*-state.md' -type f 2>/dev/null)
-
-        if [[ -n "$state_file" ]]; then
-            echo "$state_file|$stop_reason"
-        else
-            echo "|unknown"
-        fi
+        monitor_find_state_file "$1"
     }
 
     # Parse state.md and return values
@@ -541,19 +492,26 @@ _humanize_monitor_codex() {
     local cleanup_done=false
 
     # Cleanup function - called by trap
+    # Must work cleanly in both bash and zsh
     _cleanup() {
         # Prevent multiple cleanup calls
-        [[ "$cleanup_done" == "true" ]] && return
+        [[ "${cleanup_done:-false}" == "true" ]] && return
         cleanup_done=true
         monitor_running=false
 
         # Reset traps to prevent re-triggering
-        trap - INT TERM
+        # Use explicit signal numbers for better zsh compatibility
+        trap - INT TERM 2>/dev/null || true
 
-        # Kill background processes
-        if [[ -n "$tail_pid" ]] && kill -0 $tail_pid 2>/dev/null; then
-            kill $tail_pid 2>/dev/null
-            wait $tail_pid 2>/dev/null
+        # Kill background processes more robustly
+        if [[ -n "$tail_pid" ]]; then
+            # Check if process exists before killing
+            if kill -0 "$tail_pid" 2>/dev/null; then
+                kill "$tail_pid" 2>/dev/null || true
+                # Use timeout-safe wait
+                ( wait "$tail_pid" 2>/dev/null ) &
+                wait $! 2>/dev/null || true
+            fi
         fi
 
         _restore_terminal
@@ -566,7 +524,7 @@ _humanize_monitor_codex() {
     _graceful_stop() {
         local reason="$1"
         # Prevent multiple cleanup calls (checked again in _cleanup but check here too)
-        [[ "$cleanup_done" == "true" ]] && return
+        [[ "${cleanup_done:-false}" == "true" ]] && return
 
         # Call _cleanup to do the actual cleanup work (per plan requirement)
         _cleanup
@@ -577,7 +535,16 @@ _humanize_monitor_codex() {
     }
 
     # Set up signal handlers (bash/zsh compatible)
-    trap '_cleanup' INT TERM
+    # Use function name without quotes for zsh compatibility
+    # In zsh, traps in functions are local by default when using POSIX_TRAPS option
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        # zsh: use TRAPINT and TRAPTERM for better handling
+        TRAPINT() { _cleanup; return 130; }
+        TRAPTERM() { _cleanup; return 143; }
+    else
+        # bash: use standard trap
+        trap '_cleanup' INT TERM
+    fi
 
     # Find initial session and log file
     current_session_dir=$(_find_latest_session)
@@ -599,9 +566,9 @@ _humanize_monitor_codex() {
     # Setup terminal
     _setup_terminal
 
-    # Get file size (cross-platform: Linux uses -c%s, macOS uses -f%z)
+    # Use shared monitor helper for file size
     _get_file_size() {
-        stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0
+        monitor_get_file_size "$1"
     }
 
     # Track last read position for incremental reading
@@ -863,8 +830,13 @@ _humanize_monitor_codex() {
         done
     done
 
-    # Reset trap handlers
-    trap - INT TERM
+    # Reset trap handlers (zsh and bash)
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        # zsh: undefine the TRAP* functions
+        unfunction TRAPINT TRAPTERM 2>/dev/null || true
+    else
+        trap - INT TERM
+    fi
 }
 
 # Main humanize function
@@ -875,14 +847,21 @@ humanize() {
     case "$cmd" in
         monitor)
             local target="$1"
+            shift 2>/dev/null || true
             case "$target" in
                 rlcr)
-                    _humanize_monitor_codex
+                    _humanize_monitor_codex "$@"
+                    ;;
+                pr)
+                    _humanize_monitor_pr "$@"
                     ;;
                 *)
-                    echo "Usage: humanize monitor rlcr"
+                    echo "Usage: humanize monitor <rlcr|pr>"
                     echo ""
-                    echo "Monitor the latest RLCR loop log from .humanize/rlcr"
+                    echo "Subcommands:"
+                    echo "  rlcr    Monitor the latest RLCR loop log from .humanize/rlcr"
+                    echo "  pr      Monitor the latest PR loop from .humanize/pr-loop"
+                    echo ""
                     echo "Features:"
                     echo "  - Fixed status bar showing session info, round progress, model config"
                     echo "  - Goal tracker summary: Ultimate Goal, AC progress, task status"
@@ -897,7 +876,448 @@ humanize() {
             echo ""
             echo "Commands:"
             echo "  monitor rlcr    Monitor the latest RLCR loop log"
+            echo "  monitor pr      Monitor the latest PR loop"
             return 1
             ;;
     esac
+}
+
+# ========================================
+# PR Loop Monitor Function
+# ========================================
+
+# Monitor the latest PR loop from .humanize/pr-loop with fixed status bar and rolling tail
+_humanize_monitor_pr() {
+    # Enable 0-indexed arrays in zsh for bash compatibility
+    [[ -n "${ZSH_VERSION:-}" ]] && setopt localoptions ksharrays
+
+    local loop_dir=".humanize/pr-loop"
+    local current_file=""
+    local current_session_dir=""
+    local check_interval=2  # seconds between checking for new files
+    local status_bar_height=10  # number of lines for status bar
+    local once_mode=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --once)
+                once_mode=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Check if .humanize/pr-loop exists
+    if [[ ! -d "$loop_dir" ]]; then
+        echo "Error: $loop_dir directory not found in current directory"
+        echo "Are you in a project with an active PR loop?"
+        return 1
+    fi
+
+    # Use shared monitor helper for finding latest session
+    _pr_find_latest_session() {
+        monitor_find_latest_session "$loop_dir"
+    }
+
+    # Function to find the latest monitorable file (pr-check, pr-feedback, or pr-comment)
+    _pr_find_latest_file() {
+        local session_dir="$1"
+        [[ ! -d "$session_dir" ]] && return
+
+        local latest=""
+        local latest_mtime=0
+
+        # Check for pr-check files (Codex analysis output)
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null)
+
+        # Check for pr-feedback files
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-feedback.md' -type f 2>/dev/null)
+
+        # Check for pr-comment files
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ ! -f "$f" ]] && continue
+            local mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+            if [[ "$mtime" -gt "$latest_mtime" ]]; then
+                latest="$f"
+                latest_mtime="$mtime"
+            fi
+        done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-comment.md' -type f 2>/dev/null)
+
+        echo "$latest"
+    }
+
+    # Use shared monitor helper for finding state file
+    # Note: monitor_find_state_file returns "approve" not "approved" for approve-state.md
+    # so we maintain the PR-specific status mapping here for display purposes
+    _pr_find_state_file() {
+        local session_dir="$1"
+        local result
+        result=$(monitor_find_state_file "$session_dir")
+        local state_file="${result%|*}"
+        local stop_reason="${result#*|}"
+
+        # Map stop reasons to PR-friendly status names
+        case "$stop_reason" in
+            approve) stop_reason="approved" ;;
+            maxiter) stop_reason="max-iterations" ;;
+        esac
+
+        echo "$state_file|$stop_reason"
+    }
+
+    # Function to parse state.md and return key values
+    _pr_parse_state_md() {
+        local state_file="$1"
+        [[ ! -f "$state_file" ]] && echo "0|42|?|?|?|?|N/A" && return
+
+        local frontmatter
+        frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
+
+        local current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
+        local max_iterations=$(echo "$frontmatter" | grep "^max_iterations:" | sed "s/max_iterations: *//" | tr -d ' ')
+        local pr_number=$(echo "$frontmatter" | grep "^pr_number:" | sed "s/pr_number: *//" | tr -d ' ')
+        local start_branch=$(echo "$frontmatter" | grep "^start_branch:" | sed "s/start_branch: *//" | tr -d '"' || true)
+        local configured_bots=$(echo "$frontmatter" | sed -n '/^configured_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
+        local active_bots=$(echo "$frontmatter" | sed -n '/^active_bots:$/,/^[a-z_]*:/{ /^  - /{ s/^  - //; p; } }' | tr '\n' ',' | sed 's/,$//')
+        local codex_model=$(echo "$frontmatter" | grep "^codex_model:" | sed "s/codex_model: *//" | tr -d ' ')
+        local codex_effort=$(echo "$frontmatter" | grep "^codex_effort:" | sed "s/codex_effort: *//" | tr -d ' ')
+        local started_at=$(echo "$frontmatter" | grep "^started_at:" | sed "s/started_at: *//" || true)
+
+        # Apply defaults
+        current_round=${current_round:-0}
+        max_iterations=${max_iterations:-42}
+        pr_number=${pr_number:-"?"}
+        start_branch=${start_branch:-"?"}
+        configured_bots=${configured_bots:-"none"}
+        active_bots=${active_bots:-"none"}
+        codex_model=${codex_model:-"gpt-5.2-codex"}
+        codex_effort=${codex_effort:-"medium"}
+        started_at=${started_at:-"N/A"}
+
+        echo "$current_round|$max_iterations|$pr_number|$start_branch|$configured_bots|$active_bots|$codex_model|$codex_effort|$started_at"
+    }
+
+    # Draw the status bar at the top
+    _pr_draw_status_bar() {
+        local session_dir="$1"
+        local monitored_file="$2"
+        local loop_status="$3"
+        local term_width=$(tput cols)
+
+        # Parse state file
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local state_file="${state_info%|*}"
+        [[ -z "$loop_status" ]] && loop_status="${state_info#*|}"
+
+        local state_values=$(_pr_parse_state_md "$state_file")
+        IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
+
+        # Save cursor position and move to top
+        tput sc
+        tput cup 0 0
+
+        # ANSI color codes
+        local green="\033[1;32m" yellow="\033[1;33m" cyan="\033[1;36m"
+        local magenta="\033[1;35m" red="\033[1;31m" reset="\033[0m"
+        local bg="\033[44m" bold="\033[1m" dim="\033[2m"
+
+        # Clear status bar area
+        tput cup 0 0
+        for _ in {1..10}; do printf "%-${term_width}s\n" ""; done
+
+        # Draw header and session info
+        tput cup 0 0
+        local session_basename=$(basename "$session_dir")
+        printf "${bg}${bold}%-${term_width}s${reset}\n" " PR Loop Monitor"
+        printf "${cyan}Session:${reset} ${session_basename}    ${cyan}PR:${reset} #${pr_number}    ${cyan}Branch:${reset} ${start_branch}\n"
+        printf "${green}Round:${reset}   ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Codex:${reset} ${codex_model} (${codex_effort})\n"
+
+        # Detect phase and determine status color
+        local phase=""
+        local phase_display=""
+        if type get_pr_loop_phase &>/dev/null; then
+            phase=$(get_pr_loop_phase "$session_dir")
+            phase_display=$(get_pr_loop_phase_display "$phase" "$active_bots")
+        fi
+
+        # Loop status line with color based on phase/status
+        local status_color="${green}"
+        case "$phase" in
+            approved) status_color="${cyan}" ;;
+            cancelled) status_color="${yellow}" ;;
+            maxiter) status_color="${red}" ;;
+            codex_analyzing) status_color="${magenta}" ;;
+            waiting_initial_review) status_color="${yellow}" ;;
+            waiting_reviewer) status_color="${green}" ;;
+            *) status_color="${dim}" ;;
+        esac
+
+        if [[ -n "$phase_display" ]]; then
+            printf "${magenta}Phase:${reset}   ${status_color}${phase_display}${reset}\n"
+        else
+            # Fallback to loop_status if phase detection not available
+            case "$loop_status" in
+                active) status_color="${green}" ;;
+                approved|completed) status_color="${cyan}" ;;
+                cancelled) status_color="${yellow}" ;;
+                max-iterations) status_color="${red}" ;;
+                *) status_color="${dim}" ;;
+            esac
+            printf "${magenta}Status:${reset}  ${status_color}${loop_status}${reset}\n"
+        fi
+
+        # Bot status
+        printf "${cyan}Configured Bots:${reset} ${configured_bots}\n"
+        if [[ "$active_bots" == "none" ]] || [[ -z "$active_bots" ]]; then
+            printf "${green}Active Bots:${reset}     ${green}all approved${reset}\n"
+        else
+            printf "${yellow}Active Bots:${reset}     ${active_bots}\n"
+        fi
+
+        # Goal tracker issue stats
+        local goal_tracker_file="$session_dir/goal-tracker.md"
+        if [[ -f "$goal_tracker_file" ]] && type humanize_parse_pr_goal_tracker &>/dev/null; then
+            local tracker_stats=$(humanize_parse_pr_goal_tracker "$goal_tracker_file")
+            local total_issues resolved_issues remaining_issues last_reviewer
+            IFS='|' read -r total_issues resolved_issues remaining_issues last_reviewer <<< "$tracker_stats"
+            if [[ "$total_issues" != "0" ]] || [[ "$resolved_issues" != "0" ]]; then
+                printf "${cyan}Issues:${reset}          Found: ${yellow}${total_issues}${reset}, Resolved: ${green}${resolved_issues}${reset}, Remaining: ${red}${remaining_issues}${reset}\n"
+            fi
+        fi
+
+        # Started time
+        local start_display="$started_at"
+        if [[ "$started_at" != "N/A" ]]; then
+            start_display=$(echo "$started_at" | sed 's/T/ /; s/Z/ UTC/')
+        fi
+        printf "${dim}Started:${reset} ${start_display}\n"
+
+        # Currently monitoring
+        local file_basename=""
+        [[ -n "$monitored_file" ]] && file_basename=$(basename "$monitored_file")
+        printf "${dim}Watching:${reset} ${file_basename:-none}\n"
+
+        # Separator
+        printf "%-${term_width}s\n" "$(printf '%*s' "$term_width" | tr ' ' '-')"
+
+        # Restore cursor position
+        tput rc
+    }
+
+    # Track state for cleanup
+    local TAIL_PID=""
+    local monitor_running=true
+    local cleanup_done=false
+
+    # Cleanup function - called by trap
+    # Must work cleanly in both bash and zsh
+    _pr_cleanup() {
+        # Prevent multiple cleanup calls
+        [[ "${cleanup_done:-false}" == "true" ]] && return
+        cleanup_done=true
+        monitor_running=false
+
+        # Reset traps to prevent re-triggering
+        trap - INT TERM EXIT 2>/dev/null || true
+
+        # Kill background tail if running
+        if [[ -n "${TAIL_PID:-}" ]]; then
+            if kill -0 "$TAIL_PID" 2>/dev/null; then
+                kill "$TAIL_PID" 2>/dev/null || true
+                # Use timeout-safe wait
+                ( wait "$TAIL_PID" 2>/dev/null ) &
+                wait $! 2>/dev/null || true
+            fi
+        fi
+
+        # Show cursor and restore terminal
+        tput cnorm 2>/dev/null || true
+        tput rmcup 2>/dev/null || true
+        echo ""
+        echo "Monitor stopped."
+    }
+
+    # Set up signal handlers (bash/zsh compatible)
+    # Use TRAPINT/TRAPTERM for zsh, standard trap for bash
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        # zsh: use TRAPINT and TRAPTERM for better handling
+        TRAPINT() { _pr_cleanup; return 130; }
+        TRAPTERM() { _pr_cleanup; return 143; }
+        # Also set EXIT trap for clean exit
+        trap '_pr_cleanup' EXIT
+    else
+        # bash: use standard trap
+        trap '_pr_cleanup' EXIT INT TERM
+    fi
+
+    # One-shot mode: print status once and exit (for testing and scripting)
+    if [[ "$once_mode" == "true" ]]; then
+        local session_dir=$(_pr_find_latest_session)
+        if [[ -z "$session_dir" ]]; then
+            echo "No PR loop sessions found in $loop_dir"
+            return 1
+        fi
+
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local state_file="${state_info%|*}"
+        local loop_status="${state_info#*|}"
+
+        if [[ -z "$state_file" ]]; then
+            echo "No state file found in $session_dir"
+            return 1
+        fi
+
+        local state_values=$(_pr_parse_state_md "$state_file")
+        IFS='|' read -r current_round max_iterations pr_number start_branch configured_bots active_bots codex_model codex_effort started_at <<< "$state_values"
+
+        # Get phase for --once mode display
+        local phase=""
+        local phase_display=""
+        if declare -f get_pr_loop_phase &>/dev/null; then
+            phase=$(get_pr_loop_phase "$session_dir")
+            phase_display=$(get_pr_loop_phase_display "$phase" "$active_bots")
+        fi
+
+        echo "=========================================="
+        echo " PR Loop Monitor"
+        echo "=========================================="
+        echo ""
+        echo "Session: $(basename "$session_dir")"
+        if [[ -n "$phase_display" ]]; then
+            echo "Phase:   $phase_display"
+        else
+            echo "Status:  $loop_status"
+        fi
+        echo ""
+        echo "PR Number:       #$pr_number"
+        echo "Branch:          $start_branch"
+        echo "Configured Bots: ${configured_bots:-none}"
+        echo "Active Bots:     ${active_bots:-none}"
+        echo ""
+        echo "Round:         $current_round / $max_iterations"
+        echo "Codex:         $codex_model:$codex_effort"
+        echo "Started:       $started_at"
+        echo ""
+        echo "=========================================="
+        echo " Recent Files"
+        echo "=========================================="
+        echo ""
+
+        # List recent round files
+        local round_files
+        round_files=$(find "$session_dir" -maxdepth 1 -name 'round-*.md' -type f 2>/dev/null)
+        if [[ -n "$round_files" ]]; then
+            echo "$round_files" | xargs ls -lt 2>/dev/null | head -10 | while read -r line; do
+                echo "  $line"
+            done
+        fi
+
+        echo ""
+        echo "=========================================="
+        echo " Latest Activity"
+        echo "=========================================="
+        echo ""
+
+        local latest_file=$(_pr_find_latest_file "$session_dir")
+        if [[ -n "$latest_file" && -f "$latest_file" ]]; then
+            echo "Latest: $(basename "$latest_file")"
+            echo "----------------------------------------"
+            tail -20 "$latest_file"
+            echo ""
+        fi
+
+        echo "=========================================="
+        return 0
+    fi
+
+    # Initialize terminal
+    tput smcup  # Save screen
+    tput civis  # Hide cursor
+    clear
+
+    # Create scrolling region below status bar
+    tput csr $status_bar_height $(($(tput lines) - 1))
+
+    # Main monitoring loop
+    while [[ "$monitor_running" == "true" ]]; do
+        # Find latest session
+        local session_dir=$(_pr_find_latest_session)
+        if [[ -z "$session_dir" ]]; then
+            tput cup $status_bar_height 0
+            echo "Waiting for PR loop session..."
+            sleep "$check_interval"
+            continue
+        fi
+
+        # Check if session changed
+        if [[ "$session_dir" != "$current_session_dir" ]]; then
+            current_session_dir="$session_dir"
+            current_file=""
+            [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
+            TAIL_PID=""
+        fi
+
+        # Find latest file to monitor
+        local latest_file=$(_pr_find_latest_file "$session_dir")
+
+        # Get loop status
+        local state_info=$(_pr_find_state_file "$session_dir")
+        local loop_status="${state_info#*|}"
+
+        # Update status bar
+        _pr_draw_status_bar "$session_dir" "$latest_file" "$loop_status"
+
+        # Check if file changed or new file appeared
+        if [[ "$latest_file" != "$current_file" ]] && [[ -n "$latest_file" ]]; then
+            current_file="$latest_file"
+
+            # Kill old tail process
+            [[ -n "$TAIL_PID" ]] && kill "$TAIL_PID" 2>/dev/null
+
+            # Clear content area and show new file
+            tput cup $status_bar_height 0
+            tput ed  # Clear to end of screen
+
+            # Start tailing the new file
+            tail -n +1 -f "$current_file" 2>/dev/null &
+            TAIL_PID=$!
+        fi
+
+        # If no file to monitor yet, show waiting message
+        if [[ -z "$current_file" ]]; then
+            tput cup $status_bar_height 0
+            echo "Waiting for PR loop activity..."
+        fi
+
+        sleep "$check_interval"
+    done
+
+    # Reset trap handlers (zsh and bash)
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        # zsh: undefine the TRAP* functions
+        unfunction TRAPINT TRAPTERM 2>/dev/null || true
+    else
+        trap - INT TERM EXIT
+    fi
 }

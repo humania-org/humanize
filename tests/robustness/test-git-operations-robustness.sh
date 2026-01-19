@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for git operation scripts (AC-5)
+# Robustness tests for git operation scripts
 #
 # Tests production humanize_parse_git_status function from scripts/humanize.sh:
 # - Clean repository state
@@ -21,7 +21,7 @@ source "$PROJECT_ROOT/scripts/humanize.sh"
 setup_test_dir
 
 echo "========================================"
-echo "Git Operations Robustness Tests (AC-5)"
+echo "Git Operations Robustness Tests"
 echo "========================================"
 echo ""
 
@@ -367,11 +367,11 @@ git checkout -q file.txt
 cd - > /dev/null
 
 # ========================================
-# Git State Detection Tests (AC-5)
+# Git State Detection Tests
 # ========================================
 
 echo ""
-echo "--- Git State Detection Tests (AC-5) ---"
+echo "--- Git State Detection Tests ---"
 echo ""
 
 # Test 19: Detect normal state

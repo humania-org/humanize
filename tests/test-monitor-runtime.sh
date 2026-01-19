@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Runtime Verification Tests for AC-1.1 and AC-1.3
+# Runtime Verification Tests for tests
 #
 # This test verifies:
-# - AC-1.1: Clean exit with user-friendly message when .humanize deleted
-# - AC-1.3: Terminal state properly restored after graceful stop
+# - Clean exit with user-friendly message when .humanize deleted
+# - Terminal state properly restored after graceful stop
 #
 # Tests the actual _graceful_stop() and _cleanup() functions at runtime
 #
@@ -53,9 +53,9 @@ cleanup() {
 trap cleanup EXIT
 
 # ========================================
-# Test 1: Verify _graceful_stop outputs correct message (AC-1.1)
+# Test 1: Verify _graceful_stop outputs correct message
 # ========================================
-echo "Test 1: _graceful_stop outputs correct message (AC-1.1)"
+echo "Test 1: _graceful_stop outputs correct message"
 echo ""
 
 mkdir -p .humanize/rlcr/2026-01-16_10-00-00
@@ -110,7 +110,7 @@ output=$(./test_graceful_stop.sh "$TEST_BASE" "$PROJECT_ROOT" 2>&1)
 
 # Verify the output contains expected messages
 if echo "$output" | grep -q "RESTORE_TERMINAL_CALLED"; then
-    pass "_restore_terminal was called (AC-1.3)"
+    pass "_restore_terminal was called"
 else
     fail "_restore_terminal call" "Function not called"
 fi
@@ -122,13 +122,13 @@ else
 fi
 
 if echo "$output" | grep -q "Monitoring stopped:"; then
-    pass "Graceful stop message displayed (AC-1.1)"
+    pass "Graceful stop message displayed"
 else
     fail "Graceful stop message" "Message not found"
 fi
 
 if echo "$output" | grep -q "directory no longer exists"; then
-    pass "User-friendly reason in message (AC-1.1)"
+    pass "User-friendly reason in message"
 else
     fail "User-friendly reason" "Reason not in message"
 fi
@@ -251,10 +251,10 @@ else
 fi
 
 # ========================================
-# Test 4: Verify terminal restore sequence (AC-1.3)
+# Test 4: Verify terminal restore sequence
 # ========================================
 echo ""
-echo "Test 4: Terminal restore sequence (AC-1.3)"
+echo "Test 4: Terminal restore sequence"
 echo ""
 
 # This test verifies the _restore_terminal function is called
@@ -303,8 +303,9 @@ else
 fi
 
 # Verify _cleanup calls _restore_terminal by checking the source
-if grep -A20 "_cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -q "_restore_terminal"; then
-    pass "_cleanup calls _restore_terminal (AC-1.3)"
+# Use -A30 to capture the full _cleanup function body
+if grep -A30 "^    _cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -q "_restore_terminal"; then
+    pass "_cleanup calls _restore_terminal"
 else
     fail "_cleanup -> _restore_terminal" "Call chain not found"
 fi
@@ -323,6 +324,172 @@ else
 fi
 
 # ========================================
+# Test 6: Verify SIGINT (Ctrl+C) triggers cleanup - bash
+# ========================================
+echo ""
+echo "Test 6: SIGINT triggers cleanup in bash"
+echo ""
+
+cat > test_sigint_bash.sh << 'TESTSCRIPT'
+#!/bin/bash
+# Test that SIGINT triggers cleanup in bash mode
+
+cleanup_done=false
+cleanup_triggered=false
+
+_cleanup() {
+    [[ "$cleanup_done" == "true" ]] && return
+    cleanup_done=true
+    cleanup_triggered=true
+    echo "CLEANUP_BY_SIGINT"
+}
+
+# Set up trap like humanize.sh does
+trap '_cleanup' INT TERM
+
+# Send SIGINT to self after a brief moment
+(
+    sleep 0.1
+    kill -INT $$
+) &
+child_pid=$!
+
+# Wait for signal (up to 1 second)
+for i in {1..10}; do
+    sleep 0.1
+    if [[ "$cleanup_triggered" == "true" ]]; then
+        break
+    fi
+done
+
+# Cleanup the background job if still running
+kill $child_pid 2>/dev/null || true
+wait $child_pid 2>/dev/null || true
+
+if [[ "$cleanup_triggered" == "true" ]]; then
+    echo "SIGINT_HANDLED"
+fi
+TESTSCRIPT
+
+chmod +x test_sigint_bash.sh
+output=$(./test_sigint_bash.sh 2>&1)
+
+if echo "$output" | grep -q "CLEANUP_BY_SIGINT"; then
+    pass "SIGINT triggers _cleanup in bash"
+else
+    fail "SIGINT in bash" "Cleanup not triggered"
+fi
+
+# ========================================
+# Test 7: Verify signal handlers are set up for bash
+# ========================================
+echo ""
+echo "Test 7: Signal handler setup verification (bash)"
+echo ""
+
+# Check that trap '_cleanup' INT TERM is in the source for bash
+if grep -E "trap '_cleanup' INT TERM" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Bash trap for INT TERM is set up"
+else
+    fail "Bash trap setup" "trap '_cleanup' INT TERM not found"
+fi
+
+# Check that zsh TRAPINT is defined
+if grep -E "TRAPINT\(\)" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Zsh TRAPINT function is defined"
+else
+    fail "Zsh TRAPINT" "TRAPINT() not found"
+fi
+
+# Check that zsh TRAPTERM is defined
+if grep -E "TRAPTERM\(\)" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Zsh TRAPTERM function is defined"
+else
+    fail "Zsh TRAPTERM" "TRAPTERM() not found"
+fi
+
+# ========================================
+# Test 8: Verify cleanup resets traps to prevent re-triggering
+# ========================================
+echo ""
+echo "Test 8: Cleanup resets traps "
+echo ""
+
+# Check that cleanup resets traps
+if grep -A10 "_cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -E "trap - INT TERM" >/dev/null; then
+    pass "_cleanup resets traps to prevent re-triggering"
+else
+    fail "Trap reset in cleanup" "trap - INT TERM not found in _cleanup"
+fi
+
+# ========================================
+# Test 9: Real zsh SIGINT test
+# ========================================
+echo ""
+echo "Test 9: Real zsh SIGINT test"
+echo ""
+
+# Only run if zsh is available
+if command -v zsh &>/dev/null; then
+    cat > test_sigint_zsh.zsh << 'TESTSCRIPT'
+#!/usr/bin/env zsh
+# Test that SIGINT triggers cleanup in zsh mode using TRAPINT
+
+cleanup_done=false
+cleanup_triggered=false
+
+# zsh uses TRAPINT function for INT handling
+TRAPINT() {
+    [[ "$cleanup_done" == "true" ]] && return 130
+    cleanup_done=true
+    cleanup_triggered=true
+    echo "CLEANUP_BY_SIGINT_ZSH"
+    return 130
+}
+
+# Send SIGINT to self after a brief moment
+(
+    sleep 0.1
+    kill -INT $$
+) &
+child_pid=$!
+
+# Wait for signal (up to 1 second)
+for i in {1..10}; do
+    sleep 0.1
+    if [[ "$cleanup_triggered" == "true" ]]; then
+        break
+    fi
+done
+
+# Cleanup the background job if still running
+kill $child_pid 2>/dev/null || true
+wait $child_pid 2>/dev/null || true
+
+if [[ "$cleanup_triggered" == "true" ]]; then
+    echo "ZSH_SIGINT_HANDLED"
+fi
+TESTSCRIPT
+
+    chmod +x test_sigint_zsh.zsh
+    # Run in subshell to prevent SIGINT propagation to parent
+    output=$(bash -c 'trap "" INT; zsh test_sigint_zsh.zsh 2>&1' || true)
+
+    if echo "$output" | grep -q "CLEANUP_BY_SIGINT_ZSH"; then
+        pass "SIGINT triggers TRAPINT cleanup in zsh"
+    else
+        # zsh might handle signals differently, check if it at least ran
+        if echo "$output" | grep -q "ZSH_SIGINT_HANDLED"; then
+            pass "SIGINT triggers TRAPINT cleanup in zsh"
+        else
+            fail "SIGINT in zsh" "TRAPINT cleanup not triggered: $output"
+        fi
+    fi
+else
+    echo "SKIP: zsh not available for runtime test"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""
@@ -336,8 +503,8 @@ if [[ $TESTS_FAILED -eq 0 ]]; then
     echo ""
     echo -e "${GREEN}All runtime verification tests passed!${NC}"
     echo ""
-    echo "AC-1.1 Verified: Clean exit with user-friendly message"
-    echo "AC-1.3 Verified: Terminal state properly restored via _cleanup -> _restore_terminal"
+    echo "Verified: Clean exit with user-friendly message"
+    echo "Verified: Terminal state properly restored via _cleanup -> _restore_terminal"
     exit 0
 else
     echo ""

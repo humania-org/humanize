@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for path validation (AC-4)
+# Robustness tests for path validation
 #
 # Tests production path validation in scripts/setup-rlcr-loop.sh by:
 # - Creating test plan files with various path structures
@@ -44,7 +44,7 @@ EOF
 }
 
 echo "========================================"
-echo "Path Validation Robustness Tests (AC-4)"
+echo "Path Validation Robustness Tests"
 echo "========================================"
 echo ""
 
@@ -58,6 +58,9 @@ test_path_validation() {
     local plan_path="$1"
     local result
     local exit_code
+
+    # Clean up any existing RLCR loop in TEST_DIR to avoid "loop already active" errors
+    rm -rf "$TEST_DIR/.humanize/rlcr" 2>/dev/null || true
 
     # Run the production script (will fail after path validation
     # because codex isn't available, but we capture validation errors)

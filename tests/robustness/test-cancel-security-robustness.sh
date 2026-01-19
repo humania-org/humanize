@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Robustness tests for cancel operation security (AC-10)
+# Robustness tests for cancel operation security
 #
 # Tests cancel authorization and path bypass prevention:
 # - Signal file validation
@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/../test-helpers.sh"
 setup_test_dir
 
 echo "========================================"
-echo "Cancel Security Robustness Tests (AC-10)"
+echo "Cancel Security Robustness Tests"
 echo "========================================"
 echo ""
 
