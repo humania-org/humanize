@@ -303,7 +303,8 @@ else
 fi
 
 # Verify _cleanup calls _restore_terminal by checking the source
-if grep -A20 "_cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -q "_restore_terminal"; then
+# Use -A30 to capture the full _cleanup function body
+if grep -A30 "^    _cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -q "_restore_terminal"; then
     pass "_cleanup calls _restore_terminal (AC-1.3)"
 else
     fail "_cleanup -> _restore_terminal" "Call chain not found"
@@ -320,6 +321,105 @@ if grep -A5 "_graceful_stop()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -q "_c
     pass "_graceful_stop calls _cleanup per R1.2"
 else
     fail "_graceful_stop -> _cleanup" "Call not found"
+fi
+
+# ========================================
+# Test 6: Verify SIGINT (Ctrl+C) triggers cleanup - bash
+# ========================================
+echo ""
+echo "Test 6: SIGINT triggers cleanup in bash"
+echo ""
+
+cat > test_sigint_bash.sh << 'TESTSCRIPT'
+#!/bin/bash
+# Test that SIGINT triggers cleanup in bash mode
+
+cleanup_done=false
+cleanup_triggered=false
+
+_cleanup() {
+    [[ "$cleanup_done" == "true" ]] && return
+    cleanup_done=true
+    cleanup_triggered=true
+    echo "CLEANUP_BY_SIGINT"
+}
+
+# Set up trap like humanize.sh does
+trap '_cleanup' INT TERM
+
+# Send SIGINT to self after a brief moment
+(
+    sleep 0.1
+    kill -INT $$
+) &
+child_pid=$!
+
+# Wait for signal (up to 1 second)
+for i in {1..10}; do
+    sleep 0.1
+    if [[ "$cleanup_triggered" == "true" ]]; then
+        break
+    fi
+done
+
+# Cleanup the background job if still running
+kill $child_pid 2>/dev/null || true
+wait $child_pid 2>/dev/null || true
+
+if [[ "$cleanup_triggered" == "true" ]]; then
+    echo "SIGINT_HANDLED"
+fi
+TESTSCRIPT
+
+chmod +x test_sigint_bash.sh
+output=$(./test_sigint_bash.sh 2>&1)
+
+if echo "$output" | grep -q "CLEANUP_BY_SIGINT"; then
+    pass "SIGINT triggers _cleanup in bash"
+else
+    fail "SIGINT in bash" "Cleanup not triggered"
+fi
+
+# ========================================
+# Test 7: Verify signal handlers are set up for bash
+# ========================================
+echo ""
+echo "Test 7: Signal handler setup verification (bash)"
+echo ""
+
+# Check that trap '_cleanup' INT TERM is in the source for bash
+if grep -E "trap '_cleanup' INT TERM" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Bash trap for INT TERM is set up"
+else
+    fail "Bash trap setup" "trap '_cleanup' INT TERM not found"
+fi
+
+# Check that zsh TRAPINT is defined
+if grep -E "TRAPINT\(\)" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Zsh TRAPINT function is defined"
+else
+    fail "Zsh TRAPINT" "TRAPINT() not found"
+fi
+
+# Check that zsh TRAPTERM is defined
+if grep -E "TRAPTERM\(\)" "$PROJECT_ROOT/scripts/humanize.sh" >/dev/null; then
+    pass "Zsh TRAPTERM function is defined"
+else
+    fail "Zsh TRAPTERM" "TRAPTERM() not found"
+fi
+
+# ========================================
+# Test 8: Verify cleanup resets traps to prevent re-triggering
+# ========================================
+echo ""
+echo "Test 8: Cleanup resets traps (AC-10 compliance)"
+echo ""
+
+# Check that cleanup resets traps
+if grep -A10 "_cleanup()" "$PROJECT_ROOT/scripts/humanize.sh" | grep -E "trap - INT TERM" >/dev/null; then
+    pass "_cleanup resets traps to prevent re-triggering"
+else
+    fail "Trap reset in cleanup" "trap - INT TERM not found in _cleanup"
 fi
 
 # ========================================

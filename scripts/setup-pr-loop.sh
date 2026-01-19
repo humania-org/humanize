@@ -431,29 +431,42 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         LAST_TRIGGER_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     fi
 
-    # If --claude is specified, verify eyes reaction
+    # If --claude is specified, verify eyes reaction (MANDATORY per plan)
     if [[ "$BOT_CLAUDE" == "true" ]]; then
         echo "Verifying Claude eyes reaction (3 attempts x 5 seconds)..." >&2
 
-        if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
-            # Check for eyes reaction with retry
-            if ! "$SCRIPT_DIR/check-bot-reactions.sh" claude-eyes "$TRIGGER_COMMENT_ID" --retry 3 --delay 5 >/dev/null 2>&1; then
-                echo "Error: Claude bot did not respond with eyes reaction" >&2
-                echo "" >&2
-                echo "This may indicate:" >&2
-                echo "  - Claude bot is not configured on this repository" >&2
-                echo "  - Network issues preventing Claude from seeing the mention" >&2
-                echo "" >&2
-                echo "Please verify Claude bot is set up correctly on this repository." >&2
+        if [[ -z "$TRIGGER_COMMENT_ID" ]]; then
+            # AC-9 FIX: Fail if trigger comment ID not found (can't verify eyes without it)
+            echo "Error: Could not find trigger comment ID for eyes verification" >&2
+            echo "" >&2
+            echo "The trigger comment was posted but its ID could not be retrieved." >&2
+            echo "This prevents verification of Claude's eyes reaction." >&2
+            echo "" >&2
+            echo "Please try:" >&2
+            echo "  1. Wait a moment and try again" >&2
+            echo "  2. Check GitHub rate limits" >&2
+            echo "  3. Verify the comment was posted successfully" >&2
 
-                # Clean up the loop directory since we're failing
-                rm -rf "$LOOP_DIR"
-                exit 1
-            fi
-            echo "Claude eyes reaction confirmed!" >&2
-        else
-            echo "Warning: Could not verify Claude eyes (comment ID not found)" >&2
+            # Clean up the loop directory since we're failing
+            rm -rf "$LOOP_DIR"
+            exit 1
         fi
+
+        # Check for eyes reaction with retry
+        if ! "$SCRIPT_DIR/check-bot-reactions.sh" claude-eyes "$TRIGGER_COMMENT_ID" --retry 3 --delay 5 >/dev/null 2>&1; then
+            echo "Error: Claude bot did not respond with eyes reaction" >&2
+            echo "" >&2
+            echo "This may indicate:" >&2
+            echo "  - Claude bot is not configured on this repository" >&2
+            echo "  - Network issues preventing Claude from seeing the mention" >&2
+            echo "" >&2
+            echo "Please verify Claude bot is set up correctly on this repository." >&2
+
+            # Clean up the loop directory since we're failing
+            rm -rf "$LOOP_DIR"
+            exit 1
+        fi
+        echo "Claude eyes reaction confirmed!" >&2
     fi
 fi
 

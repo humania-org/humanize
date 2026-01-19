@@ -1028,6 +1028,148 @@ EOF
 }
 
 # ========================================
+# Test: AC-12 Goal Tracker Partial Update Repair
+# ========================================
+
+test_goal_tracker_partial_update_repair() {
+    # Verify that update_pr_goal_tracker repairs partial updates
+    # (when only summary OR log exists, not both)
+
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+    # Test 1: Tracker with summary row but NO log entry
+    local tracker_file="$TEST_TEMP_DIR/goal-tracker-partial1.md"
+    cat > "$tracker_file" << 'EOF'
+# PR Review Goal Tracker
+
+## Issue Summary
+
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
+| 1     | Codex | 2            | 0               | Issues Found |
+
+## Total Statistics
+
+- Total Issues Found: 2
+- Total Issues Resolved: 0
+- Remaining: 2
+
+## Issue Log
+
+### Round 0
+*Awaiting initial reviews*
+EOF
+
+    # Update - should add log entry but not summary row (since summary exists)
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 2, "resolved": 0, "bot": "Codex"}'
+
+    # Should now have Round 1 in Issue Log
+    grep -q "### Round 1" "$tracker_file" || { echo "Log entry for Round 1 not added"; return 1; }
+
+    # Test 2: Tracker with log entry but NO summary row
+    local tracker_file2="$TEST_TEMP_DIR/goal-tracker-partial2.md"
+    cat > "$tracker_file2" << 'EOF'
+# PR Review Goal Tracker
+
+## Issue Summary
+
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
+
+## Total Statistics
+
+- Total Issues Found: 0
+- Total Issues Resolved: 0
+- Remaining: 0
+
+## Issue Log
+
+### Round 0
+*Awaiting initial reviews*
+
+### Round 1
+Codex: Found 2 issues, Resolved 0
+EOF
+
+    # Update - should add summary row but not log entry (since log exists)
+    update_pr_goal_tracker "$tracker_file2" 1 '{"issues": 2, "resolved": 0, "bot": "Codex"}'
+
+    # Should now have Round 1 in summary table
+    grep -qE '^\|[[:space:]]*1[[:space:]]*\|' "$tracker_file2" || { echo "Summary row for Round 1 not added"; return 1; }
+}
+
+# ========================================
+# Test: AC-2 Case 4 Emission (all commented + new commits)
+# ========================================
+
+test_case4_all_commented_new_commits() {
+    # Verify Case 4 is emitted when ALL reviewers commented and new commits after
+
+    # Fixture: All bots commented at 10:00, latest commit at 11:00
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T10:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T10:05:00Z","body":"LGTM","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+
+    # Mock commit at 11:00 (after reviews)
+    export MOCK_GH_LATEST_COMMIT_AT="2026-01-18T11:00:00Z"
+
+    local result
+    result=$("$PROJECT_ROOT/scripts/check-pr-reviewer-status.sh" 123 --bots "claude,codex" 2>/dev/null) || true
+
+    # Should return Case 4 (all commented, new commits)
+    local case_num
+    case_num=$(echo "$result" | jq -r '.case')
+    [[ "$case_num" == "4" ]] || { echo "Expected Case 4, got $case_num"; return 1; }
+
+    # has_commits_after_reviews should be true
+    local has_commits
+    has_commits=$(echo "$result" | jq -r '.has_commits_after_reviews')
+    [[ "$has_commits" == "true" ]] || { echo "Expected has_commits_after_reviews=true, got $has_commits"; return 1; }
+
+    # Cleanup mock
+    unset MOCK_GH_LATEST_COMMIT_AT
+}
+
+# ========================================
+# Test: AC-2 Case 5 Emission (partial + new commits)
+# ========================================
+
+test_case5_partial_commented_new_commits() {
+    # Verify Case 5 is emitted when SOME reviewers commented and new commits after
+
+    # Fixture: Only claude commented at 10:00, codex missing
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T10:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[]' > "$FIXTURES_DIR/pr-reviews.json"  # No codex
+
+    # Mock commit at 11:00 (after claude's review)
+    export MOCK_GH_LATEST_COMMIT_AT="2026-01-18T11:00:00Z"
+
+    local result
+    result=$("$PROJECT_ROOT/scripts/check-pr-reviewer-status.sh" 123 --bots "claude,codex" 2>/dev/null) || true
+
+    # Should return Case 5 (partial commented, new commits)
+    local case_num
+    case_num=$(echo "$result" | jq -r '.case')
+    [[ "$case_num" == "5" ]] || { echo "Expected Case 5, got $case_num"; return 1; }
+
+    # has_commits_after_reviews should be true
+    local has_commits
+    has_commits=$(echo "$result" | jq -r '.has_commits_after_reviews')
+    [[ "$has_commits" == "true" ]] || { echo "Expected has_commits_after_reviews=true, got $has_commits"; return 1; }
+
+    # Cleanup mock
+    unset MOCK_GH_LATEST_COMMIT_AT
+
+    # Restore original fixtures
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM! Code looks good.","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -1131,6 +1273,15 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_table" ]]; then
         run_test "AC-12: Goal tracker row inserted inside table" test_goal_tracker_row_inside_table
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_partial" ]]; then
+        run_test "AC-12: Goal tracker partial update repair" test_goal_tracker_partial_update_repair
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "case_4_5" ]]; then
+        run_test "AC-2: Case 4 emission (all commented + new commits)" test_case4_all_commented_new_commits
+        run_test "AC-2: Case 5 emission (partial + new commits)" test_case5_partial_commented_new_commits
     fi
 
     echo ""

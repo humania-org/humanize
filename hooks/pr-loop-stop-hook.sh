@@ -339,17 +339,19 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
             # AC-4 FIX: Preserve OLD commit SHA before updating state
             OLD_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
 
-            # Update state file with new commit SHA and clear last_trigger_at
-            # This prevents re-blocking on subsequent attempts after trigger is posted
+            # Update state file with new commit SHA and clear trigger state
+            # Clear BOTH last_trigger_at AND trigger_comment_id to prevent stale eyes checks
             TEMP_FILE="${STATE_FILE}.forcepush.$$"
             sed -e "s/^latest_commit_sha:.*/latest_commit_sha: $CURRENT_HEAD/" \
                 -e "s/^last_trigger_at:.*/last_trigger_at:/" \
+                -e "s/^trigger_comment_id:.*/trigger_comment_id:/" \
                 "$STATE_FILE" > "$TEMP_FILE"
             mv "$TEMP_FILE" "$STATE_FILE"
 
             # Update local variables to reflect the change
             PR_LATEST_COMMIT_SHA="$CURRENT_HEAD"
             PR_LAST_TRIGGER_AT=""
+            PR_TRIGGER_COMMENT_ID=""
 
             FALLBACK_MSG="# Step 6.5: Force Push Detected
 

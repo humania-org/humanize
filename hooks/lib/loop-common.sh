@@ -950,17 +950,32 @@ update_pr_goal_tracker() {
         return 1
     fi
 
-    # IDEMPOTENCY CHECK: Skip if this round already has an entry in Issue Summary or Issue Log
-    # Check Issue Summary for existing row with this round number
+    # IDEMPOTENCY CHECK: Only skip if BOTH Issue Summary row AND Issue Log entry exist
+    # This allows partial updates to be repaired (if Codex only wrote one section)
+    local has_summary_row=false
+    local has_log_entry=false
+
     if grep -qE "^\|[[:space:]]*${round}[[:space:]]*\|" "$tracker_file" 2>/dev/null; then
-        echo "Goal tracker: Round $round already has Issue Summary entry, skipping update" >&2
+        has_summary_row=true
+    fi
+
+    if grep -qE "^### Round ${round}$" "$tracker_file" 2>/dev/null; then
+        has_log_entry=true
+    fi
+
+    if [[ "$has_summary_row" == "true" && "$has_log_entry" == "true" ]]; then
+        echo "Goal tracker: Round $round already has both Issue Summary and Issue Log entries, skipping update" >&2
         return 0
     fi
 
-    # Also check Issue Log for existing round entry
-    if grep -qE "^### Round ${round}$" "$tracker_file" 2>/dev/null; then
-        echo "Goal tracker: Round $round already has Issue Log entry, skipping update" >&2
-        return 0
+    # Track what we need to add (for partial updates)
+    local need_summary_row=true
+    local need_log_entry=true
+    [[ "$has_summary_row" == "true" ]] && need_summary_row=false
+    [[ "$has_log_entry" == "true" ]] && need_log_entry=false
+
+    if [[ "$has_summary_row" == "true" || "$has_log_entry" == "true" ]]; then
+        echo "Goal tracker: Round $round has partial update (summary=$has_summary_row, log=$has_log_entry), completing..." >&2
     fi
 
     # Extract current totals
@@ -1001,56 +1016,61 @@ update_pr_goal_tracker() {
     # Create temp file for updates
     local temp_file="${tracker_file}.update.$$"
 
-    # Step 1: Update Total Statistics
-    sed -e "s/^- Total Issues Found:.*/- Total Issues Found: $total_found/" \
-        -e "s/^- Total Issues Resolved:.*/- Total Issues Resolved: $total_resolved/" \
-        -e "s/^- Remaining:.*/- Remaining: $remaining/" \
-        "$tracker_file" > "$temp_file"
+    # Step 1: Update Total Statistics (only if we're adding to totals)
+    # Only update totals if we're adding a new summary row (to avoid double-counting)
+    if [[ "$need_summary_row" == "true" ]]; then
+        sed -e "s/^- Total Issues Found:.*/- Total Issues Found: $total_found/" \
+            -e "s/^- Total Issues Resolved:.*/- Total Issues Resolved: $total_resolved/" \
+            -e "s/^- Remaining:.*/- Remaining: $remaining/" \
+            "$tracker_file" > "$temp_file"
+    else
+        cp "$tracker_file" "$temp_file"
+    fi
 
-    # Step 2: Add row to Issue Summary table
-    # AC-12 FIX: Insert row INSIDE the table (after last table row, before blank line)
-    # The table ends with a blank line before "## Total Statistics"
-    local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
+    # Step 2: Add row to Issue Summary table (only if needed)
+    if [[ "$need_summary_row" == "true" ]]; then
+        # AC-12 FIX: Insert row INSIDE the table (after last table row, before blank line)
+        local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
 
-    # Use awk to find the last row of the Issue Summary table and insert after it
-    # Logic: Track when we're in the Issue Summary section, find last pipe row, insert after
-    awk -v row="$new_row" '
-        BEGIN { in_table = 0; last_row_printed = 0 }
-        /^## Issue Summary/ { in_table = 1 }
-        /^## Total Statistics/ { in_table = 0 }
-        {
-            # If we hit Total Statistics and havent printed the new row yet, print it first
-            if (/^## Total Statistics/ && !last_row_printed) {
-                print row
-                print ""
-                last_row_printed = 1
+        # Use awk to find the last row of the Issue Summary table and insert after it
+        awk -v row="$new_row" '
+            BEGIN { in_table = 0; last_row_printed = 0 }
+            /^## Issue Summary/ { in_table = 1 }
+            /^## Total Statistics/ { in_table = 0 }
+            {
+                # If we hit Total Statistics and havent printed the new row yet, print it first
+                if (/^## Total Statistics/ && !last_row_printed) {
+                    print row
+                    print ""
+                    last_row_printed = 1
+                }
+                # If in table and this is a table row (starts with |), store it
+                if (in_table && /^\|/) {
+                    last_table_line = NR
+                }
+                # If in table and this is a blank line after table rows, insert new row
+                if (in_table && /^[[:space:]]*$/ && last_table_line > 0 && !last_row_printed) {
+                    print row
+                    last_row_printed = 1
+                }
+                print
             }
-            # If in table and this is a table row (starts with |), store it
-            if (in_table && /^\|/) {
-                last_table_line = NR
-            }
-            # If in table and this is a blank line after table rows, insert new row
-            if (in_table && /^[[:space:]]*$/ && last_table_line > 0 && !last_row_printed) {
-                print row
-                last_row_printed = 1
-            }
-            print
-        }
-    ' "$temp_file" > "${temp_file}.2"
-    mv "${temp_file}.2" "$temp_file"
+        ' "$temp_file" > "${temp_file}.2"
+        mv "${temp_file}.2" "$temp_file"
+    fi
 
-    # Step 3: Add Issue Log entry for this round
-    # Insert before the end of file
-    local timestamp
-    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local log_entry="### Round $round
+    # Step 3: Add Issue Log entry for this round (only if needed)
+    if [[ "$need_log_entry" == "true" ]]; then
+        local timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        local log_entry="### Round $round
 $reviewer: Found $new_issues issues, Resolved $new_resolved
 Updated: $timestamp
 "
-
-    # Append to Issue Log section
-    echo "" >> "$temp_file"
-    echo "$log_entry" >> "$temp_file"
+        # Append to Issue Log section
+        echo "" >> "$temp_file"
+        echo "$log_entry" >> "$temp_file"
+    fi
 
     mv "$temp_file" "$tracker_file"
     echo "Goal tracker updated: Round $round, Reviewer=$reviewer, Found=$new_issues, Resolved=$new_resolved" >&2

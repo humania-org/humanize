@@ -18,6 +18,7 @@ MOCK_GH_FIXTURES_DIR="${MOCK_GH_FIXTURES_DIR:-$(dirname "$0")/../fixtures}"
 MOCK_GH_PR_STATE="${MOCK_GH_PR_STATE:-OPEN}"
 MOCK_GH_PR_NUMBER="${MOCK_GH_PR_NUMBER:-123}"
 MOCK_GH_HEAD_SHA="${MOCK_GH_HEAD_SHA:-abc123def456}"
+MOCK_GH_LATEST_COMMIT_AT="${MOCK_GH_LATEST_COMMIT_AT:-2026-01-18T10:00:00Z}"
 
 # Parse command
 COMMAND="${1:-}"
@@ -53,9 +54,9 @@ case "$COMMAND" in
                 if [[ "${FIELDS:-}" == "state" ]]; then
                     echo "{\"state\": \"$MOCK_GH_PR_STATE\"}" | jq -r "${JQ_EXPR:-.}"
                 elif [[ "${FIELDS:-}" == "headRefOid,commits" ]]; then
-                    echo "{\"headRefOid\": \"$MOCK_GH_HEAD_SHA\", \"commits\": [{\"committedDate\": \"2026-01-18T10:00:00Z\"}]}" | jq -r "${JQ_EXPR:-.}"
+                    echo "{\"headRefOid\": \"$MOCK_GH_HEAD_SHA\", \"commits\": [{\"committedDate\": \"$MOCK_GH_LATEST_COMMIT_AT\"}]}" | jq -r "${JQ_EXPR:-.}"
                 elif [[ "${FIELDS:-}" == "commits" ]]; then
-                    echo "{\"commits\": [{\"committedDate\": \"2026-01-18T10:00:00Z\"}]}" | jq -r "${JQ_EXPR:-.}"
+                    echo "{\"commits\": [{\"committedDate\": \"$MOCK_GH_LATEST_COMMIT_AT\"}]}" | jq -r "${JQ_EXPR:-.}"
                 else
                     echo "{\"number\": $MOCK_GH_PR_NUMBER, \"state\": \"$MOCK_GH_PR_STATE\", \"headRefOid\": \"$MOCK_GH_HEAD_SHA\"}"
                 fi
