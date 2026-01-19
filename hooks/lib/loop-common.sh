@@ -918,3 +918,79 @@ end_loop() {
         return 1
     fi
 }
+
+# ========================================
+# PR Loop Goal Tracker Functions
+# ========================================
+
+# Update the PR goal tracker after Codex analysis
+# Usage: update_pr_goal_tracker "$GOAL_TRACKER_FILE" "$ROUND" "$BOT_RESULTS_JSON"
+#
+# Arguments:
+#   $1 - Path to goal-tracker.md
+#   $2 - Current round number
+#   $3 - JSON containing per-bot analysis results (optional)
+#        Format: {"bot": "status", "issues": N, "resolved": N}
+#
+# Updates:
+#   - Issue Summary table with new row
+#   - Total Statistics section
+#
+# Note: This is a helper function for the stop hook. The primary update
+# mechanism is through Codex prompt instructions, but this ensures
+# consistency when Codex doesn't update correctly.
+update_pr_goal_tracker() {
+    local tracker_file="$1"
+    local round="$2"
+    local bot_results="${3:-}"
+
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "Warning: Goal tracker not found: $tracker_file" >&2
+        return 1
+    fi
+
+    # Extract current totals
+    local current_found
+    current_found=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
+    current_found=${current_found:-0}
+
+    local current_resolved
+    current_resolved=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
+    current_resolved=${current_resolved:-0}
+
+    # Parse bot results if provided
+    local new_issues=0
+    local new_resolved=0
+    local reviewer="Codex"
+
+    if [[ -n "$bot_results" && "$bot_results" != "null" ]]; then
+        new_issues=$(echo "$bot_results" | jq -r '.issues // 0' 2>/dev/null || echo "0")
+        new_resolved=$(echo "$bot_results" | jq -r '.resolved // 0' 2>/dev/null || echo "0")
+        reviewer=$(echo "$bot_results" | jq -r '.bot // "Codex"' 2>/dev/null || echo "Codex")
+    fi
+
+    # Calculate new totals
+    local total_found=$((current_found + new_issues))
+    local total_resolved=$((current_resolved + new_resolved))
+    local remaining=$((total_found - total_resolved))
+
+    # Determine status
+    local status="In Progress"
+    if [[ $remaining -eq 0 && $total_found -gt 0 ]]; then
+        status="Resolved"
+    elif [[ $new_issues -gt 0 ]]; then
+        status="Issues Found"
+    fi
+
+    # Update the file using sed
+    # Update Total Statistics
+    local temp_file="${tracker_file}.update.$$"
+    sed -e "s/^- Total Issues Found:.*/- Total Issues Found: $total_found/" \
+        -e "s/^- Total Issues Resolved:.*/- Total Issues Resolved: $total_resolved/" \
+        -e "s/^- Remaining:.*/- Remaining: $remaining/" \
+        "$tracker_file" > "$temp_file"
+
+    mv "$temp_file" "$tracker_file"
+    echo "Goal tracker updated: Round $round, Found=$total_found, Resolved=$total_resolved, Remaining=$remaining" >&2
+    return 0
+}

@@ -574,9 +574,26 @@ if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
             EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$DETECTED_TRIGGER_COMMENT_ID" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
 
             if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
-                echo "Warning: Claude did not react with eyes to trigger comment" >&2
-                echo "This may indicate Claude bot is not monitoring this repository" >&2
-                # Continue anyway - this is a warning, not a blocker
+                # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
+                REASON="# Claude Bot Not Responding
+
+The Claude bot did not respond with an 'eyes' reaction to your trigger comment within 15 seconds (3 attempts x 5 seconds).
+
+This indicates that:
+- The Claude bot may not be installed on this repository
+- The bot may be experiencing issues
+- The trigger comment may not have been detected
+
+**To fix:**
+1. Verify the Claude bot is installed and configured for this repository
+2. Check the repository settings for bot permissions
+3. Try posting a new trigger comment
+
+If the bot is correctly configured, try exiting again to retry the eyes check."
+
+                jq -n --arg reason "$REASON" --arg msg "PR Loop: Claude bot not responding - check bot configuration" \
+                    '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+                exit 0
             else
                 echo "Claude eyes reaction confirmed!" >&2
             fi
@@ -587,12 +604,38 @@ if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
 fi
 
 # ========================================
-# Validate Trigger Comment Exists (Required for Rounds > 0)
+# Validate Trigger Comment Exists (Based on startup_case and round)
 # ========================================
 
-# For round 0, we use started_at. For subsequent rounds, we REQUIRE a trigger comment.
-# This prevents using stale timestamps that could include old bot comments.
-if [[ "$PR_CURRENT_ROUND" -gt 0 && -z "$PR_LAST_TRIGGER_AT" ]]; then
+# Trigger requirement logic:
+# - Round 0, startup_case 1: No trigger required (waiting for initial auto-reviews)
+# - Round 0, startup_case 2/3: No trigger required (process existing comments)
+# - Round 0, startup_case 4/5: Trigger required (new commits after reviews)
+# - Round > 0: Always require trigger
+
+REQUIRE_TRIGGER=false
+if [[ "$PR_CURRENT_ROUND" -gt 0 ]]; then
+    # Subsequent rounds always require a trigger
+    REQUIRE_TRIGGER=true
+elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
+    case "${PR_STARTUP_CASE:-1}" in
+        1|2|3)
+            # Case 1: No comments yet - wait for initial auto-reviews
+            # Case 2/3: Comments exist - process them without requiring new trigger
+            REQUIRE_TRIGGER=false
+            ;;
+        4|5)
+            # Case 4/5: All commented but new commits pushed - require re-trigger
+            REQUIRE_TRIGGER=true
+            ;;
+        *)
+            # Unknown case, default to not requiring trigger
+            REQUIRE_TRIGGER=false
+            ;;
+    esac
+fi
+
+if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
     REASON="# Missing Trigger Comment
 
 No @bot mention comment found from you on this PR.
@@ -626,17 +669,37 @@ POLL_SCRIPT="$PLUGIN_ROOT/scripts/poll-pr-reviews.sh"
 # Consistent file naming: round-N files all refer to round N
 COMMENT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-pr-comment.md"
 
-# Get timestamp for filtering - ALWAYS prefer last_trigger_at when available
-# This ensures we use the most accurate timestamp regardless of round number
-# Fallback to started_at ONLY for round 0 when no trigger comment exists yet
+# Get timestamp for filtering based on startup_case and round
+# - With trigger: use trigger timestamp (most accurate)
+# - Round 0, Case 1: use started_at (waiting for new auto-reviews)
+# - Round 0, Case 2/3: use epoch 0 to collect ALL existing comments
+# - Round 0, Case 4/5: should have trigger (blocked above if missing)
+AFTER_TIMESTAMP=""
+USE_ALL_COMMENTS=false
+
 if [[ -n "$PR_LAST_TRIGGER_AT" ]]; then
-    # Always use trigger timestamp when available (including round 0)
+    # Always use trigger timestamp when available
     AFTER_TIMESTAMP="$PR_LAST_TRIGGER_AT"
     echo "Round $PR_CURRENT_ROUND: using trigger timestamp for --after: $AFTER_TIMESTAMP" >&2
 elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
-    # Round 0 fallback: use started_at if no trigger comment detected yet
-    AFTER_TIMESTAMP="${PR_STARTED_AT}"
-    echo "Round 0: using started_at for --after (no trigger yet): $AFTER_TIMESTAMP" >&2
+    case "${PR_STARTUP_CASE:-1}" in
+        1)
+            # Case 1: No comments yet - filter by started_at to wait for new reviews
+            AFTER_TIMESTAMP="${PR_STARTED_AT}"
+            echo "Round 0, Case 1: using started_at for --after: $AFTER_TIMESTAMP" >&2
+            ;;
+        2|3)
+            # Case 2/3: Existing comments - collect ALL of them (no timestamp filter)
+            USE_ALL_COMMENTS=true
+            AFTER_TIMESTAMP="1970-01-01T00:00:00Z"  # Epoch 0 to include all comments
+            echo "Round 0, Case ${PR_STARTUP_CASE}: collecting ALL existing bot comments" >&2
+            ;;
+        *)
+            # Case 4/5 should have been blocked above, use started_at as fallback
+            AFTER_TIMESTAMP="${PR_STARTED_AT}"
+            echo "Round 0, Case ${PR_STARTUP_CASE}: using started_at for --after: $AFTER_TIMESTAMP" >&2
+            ;;
+    esac
 else
     # Round N>0 with no trigger - this should have been blocked earlier
     # but handle defensively by blocking here too
@@ -759,6 +822,56 @@ while true; do
             fi
         done
     done
+
+    # AC-8: Check for Codex +1 reaction during polling (Round 0, startup_case=1 only)
+    # Codex may give +1 instead of commenting if no issues found on initial auto-review
+    if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 && "${BOTS_RESPONDED[codex]:-}" != "true" ]]; then
+        # Check if codex is a configured bot
+        CODEX_CONFIGURED=false
+        for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+            [[ "$bot" == "codex" ]] && CODEX_CONFIGURED=true && break
+        done
+
+        if [[ "$CODEX_CONFIGURED" == "true" ]]; then
+            # Check for +1 reaction
+            THUMBSUP_RESULT=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$PR_STARTED_AT" 2>/dev/null) || THUMBSUP_RESULT=""
+
+            if [[ -n "$THUMBSUP_RESULT" && "$THUMBSUP_RESULT" != "null" ]]; then
+                # +1 found - codex approved without issues
+                echo "Codex +1 reaction detected during polling - treating as approval!" >&2
+                BOTS_RESPONDED["codex"]="true"
+
+                # Remove codex from active_bots
+                declare -a NEW_ACTIVE_BOTS_THUMBSUP=()
+                for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+                    if [[ "$bot" != "codex" ]]; then
+                        NEW_ACTIVE_BOTS_THUMBSUP+=("$bot")
+                    else
+                        echo "Removing 'codex' from active_bots (approved via +1)" >&2
+                    fi
+                done
+                PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_THUMBSUP[@]}")
+
+                # Update active_bots in state file
+                if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
+                    echo "All bots have approved (codex via +1) - PR loop complete!" >&2
+                    mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+                    exit 0
+                else
+                    # Update state file with remaining bots
+                    ACTIVE_BOTS_YAML=""
+                    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+                        ACTIVE_BOTS_YAML="${ACTIVE_BOTS_YAML}  - ${bot}\n"
+                    done
+                    TEMP_FILE="${STATE_FILE}.thumbsup.$$"
+                    sed '/^active_bots:$/,/^[a-z_]*:/{/^active_bots:$/!{/^[a-z_]*:/!d}}' "$STATE_FILE" > "$TEMP_FILE"
+                    sed -i "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" 2>/dev/null || \
+                        sed "s/^active_bots:$/active_bots:\n${ACTIVE_BOTS_YAML%\\n}/" "$TEMP_FILE" > "${TEMP_FILE}.new" && mv "${TEMP_FILE}.new" "$TEMP_FILE"
+                    mv "$TEMP_FILE" "$STATE_FILE"
+                fi
+            fi
+        fi
+    fi
 
     # Collect new comments WITH DEDUPLICATION by comment id
     NEW_COMMENTS=$(echo "$POLL_RESULT" | jq -r '.comments' 2>/dev/null || echo "[]")

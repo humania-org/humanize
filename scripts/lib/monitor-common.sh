@@ -428,3 +428,38 @@ parse_goal_tracker() {
 
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
 }
+
+# Parse PR goal-tracker.md for issue statistics
+# Returns: total_issues|resolved_issues|remaining_issues|last_reviewer
+# Usage: humanize_parse_pr_goal_tracker "/path/to/goal-tracker.md"
+humanize_parse_pr_goal_tracker() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "0|0|0|none"
+        return
+    fi
+
+    # Extract from Total Statistics section
+    # Format: - Total Issues Found: N
+    local total_issues
+    total_issues=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
+    total_issues=${total_issues:-0}
+
+    local resolved_issues
+    resolved_issues=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
+    resolved_issues=${resolved_issues:-0}
+
+    local remaining_issues
+    remaining_issues=$(grep -E "^- Remaining:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
+    remaining_issues=${remaining_issues:-0}
+
+    # Get last reviewer from Issue Summary table (last row, Reviewer column)
+    # Table format: | ID | Reviewer | Round | Status | Description |
+    # Pattern matches rows like "|1|..." or "| 1 |..." (with or without spaces)
+    local last_reviewer
+    last_reviewer=$(sed -n '/## Issue Summary/,/^##/p' "$tracker_file" \
+        | grep -E '^\|[[:space:]]*[0-9]+' | tail -1 | cut -d'|' -f3 | tr -d ' ')
+    last_reviewer=${last_reviewer:-none}
+
+    echo "${total_issues}|${resolved_issues}|${remaining_issues}|${last_reviewer}"
+}

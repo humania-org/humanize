@@ -3,10 +3,10 @@
 # Part of rc.d configuration
 # Compatible with both bash and zsh
 
-# Source shared monitor utilities
+# Source shared monitor utilities (per plan: scripts/lib/monitor-common.sh)
 HUMANIZE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-if [[ -f "$HUMANIZE_SCRIPT_DIR/monitor-common.sh" ]]; then
-    source "$HUMANIZE_SCRIPT_DIR/monitor-common.sh"
+if [[ -f "$HUMANIZE_SCRIPT_DIR/lib/monitor-common.sh" ]]; then
+    source "$HUMANIZE_SCRIPT_DIR/lib/monitor-common.sh"
 fi
 
 # ========================================
@@ -1046,9 +1046,10 @@ _humanize_monitor_pr() {
         if [[ -f "$session_dir/state.md" ]]; then
             state_file="$session_dir/state.md"
             loop_status="active"
-        elif [[ -f "$session_dir/complete-state.md" ]]; then
-            state_file="$session_dir/complete-state.md"
-            loop_status="completed"
+        elif [[ -f "$session_dir/approve-state.md" ]]; then
+            # PR loop uses approve-state.md for completion (per design decision)
+            state_file="$session_dir/approve-state.md"
+            loop_status="approved"
         elif [[ -f "$session_dir/cancel-state.md" ]]; then
             state_file="$session_dir/cancel-state.md"
             loop_status="cancelled"
@@ -1153,7 +1154,7 @@ _humanize_monitor_pr() {
             # Fallback to loop_status if phase detection not available
             case "$loop_status" in
                 active) status_color="${green}" ;;
-                completed) status_color="${cyan}" ;;
+                approved|completed) status_color="${cyan}" ;;
                 cancelled) status_color="${yellow}" ;;
                 max-iterations) status_color="${red}" ;;
                 *) status_color="${dim}" ;;

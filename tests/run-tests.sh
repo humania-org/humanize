@@ -253,8 +253,8 @@ test_reviewer_status_includes_pr_reviews() {
 # ========================================
 
 test_phase_detection_approved() {
-    # Source monitor-common.sh
-    source "$PROJECT_ROOT/scripts/monitor-common.sh"
+    # Source monitor-common.sh (located in scripts/lib/)
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
 
     # Create a fake session dir with approve-state.md
     local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -269,7 +269,7 @@ test_phase_detection_approved() {
 
 test_phase_detection_waiting_initial() {
     # Source monitor-common.sh
-    source "$PROJECT_ROOT/scripts/monitor-common.sh"
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
 
     # Create a fake session dir with state.md at round 0 and startup_case 1
     local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -289,7 +289,7 @@ EOF
 
 test_phase_detection_waiting_reviewer() {
     # Source monitor-common.sh
-    source "$PROJECT_ROOT/scripts/monitor-common.sh"
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
 
     # Create a fake session dir with state.md at round 1
     local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
@@ -313,7 +313,7 @@ EOF
 
 test_goal_tracker_parsing() {
     # Source monitor-common.sh
-    source "$PROJECT_ROOT/scripts/monitor-common.sh"
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
 
     # Create a fake goal tracker file
     local tracker_file="$TEST_TEMP_DIR/goal-tracker.md"
@@ -370,6 +370,173 @@ EOF
 }
 
 # ========================================
+# Test: PR Goal Tracker Parsing - AC-13
+# ========================================
+
+test_pr_goal_tracker_parsing() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create a fake PR goal tracker file
+    local tracker_file="$TEST_TEMP_DIR/pr-goal-tracker.md"
+    cat > "$tracker_file" << 'EOF'
+# PR Goal Tracker
+
+## Total Statistics
+
+- Total Issues Found: 5
+- Total Issues Resolved: 3
+- Remaining: 2
+
+## Issue Summary
+
+| ID | Reviewer | Round | Status | Description |
+|----|----------|-------|--------|-------------|
+| 1 | Claude | 0 | resolved | Issue one |
+| 2 | Claude | 0 | resolved | Issue two |
+| 3 | Codex | 1 | open | Issue three |
+| 4 | Codex | 1 | resolved | Issue four |
+| 5 | Claude | 2 | open | Issue five |
+
+EOF
+
+    local result
+    result=$(humanize_parse_pr_goal_tracker "$tracker_file")
+
+    # Should return: total_issues|resolved_issues|remaining_issues|last_reviewer
+    # Expected: 5|3|2|Claude
+
+    local total_issues resolved_issues remaining_issues last_reviewer
+    IFS='|' read -r total_issues resolved_issues remaining_issues last_reviewer <<< "$result"
+
+    [[ "$total_issues" == "5" ]] || { echo "Expected total_issues=5, got $total_issues"; return 1; }
+    [[ "$resolved_issues" == "3" ]] || { echo "Expected resolved_issues=3, got $resolved_issues"; return 1; }
+    [[ "$remaining_issues" == "2" ]] || { echo "Expected remaining_issues=2, got $remaining_issues"; return 1; }
+    [[ "$last_reviewer" == "Claude" ]] || { echo "Expected last_reviewer=Claude, got $last_reviewer"; return 1; }
+}
+
+# ========================================
+# Test: State File Detection - AC-5
+# ========================================
+
+test_state_file_detection_active() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create active state
+    local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
+    mkdir -p "$session_dir"
+    echo "current_round: 0" > "$session_dir/state.md"
+
+    local result
+    result=$(monitor_find_state_file "$session_dir")
+
+    # Should return state.md with active status
+    echo "$result" | grep -q "state.md|active" || { echo "Expected active state, got $result"; return 1; }
+}
+
+test_state_file_detection_approve() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create approve state (no state.md, only approve-state.md)
+    local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
+    mkdir -p "$session_dir"
+    echo "approved" > "$session_dir/approve-state.md"
+
+    local result
+    result=$(monitor_find_state_file "$session_dir")
+
+    # Should return approve-state.md with approve status
+    echo "$result" | grep -q "approve-state.md|approve" || { echo "Expected approve state, got $result"; return 1; }
+}
+
+# ========================================
+# Test: Phase Detection - Cancelled
+# ========================================
+
+test_phase_detection_cancelled() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create a fake session dir with cancel-state.md
+    local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
+    mkdir -p "$session_dir"
+    touch "$session_dir/cancel-state.md"
+
+    local phase
+    phase=$(get_pr_loop_phase "$session_dir")
+
+    [[ "$phase" == "cancelled" ]] || { echo "Expected cancelled, got $phase"; return 1; }
+}
+
+test_phase_detection_maxiter() {
+    # Source monitor-common.sh
+    source "$PROJECT_ROOT/scripts/lib/monitor-common.sh"
+
+    # Create a fake session dir with maxiter-state.md
+    local session_dir="$TEST_TEMP_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
+    mkdir -p "$session_dir"
+    touch "$session_dir/maxiter-state.md"
+
+    local phase
+    phase=$(get_pr_loop_phase "$session_dir")
+
+    [[ "$phase" == "maxiter" ]] || { echo "Expected maxiter, got $phase"; return 1; }
+}
+
+# ========================================
+# Test: Startup Case Detection - AC-2
+# ========================================
+
+test_reviewer_status_case3_all_commented() {
+    # All bots have commented - should be case 3
+    echo '[{"id":1001,"user":{"login":"claude[bot]"},"created_at":"2026-01-18T11:00:00Z","body":"Issue found"}]' > "$FIXTURES_DIR/issue-comments.json"
+    echo '[]' > "$FIXTURES_DIR/review-comments.json"
+    echo '[{"id":4001,"user":{"login":"chatgpt-codex-connector[bot]"},"submitted_at":"2026-01-18T11:15:00Z","body":"LGTM","state":"APPROVED"}]' > "$FIXTURES_DIR/pr-reviews.json"
+
+    local result
+    result=$("$PROJECT_ROOT/scripts/check-pr-reviewer-status.sh" 123 --bots "claude,codex")
+
+    # Should return case 3 (all bots commented)
+    local test_passed=true
+    echo "$result" | jq -e '.case == 3' || test_passed=false
+
+    $test_passed
+}
+
+# ========================================
+# Test: update_pr_goal_tracker helper - AC-13
+# ========================================
+
+test_update_pr_goal_tracker() {
+    # Source loop-common.sh
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+    # Create a goal tracker file
+    local tracker_file="$TEST_TEMP_DIR/goal-tracker.md"
+    cat > "$tracker_file" << 'EOF'
+# PR Goal Tracker
+
+## Total Statistics
+
+- Total Issues Found: 2
+- Total Issues Resolved: 1
+- Remaining: 1
+
+## Issue Summary
+EOF
+
+    # Update with new bot results (JSON format: issues=new found, resolved=new resolved)
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 3, "resolved": 2, "bot": "Codex"}'
+
+    # Verify update - should add 3 found, 2 resolved (new totals: 5 found, 3 resolved, 2 remaining)
+    grep -q "Total Issues Found: 5" "$tracker_file" || { echo "Expected 5 total found"; return 1; }
+    grep -q "Total Issues Resolved: 3" "$tracker_file" || { echo "Expected 3 total resolved"; return 1; }
+    grep -q "Remaining: 2" "$tracker_file" || { echo "Expected 2 remaining"; return 1; }
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -414,6 +581,25 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "goal_tracker" ]]; then
         run_test "AC-12: Goal tracker parsing" test_goal_tracker_parsing
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "pr_goal_tracker" ]]; then
+        run_test "AC-13: PR goal tracker parsing" test_pr_goal_tracker_parsing
+        run_test "AC-13: update_pr_goal_tracker helper" test_update_pr_goal_tracker
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "state_file" ]]; then
+        run_test "AC-5: State file detection - active" test_state_file_detection_active
+        run_test "AC-5: State file detection - approve" test_state_file_detection_approve
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "phase_extended" ]]; then
+        run_test "AC-11: Phase detection - cancelled" test_phase_detection_cancelled
+        run_test "AC-11: Phase detection - maxiter" test_phase_detection_maxiter
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "reviewer_status_extended" ]]; then
+        run_test "AC-2: Reviewer status - Case 3 (all commented)" test_reviewer_status_case3_all_commented
     fi
 
     echo ""
