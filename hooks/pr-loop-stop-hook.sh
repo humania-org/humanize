@@ -1074,33 +1074,32 @@ COMMENT_COUNT=$(echo "$ALL_NEW_COMMENTS" | jq 'length' 2>/dev/null || echo "0")
 if [[ "$COMMENT_COUNT" == "0" ]]; then
     echo "No new bot reviews received." >&2
 
-    # Check if any bots timed out - they should be auto-removed from active_bots
+    # AC-6: Always remove timed-out bots from active_bots (per-bot timeout behavior)
+    # Don't wait for ALL bots to timeout - remove each bot as it times out
     TIMED_OUT_COUNT=0
     WAITING_COUNT=0
+    declare -a NEW_ACTIVE_BOTS_TIMEOUT=()
+
     for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
         if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" == "true" ]]; then
             TIMED_OUT_COUNT=$((TIMED_OUT_COUNT + 1))
+            echo "Removing '$bot' from active_bots (timed out after ${PR_POLL_TIMEOUT}s)" >&2
+            # Don't add to NEW_ACTIVE_BOTS_TIMEOUT
         elif [[ "$(_map_get BOTS_RESPONDED "$bot")" != "true" ]]; then
             WAITING_COUNT=$((WAITING_COUNT + 1))
+            NEW_ACTIVE_BOTS_TIMEOUT+=("$bot")
+        else
+            # Bot responded - keep in active (will be processed if comments come in)
+            NEW_ACTIVE_BOTS_TIMEOUT+=("$bot")
         fi
     done
 
-    # If all active bots have timed out, remove them and complete
-    if [[ $TIMED_OUT_COUNT -gt 0 && $WAITING_COUNT -eq 0 ]]; then
-        echo "All remaining bots timed out - removing them and completing loop" >&2
-
-        # Build new active bots list without timed-out bots
-        declare -a NEW_ACTIVE_BOTS_TIMEOUT=()
-        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-            if [[ "$(_map_get BOTS_TIMED_OUT "$bot")" != "true" ]]; then
-                NEW_ACTIVE_BOTS_TIMEOUT+=("$bot")
-            else
-                echo "Removing '$bot' from active_bots (timed out)" >&2
-            fi
-        done
+    # If any bots timed out, update the state file with remaining active bots
+    if [[ $TIMED_OUT_COUNT -gt 0 ]]; then
+        PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_TIMEOUT[@]}")
 
         # If no bots remain, loop is complete
-        if [[ ${#NEW_ACTIVE_BOTS_TIMEOUT[@]} -eq 0 ]]; then
+        if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
             echo "All bots removed (timed out) - PR loop approved!" >&2
             # Build configured_bots YAML inline (CONFIGURED_BOTS_YAML not yet populated)
             TIMEOUT_CONFIGURED_BOTS_YAML=""
@@ -1134,13 +1133,30 @@ if [[ "$COMMENT_COUNT" == "0" ]]; then
             exit 0
         fi
 
-        # Update state with remaining bots (shouldn't happen, but handle gracefully)
-        PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_TIMEOUT[@]}")
+        # Persist updated active_bots to state file (some bots timed out, others still waiting)
+        echo "Updating state file with ${#PR_ACTIVE_BOTS_ARRAY[@]} remaining active bots" >&2
+        TIMEOUT_ACTIVE_BOTS_YAML=""
+        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+            TIMEOUT_ACTIVE_BOTS_YAML="${TIMEOUT_ACTIVE_BOTS_YAML}
+  - ${bot}"
+        done
+        TEMP_FILE="${STATE_FILE}.timeout.$$"
+        awk -v bots="$TIMEOUT_ACTIVE_BOTS_YAML" '
+            /^active_bots:$/ {
+                print "active_bots:" bots
+                skip = 1
+                next
+            }
+            skip && /^[a-z_]+:/ { skip = 0 }
+            skip && /^  - / { next }
+            !skip { print }
+        ' "$STATE_FILE" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$STATE_FILE"
     fi
 
-    # Build list of bots that didn't respond (check all configured bots)
+    # Build list of bots that didn't respond (only non-timed-out bots that are still waiting)
     MISSING_BOTS=""
-    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
         if [[ "$(_map_get BOTS_RESPONDED "$bot")" != "true" ]]; then
             if [[ -n "$MISSING_BOTS" ]]; then
                 MISSING_BOTS="${MISSING_BOTS}, ${bot}"
