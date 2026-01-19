@@ -119,6 +119,11 @@ fi
 # Parse State File (YAML list format for active_bots)
 # ========================================
 
+# Declare arrays outside function for macOS Bash 3.2 compatibility
+# (declare -g requires Bash 4.2+, which macOS doesn't have by default)
+PR_CONFIGURED_BOTS_ARRAY=()
+PR_ACTIVE_BOTS_ARRAY=()
+
 parse_pr_loop_state() {
     local state_file="$1"
 
@@ -145,13 +150,15 @@ parse_pr_loop_state() {
     # Parse configured_bots and active_bots as YAML lists
     # configured_bots: never changes, used for polling all bots (allows re-add)
     # active_bots: current bots with issues, shrinks as bots approve
-    declare -g -a PR_CONFIGURED_BOTS_ARRAY=()
-    declare -g -a PR_ACTIVE_BOTS_ARRAY=()
+    # Arrays are declared outside function for macOS Bash 3.2 compatibility
+    PR_CONFIGURED_BOTS_ARRAY=()
+    PR_ACTIVE_BOTS_ARRAY=()
 
     # Parse YAML list helper function
+    # NOTE: Avoids 'local -n' (nameref) which requires Bash 4.3+ and fails on macOS Bash 3.2
+    # Instead, outputs values to stdout and caller captures into array
     parse_yaml_list() {
         local field_name="$1"
-        local -n result_array="$2"
         local in_field=false
 
         while IFS= read -r line; do
@@ -161,7 +168,7 @@ parse_pr_loop_state() {
                 local inline_value="${line#*: }"
                 if [[ -n "$inline_value" && "$inline_value" != "${field_name}:" ]]; then
                     # Old comma-separated format for backwards compatibility
-                    IFS=',' read -ra result_array <<< "$inline_value"
+                    echo "$inline_value" | tr ',' '\n' | tr -d ' '
                     in_field=false
                 fi
                 continue
@@ -172,7 +179,7 @@ parse_pr_loop_state() {
                     local bot_name="${line#*- }"
                     bot_name=$(echo "$bot_name" | tr -d ' ')
                     if [[ -n "$bot_name" ]]; then
-                        result_array+=("$bot_name")
+                        echo "$bot_name"
                     fi
                 elif [[ "$line" =~ ^[a-zA-Z_] ]]; then
                     # New field started, stop parsing
@@ -182,8 +189,14 @@ parse_pr_loop_state() {
         done <<< "$STATE_FRONTMATTER"
     }
 
-    parse_yaml_list "configured_bots" PR_CONFIGURED_BOTS_ARRAY
-    parse_yaml_list "active_bots" PR_ACTIVE_BOTS_ARRAY
+    # Read parsed values into arrays (macOS Bash 3.2 compatible)
+    while IFS= read -r bot; do
+        [[ -n "$bot" ]] && PR_CONFIGURED_BOTS_ARRAY+=("$bot")
+    done < <(parse_yaml_list "configured_bots")
+
+    while IFS= read -r bot; do
+        [[ -n "$bot" ]] && PR_ACTIVE_BOTS_ARRAY+=("$bot")
+    done < <(parse_yaml_list "active_bots")
 
     # Backwards compatibility: if configured_bots is empty, use active_bots
     if [[ ${#PR_CONFIGURED_BOTS_ARRAY[@]} -eq 0 ]]; then
