@@ -148,6 +148,25 @@ This indicates the loop was started with an older version of humanize.
 fi
 
 # ========================================
+# Quick-check 0.1: Schema Validation (v1.5.0+ fields)
+# ========================================
+# Validate review_started field for v1.5.0+ state files
+
+if [[ -z "$REVIEW_STARTED" || ( "$REVIEW_STARTED" != "true" && "$REVIEW_STARTED" != "false" ) ]]; then
+    REASON="RLCR loop state file is missing or has invalid review_started field.
+
+This indicates the loop was started with an older version of humanize (pre-1.5.0).
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.5.0+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing review_started)" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
 # Quick-check 0.5: Branch Consistency
 # ========================================
 
@@ -754,8 +773,14 @@ else
 fi
 
 # ========================================
-# Run Codex Review
+# Run Codex Review (Implementation Phase Only)
 # ========================================
+# Skip the summary review when in review phase - review phase uses codex review instead
+
+if [[ "$REVIEW_STARTED" == "true" ]]; then
+    echo "In review phase - skipping codex exec summary review, will run codex review instead..." >&2
+    # Jump directly to Review Phase section below (after the COMPLETE/STOP handling)
+else
 
 # First, check if codex command exists
 if ! command -v codex &>/dev/null; then
@@ -993,6 +1018,9 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             mv "$TEMP_FILE" "$STATE_FILE"
             REVIEW_STARTED="true"
 
+            # Create marker file to validate review phase was properly entered (prevents manual toggle attacks)
+            touch "$LOOP_DIR/.review-phase-started"
+
             # Run codex review
             REVIEW_ROUND=$((CURRENT_ROUND + 1))
             CODE_REVIEW_PROMPT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-review-prompt.md"
@@ -1163,6 +1191,8 @@ Focus on the code changes made during this RLCR session.
     fi
 fi
 
+fi  # End of implementation phase codex exec block (skipped when review_started is true)
+
 # ========================================
 # Review Phase: Run Code Review (when review_started is true)
 # ========================================
@@ -1170,6 +1200,23 @@ fi
 # The loop continues until no [P0-9] patterns are found in the review output
 
 if [[ "$REVIEW_STARTED" == "true" && -n "$BASE_BRANCH" ]]; then
+    # Validate that review phase was properly entered (marker file must exist)
+    # This prevents manual toggle attacks where someone edits state.md directly
+    if [[ ! -f "$LOOP_DIR/.review-phase-started" ]]; then
+        REASON="Review phase state inconsistency detected.
+
+The state file indicates review_started=true, but no review phase marker exists.
+This can happen if the state file was manually edited.
+
+**To fix:**
+Reset the state by canceling and restarting the loop.
+
+Use \`/humanize:cancel-rlcr-loop\` to end this loop."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - invalid review phase state" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+
     echo "Review Phase: Running code review against base branch: $BASE_BRANCH..." >&2
 
     # Run codex review
@@ -1262,8 +1309,42 @@ Code review was skipped due to failure. Proceeding to finalize.
         cp "$CODEX_REVIEW_STDOUT_FILE" "$CODE_REVIEW_RESULT_FILE"
     fi
 
+    # Handle missing or empty review output as failure (skip to finalize with warning)
+    if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
+        echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
+
+        # Finalize phase entry
+        mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
+        echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
+
+        FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
+        FINALIZE_PROMPT_FALLBACK="# Finalize Phase
+
+Code review was skipped due to empty output. Proceeding to finalize.
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+        FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
+            "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
+            "PLAN_FILE=$PLAN_FILE" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
+
+        jq -n \
+            --arg reason "$FINALIZE_PROMPT" \
+            --arg msg "Loop: Finalize Phase - Code review empty" \
+            '{
+                "decision": "block",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
+
     # Check for issues using [P0-9] pattern
-    if [[ -f "$CODE_REVIEW_RESULT_FILE" ]] && grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
+    if grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
         # Issues found - continue review loop
         echo "Code review found issues. Continuing review loop..." >&2
 

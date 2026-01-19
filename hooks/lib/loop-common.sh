@@ -285,6 +285,10 @@ parse_state_file_strict() {
         echo "Error: Missing required field: max_iterations" >&2
         return 3
     fi
+    if [[ -z "$STATE_REVIEW_STARTED" ]]; then
+        echo "Error: Missing required field: review_started" >&2
+        return 3
+    fi
 
     # Validate current_round is numeric (including 0 and negative)
     if ! [[ "$STATE_CURRENT_ROUND" =~ ^-?[0-9]+$ ]]; then
@@ -298,9 +302,14 @@ parse_state_file_strict() {
         return 5
     fi
 
+    # Validate review_started is boolean
+    if [[ "$STATE_REVIEW_STARTED" != "true" && "$STATE_REVIEW_STARTED" != "false" ]]; then
+        echo "Error: Invalid review_started value (must be true or false): $STATE_REVIEW_STARTED" >&2
+        return 6
+    fi
+
     # Apply defaults for optional fields only
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
-    STATE_REVIEW_STARTED="${STATE_REVIEW_STARTED:-false}"
 
     return 0
 }

@@ -104,6 +104,8 @@ OPTIONS:
                          Timeout for each Codex review in seconds (default: 5400)
   --track-plan-file      Indicate plan file should be tracked in git (must be clean)
   --push-every-round     Require git push after each round (default: commits stay local)
+  --base-branch <BRANCH> Base branch for code review phase (default: auto-detect)
+                         Auto-detection priority: remote default > main > master
   -h, --help             Show help message
 ```
 
