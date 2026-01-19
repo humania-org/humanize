@@ -1334,6 +1334,7 @@ List bots that should be removed from active tracking (those with APPROVE status
 - If ALL bots have APPROVE status: End with "APPROVE" on its own line
 - If any bot has ISSUES status: End with "ISSUES_REMAINING" on its own line
 - If any bot has NO_RESPONSE status: End with "WAITING_FOR_BOTS" on its own line
+- If any bot response indicates usage/rate limits hit (e.g., "usage limits", "rate limit", "quota exceeded"): End with "USAGE_LIMIT_HIT" on its own line
 
 $GOAL_TRACKER_UPDATE_INSTRUCTIONS
 EOF
@@ -1435,6 +1436,17 @@ Some bots haven't posted their reviews yet.
 
     jq -n --arg reason "$REASON" --arg msg "PR Loop: Waiting for bot responses" \
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# Handle USAGE_LIMIT_HIT - terminate loop gracefully (service limitation, not code issue)
+if [[ "$LAST_LINE_TRIMMED" == "USAGE_LIMIT_HIT" ]]; then
+    echo "Bot usage/rate limits detected. Terminating PR loop." >&2
+
+    # Move state file to indicate usage limit termination
+    mv "$STATE_FILE" "$LOOP_DIR/usage-limit-state.md"
+
+    # Let exit proceed without blocking - the loop is over due to external limitation
     exit 0
 fi
 
