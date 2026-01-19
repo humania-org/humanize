@@ -109,6 +109,8 @@ Use the Task tool with `subagent_type: "Explore"` to investigate:
 
 ## Phase 4: Issue Resolution
 
+> **Critical**: The draft document contains the most valuable human input. During issue resolution, NEVER discard or override any original draft content. All clarifications should be treated as incremental additions that supplement the draft, not replacements. Keep track of both the original draft statements and the clarified information.
+
 ### Step 1: Resolve Analysis Issues
 
 If any issues are found during analysis, use AskUserQuestion to clarify with the user.
@@ -210,6 +212,13 @@ Example: "The implementation includes core feature X with basic validation"
    - Step 2: <...>
 
 <Describe relative dependencies between components, not time estimates>
+
+## Implementation Notes
+
+### Code Style Requirements
+- Implementation code and comments must NOT contain plan-specific terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers
+- These terms are for plan documentation only, not for the resulting codebase
+- Use descriptive, domain-appropriate naming in code instead
 ```
 
 ### Generation Rules
@@ -231,6 +240,10 @@ Example: "The implementation includes core feature X with basic validation"
 8. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
 
 9. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
+
+10. **Code Style Constraint**: The generated plan MUST include a section or note instructing that implementation code and comments should NOT contain plan-specific progress terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers. These terms belong in the plan document, not in the resulting codebase.
+
+11. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 4 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
 
 ---
 
