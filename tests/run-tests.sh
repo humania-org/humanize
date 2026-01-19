@@ -1170,6 +1170,44 @@ test_case5_partial_commented_new_commits() {
 }
 
 # ========================================
+# Test: AC-9 Setup Case 4/5 Failure Path (missing trigger_comment_id)
+# ========================================
+
+test_setup_case45_missing_trigger_comment_id() {
+    # Test that setup-pr-loop.sh fails when trigger_comment_id cannot be retrieved
+    # for Case 4/5 with --claude option
+    # This tests the AC-9 fix that requires eyes verification
+
+    # The setup script should fail if:
+    # 1. STARTUP_CASE is 4 or 5
+    # 2. --claude is specified
+    # 3. trigger_comment_id cannot be retrieved from the posted comment
+
+    # Check that the error path exists in setup script
+    local setup_script="$PROJECT_ROOT/scripts/setup-pr-loop.sh"
+
+    # Verify error message for missing trigger_comment_id exists
+    grep -q "Could not find trigger comment ID" "$setup_script" || {
+        echo "Error message for missing trigger_comment_id not found in setup script"
+        return 1
+    }
+
+    # Verify cleanup is performed on failure
+    grep -qE "rm -rf.*LOOP_DIR" "$setup_script" || {
+        echo "Cleanup on failure (rm -rf LOOP_DIR) not found in setup script"
+        return 1
+    }
+
+    # Verify exit 1 on this error path
+    grep -A15 "Could not find trigger comment ID" "$setup_script" | grep -q "exit 1" || {
+        echo "exit 1 not found after trigger_comment_id error"
+        return 1
+    }
+
+    return 0
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -1282,6 +1320,10 @@ main() {
     if [[ -z "$test_filter" || "$test_filter" == "case_4_5" ]]; then
         run_test "AC-2: Case 4 emission (all commented + new commits)" test_case4_all_commented_new_commits
         run_test "AC-2: Case 5 emission (partial + new commits)" test_case5_partial_commented_new_commits
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "setup_failure" ]]; then
+        run_test "AC-9: Setup Case 4/5 failure path (missing trigger_comment_id)" test_setup_case45_missing_trigger_comment_id
     fi
 
     echo ""

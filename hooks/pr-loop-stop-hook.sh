@@ -339,10 +339,21 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
             # AC-4 FIX: Preserve OLD commit SHA before updating state
             OLD_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
 
-            # Update state file with new commit SHA and clear trigger state
+            # Get the timestamp of the new HEAD commit for trigger validation
+            # This ensures detect_trigger_comment only accepts comments AFTER the force push
+            NEW_HEAD_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+                --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || NEW_HEAD_COMMIT_AT=""
+
+            if [[ -z "$NEW_HEAD_COMMIT_AT" ]]; then
+                # Fallback: use current timestamp
+                NEW_HEAD_COMMIT_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            fi
+
+            # Update state file with new commit SHA/timestamp and clear trigger state
             # Clear BOTH last_trigger_at AND trigger_comment_id to prevent stale eyes checks
             TEMP_FILE="${STATE_FILE}.forcepush.$$"
             sed -e "s/^latest_commit_sha:.*/latest_commit_sha: $CURRENT_HEAD/" \
+                -e "s/^latest_commit_at:.*/latest_commit_at: $NEW_HEAD_COMMIT_AT/" \
                 -e "s/^last_trigger_at:.*/last_trigger_at:/" \
                 -e "s/^trigger_comment_id:.*/trigger_comment_id:/" \
                 "$STATE_FILE" > "$TEMP_FILE"
@@ -350,6 +361,7 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
 
             # Update local variables to reflect the change
             PR_LATEST_COMMIT_SHA="$CURRENT_HEAD"
+            PR_LATEST_COMMIT_AT="$NEW_HEAD_COMMIT_AT"
             PR_LAST_TRIGGER_AT=""
             PR_TRIGGER_COMMENT_ID=""
 
@@ -472,9 +484,12 @@ get_current_user() {
 # Returns: "timestamp|comment_id" on success
 # This timestamp is used for --after filtering to catch fast bot replies
 # NOTE: Uses --paginate to handle PRs with >30 comments
+# IMPORTANT: If latest_commit_at is set, only accepts comments AFTER that timestamp
+#            This prevents old triggers from being re-used after force push
 detect_trigger_comment() {
     local pr_num="$1"
     local current_user="$2"
+    local after_timestamp="${3:-}"  # Optional: only accept comments after this timestamp
 
     # Fetch ALL issue comments on the PR (paginated to handle >30 comments)
     # Using --paginate ensures we don't miss the latest @mention on large PRs
@@ -498,12 +513,28 @@ detect_trigger_comment() {
 
     # Find most recent trigger comment from CURRENT USER (sorted by created_at descending)
     # The jq -s combines paginated results into single array before filtering
+    # If after_timestamp is set, only accept comments created after that timestamp
     # Returns both timestamp and comment ID
     local trigger_info
-    trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
-        [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
-        sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
-    ')
+    if [[ -n "$after_timestamp" ]]; then
+        # Filter to only comments AFTER the specified timestamp (force push protection)
+        trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r \
+            --arg pattern "$bot_pattern" \
+            --arg user "$current_user" \
+            --arg after "$after_timestamp" '
+            [.[] | select(
+                .author == $user and
+                (.body | test($pattern; "i")) and
+                (.created_at > $after)
+            )] |
+            sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
+        ')
+    else
+        trigger_info=$(echo "$comments_json" | jq -s 'add' | jq -r --arg pattern "$bot_pattern" --arg user "$current_user" '
+            [.[] | select(.author == $user and (.body | test($pattern; "i")))] |
+            sort_by(.created_at) | reverse | .[0] | "\(.created_at)|\(.id)" // empty
+        ')
+    fi
 
     if [[ -n "$trigger_info" && "$trigger_info" != "null|null" && "$trigger_info" != "|" ]]; then
         echo "$trigger_info"
@@ -521,8 +552,13 @@ fi
 
 # ALWAYS check for newer trigger comments and update last_trigger_at
 # This ensures we use the most recent trigger, not a stale one
+# IMPORTANT: Pass latest_commit_at to filter out old triggers (force push protection)
+# After a force push, we need a NEW trigger comment, not one from before the push
 echo "Detecting trigger comment timestamp from user '$CURRENT_USER'..." >&2
-DETECTED_TRIGGER_INFO=$(detect_trigger_comment "$PR_NUMBER" "$CURRENT_USER") || true
+if [[ -n "$PR_LATEST_COMMIT_AT" ]]; then
+    echo "  (Filtering for comments after: $PR_LATEST_COMMIT_AT)" >&2
+fi
+DETECTED_TRIGGER_INFO=$(detect_trigger_comment "$PR_NUMBER" "$CURRENT_USER" "$PR_LATEST_COMMIT_AT") || true
 DETECTED_TRIGGER_AT=""
 DETECTED_TRIGGER_COMMENT_ID=""
 

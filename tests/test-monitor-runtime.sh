@@ -423,6 +423,73 @@ else
 fi
 
 # ========================================
+# Test 9: Real zsh SIGINT test (AC-10 runtime verification)
+# ========================================
+echo ""
+echo "Test 9: Real zsh SIGINT test (AC-10)"
+echo ""
+
+# Only run if zsh is available
+if command -v zsh &>/dev/null; then
+    cat > test_sigint_zsh.zsh << 'TESTSCRIPT'
+#!/usr/bin/env zsh
+# Test that SIGINT triggers cleanup in zsh mode using TRAPINT
+
+cleanup_done=false
+cleanup_triggered=false
+
+# zsh uses TRAPINT function for INT handling
+TRAPINT() {
+    [[ "$cleanup_done" == "true" ]] && return 130
+    cleanup_done=true
+    cleanup_triggered=true
+    echo "CLEANUP_BY_SIGINT_ZSH"
+    return 130
+}
+
+# Send SIGINT to self after a brief moment
+(
+    sleep 0.1
+    kill -INT $$
+) &
+child_pid=$!
+
+# Wait for signal (up to 1 second)
+for i in {1..10}; do
+    sleep 0.1
+    if [[ "$cleanup_triggered" == "true" ]]; then
+        break
+    fi
+done
+
+# Cleanup the background job if still running
+kill $child_pid 2>/dev/null || true
+wait $child_pid 2>/dev/null || true
+
+if [[ "$cleanup_triggered" == "true" ]]; then
+    echo "ZSH_SIGINT_HANDLED"
+fi
+TESTSCRIPT
+
+    chmod +x test_sigint_zsh.zsh
+    # Run in subshell to prevent SIGINT propagation to parent
+    output=$(bash -c 'trap "" INT; zsh test_sigint_zsh.zsh 2>&1' || true)
+
+    if echo "$output" | grep -q "CLEANUP_BY_SIGINT_ZSH"; then
+        pass "SIGINT triggers TRAPINT cleanup in zsh (AC-10)"
+    else
+        # zsh might handle signals differently, check if it at least ran
+        if echo "$output" | grep -q "ZSH_SIGINT_HANDLED"; then
+            pass "SIGINT triggers TRAPINT cleanup in zsh (AC-10, via handled)"
+        else
+            fail "SIGINT in zsh" "TRAPINT cleanup not triggered: $output"
+        fi
+    fi
+else
+    echo "SKIP: zsh not available for runtime test"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""

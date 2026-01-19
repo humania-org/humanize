@@ -361,6 +361,147 @@ ZSH_MONITOR_SCRIPT
 fi
 
 # ========================================
+# Test 3: Real _humanize_monitor_pr with directory deletion (AC-13)
+# ========================================
+echo ""
+echo "Test 3: Real _humanize_monitor_pr with directory deletion (AC-13)"
+echo ""
+
+# Create test project directory for PR monitor
+TEST_PROJECT_PR="$TEST_BASE/project_pr"
+mkdir -p "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00"
+
+# Create valid PR loop state.md file
+cat > "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'STATE'
+current_round: 1
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+  - codex
+active_bots:
+  - claude
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+STATE
+
+# Create goal-tracker.md for PR loop
+cat > "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00/goal-tracker.md" << 'GOALTRACKER_EOF'
+# PR Review Goal Tracker
+
+## PR Information
+- PR Number: #123
+- Branch: test-branch
+- Started: 2026-01-18T10:00:00Z
+
+## Issue Summary
+| Round | Reviewer | Issues Found | Status |
+|-------|----------|--------------|--------|
+| 0     | -        | 0            | Initial |
+
+## Total Statistics
+- Total Issues Found: 0
+- Remaining: 0
+GOALTRACKER_EOF
+
+# Create fake HOME for PR monitor test
+FAKE_HOME_PR="$TEST_BASE/home_pr"
+mkdir -p "$FAKE_HOME_PR"
+
+# Create cache directory for PR monitor
+SANITIZED_PROJECT_PR=$(echo "$TEST_PROJECT_PR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+CACHE_DIR_PR="$FAKE_HOME_PR/.cache/humanize/$SANITIZED_PROJECT_PR/2026-01-18_12-00-00"
+mkdir -p "$CACHE_DIR_PR"
+echo "PR round 1 started" > "$CACHE_DIR_PR/round-1-codex-run.log"
+
+# Create bash test runner script for PR monitor
+cat > "$TEST_PROJECT_PR/run_real_monitor_pr.sh" << 'MONITOR_SCRIPT'
+#!/bin/bash
+# Run the REAL _humanize_monitor_pr function
+
+PROJECT_DIR="$1"
+PROJECT_ROOT="$2"
+FAKE_HOME="$3"
+
+cd "$PROJECT_DIR"
+
+# Override HOME and XDG_CACHE_HOME
+export HOME="$FAKE_HOME"
+export XDG_CACHE_HOME="$FAKE_HOME/.cache"
+
+# Create shim functions for terminal commands
+tput() {
+    case "$1" in
+        cols) echo "80" ;;
+        lines) echo "24" ;;
+        *) : ;;
+    esac
+}
+
+# Stub terminal control
+printf() {
+    case "$1" in
+        *\\033*) : ;;  # Ignore escape sequences
+        *) builtin printf "$@" ;;
+    esac
+}
+
+# Source the humanize script (loads all functions)
+source "$PROJECT_ROOT/scripts/humanize.sh"
+
+# Override _pr_cleanup for testing
+_pr_cleanup() {
+    echo "CLEANUP_CALLED_PR"
+}
+
+# Start monitor with --once flag (single iteration)
+# Then delete directory after brief delay
+(
+    sleep 0.5
+    rm -rf "$PROJECT_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
+) &
+cleanup_pid=$!
+
+# Run monitor in foreground (will detect deletion)
+humanize monitor pr --once 2>&1
+
+echo "EXIT_CODE:$?"
+
+# Cleanup background process
+kill $cleanup_pid 2>/dev/null || true
+wait $cleanup_pid 2>/dev/null || true
+MONITOR_SCRIPT
+
+chmod +x "$TEST_PROJECT_PR/run_real_monitor_pr.sh"
+
+# Run the PR monitor test
+output_pr=$("$TEST_PROJECT_PR/run_real_monitor_pr.sh" "$TEST_PROJECT_PR" "$PROJECT_ROOT" "$FAKE_HOME_PR" 2>&1) || true
+
+# Verify AC-13: PR monitor e2e - graceful exit
+if echo "$output_pr" | grep -qE 'Stopped|gracefully|EXIT_CODE:0'; then
+    pass "AC-13: PR monitor e2e - graceful exit on directory deletion"
+else
+    # Alternative: check for any clean exit indication
+    if echo "$output_pr" | grep -q "EXIT_CODE:0"; then
+        pass "AC-13: PR monitor e2e - clean exit"
+    else
+        fail "AC-13: PR monitor e2e" "Expected graceful stop or EXIT_CODE:0, got: $output_pr"
+    fi
+fi
+
+# Verify no glob errors in PR monitor output
+if echo "$output_pr" | grep -qE 'no matches found|bad pattern'; then
+    fail "AC-13: PR monitor glob errors" "Found glob errors: $(echo "$output_pr" | grep -E 'no matches found|bad pattern')"
+else
+    pass "AC-13: PR monitor no glob errors"
+fi
+
+# ========================================
 # Summary
 # ========================================
 echo ""
@@ -378,6 +519,7 @@ if [[ $TESTS_FAILED -eq 0 ]]; then
     echo "AC-1.2 VERIFIED: No glob errors"
     echo "AC-1.3 VERIFIED: Terminal state restored"
     echo "AC-1.4 VERIFIED: Works in bash and zsh"
+    echo "AC-13 VERIFIED: PR monitor e2e works"
     exit 0
 else
     echo ""
