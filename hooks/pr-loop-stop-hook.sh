@@ -812,7 +812,13 @@ fi
 
 # Convert trigger timestamp to epoch for timeout anchoring
 # Per-bot timeouts are measured from the TRIGGER time, not poll start time
-TRIGGER_EPOCH=$(date -d "$AFTER_TIMESTAMP" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$AFTER_TIMESTAMP" +%s 2>/dev/null || date +%s)
+# Special case: when USE_ALL_COMMENTS is true, AFTER_TIMESTAMP is epoch (1970),
+# so we anchor timeouts to started_at instead to avoid instant timeout
+if [[ "$USE_ALL_COMMENTS" == "true" ]]; then
+    TRIGGER_EPOCH=$(date -d "$PR_STARTED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$PR_STARTED_AT" +%s 2>/dev/null || date +%s)
+else
+    TRIGGER_EPOCH=$(date -d "$AFTER_TIMESTAMP" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$AFTER_TIMESTAMP" +%s 2>/dev/null || date +%s)
+fi
 
 # Track which bots have responded and their individual timeouts
 # IMPORTANT: Poll ALL configured bots (not just active) so we can detect when
