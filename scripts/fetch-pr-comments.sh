@@ -171,10 +171,12 @@ fetch_with_retry() {
             echo "ERROR: Failed to fetch $description after $MAX_RETRIES attempts" >&2
             echo "[]" > "$output_file"
             API_FAILURES=$((API_FAILURES + 1))
+            # Return 0 so script continues under set -euo pipefail
+            # API_FAILURES counter tracks failures for strict mode if needed
+            return 0
         fi
         ((attempt++))
     done
-    return 1
 }
 
 # Fetch issue comments (general PR comments)
