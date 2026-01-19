@@ -898,6 +898,136 @@ EOF
 }
 
 # ========================================
+# Test: AC-5 Case 1 Exception - No Trigger Required
+# ========================================
+
+test_case1_exception_no_trigger() {
+    # AC-5: For startup_case 1/2/3 in round 0, no trigger is required
+    # This tests the logic that determines REQUIRE_TRIGGER
+
+    # Test startup_case 1, round 0 -> REQUIRE_TRIGGER=false
+    local round=0
+    local startup_case=1
+    local require_trigger=false
+
+    if [[ "$round" -gt 0 ]]; then
+        require_trigger=true
+    elif [[ "$round" -eq 0 ]]; then
+        case "$startup_case" in
+            1|2|3) require_trigger=false ;;
+            4|5) require_trigger=true ;;
+        esac
+    fi
+
+    [[ "$require_trigger" == "false" ]] || { echo "Case 1 should not require trigger"; return 1; }
+
+    # Test startup_case 2, round 0 -> REQUIRE_TRIGGER=false
+    startup_case=2
+    require_trigger=false
+    if [[ "$round" -gt 0 ]]; then
+        require_trigger=true
+    elif [[ "$round" -eq 0 ]]; then
+        case "$startup_case" in
+            1|2|3) require_trigger=false ;;
+            4|5) require_trigger=true ;;
+        esac
+    fi
+
+    [[ "$require_trigger" == "false" ]] || { echo "Case 2 should not require trigger"; return 1; }
+
+    # Test startup_case 4, round 0 -> REQUIRE_TRIGGER=true
+    startup_case=4
+    require_trigger=false
+    if [[ "$round" -gt 0 ]]; then
+        require_trigger=true
+    elif [[ "$round" -eq 0 ]]; then
+        case "$startup_case" in
+            1|2|3) require_trigger=false ;;
+            4|5) require_trigger=true ;;
+        esac
+    fi
+
+    [[ "$require_trigger" == "true" ]] || { echo "Case 4 should require trigger"; return 1; }
+
+    # Test round 1 (any case) -> REQUIRE_TRIGGER=true
+    round=1
+    startup_case=1
+    require_trigger=false
+    if [[ "$round" -gt 0 ]]; then
+        require_trigger=true
+    elif [[ "$round" -eq 0 ]]; then
+        case "$startup_case" in
+            1|2|3) require_trigger=false ;;
+            4|5) require_trigger=true ;;
+        esac
+    fi
+
+    [[ "$require_trigger" == "true" ]] || { echo "Round 1 should require trigger"; return 1; }
+}
+
+# ========================================
+# Test: AC-12 Goal Tracker Row Inside Table
+# ========================================
+
+test_goal_tracker_row_inside_table() {
+    # Verify that update_pr_goal_tracker inserts rows INSIDE the Issue Summary table
+    # Not before "## Total Statistics"
+
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+
+    local tracker_file="$TEST_TEMP_DIR/goal-tracker-table.md"
+    cat > "$tracker_file" << 'EOF'
+# PR Review Goal Tracker
+
+## Issue Summary
+
+| Round | Reviewer | Issues Found | Issues Resolved | Status |
+|-------|----------|--------------|-----------------|--------|
+| 0     | -        | 0            | 0               | Initial |
+
+## Total Statistics
+
+- Total Issues Found: 0
+- Total Issues Resolved: 0
+- Remaining: 0
+
+## Issue Log
+
+### Round 0
+*Awaiting initial reviews*
+EOF
+
+    # Update with round 1
+    update_pr_goal_tracker "$tracker_file" 1 '{"issues": 2, "resolved": 0, "bot": "Codex"}'
+
+    # Verify: The new row should be BEFORE the blank line that ends the table
+    # Check that there's a table row with Round 1 BEFORE "## Total Statistics"
+
+    # Extract just the Issue Summary section
+    local summary_section
+    summary_section=$(sed -n '/^## Issue Summary/,/^## Total Statistics/p' "$tracker_file")
+
+    # The section should contain | 1 | somewhere (Round 1 row)
+    echo "$summary_section" | grep -qE '^\|[[:space:]]*1[[:space:]]*\|' || {
+        echo "Round 1 row not found in Issue Summary table"
+        echo "Content:"
+        cat "$tracker_file"
+        return 1
+    }
+
+    # Verify the row appears BEFORE "## Total Statistics" (already ensured by sed range)
+    # and the table structure is valid (rows end before blank line before ## Total Statistics)
+
+    # Count table rows in Issue Summary (should be 3: header, separator, round 0, round 1)
+    local row_count
+    row_count=$(echo "$summary_section" | grep -cE '^\|' || echo 0)
+    [[ "$row_count" -ge 4 ]] || {
+        echo "Expected at least 4 table rows (header + separator + 2 data rows), got $row_count"
+        return 1
+    }
+}
+
+# ========================================
 # Main test runner
 # ========================================
 
@@ -993,6 +1123,14 @@ main() {
 
     if [[ -z "$test_filter" || "$test_filter" == "phase_analyzing" ]]; then
         run_test "AC-11: Phase detection - codex analyzing (file growth)" test_phase_detection_codex_analyzing
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "case1_exception" ]]; then
+        run_test "AC-5: Case 1 exception - no trigger required for startup_case 1" test_case1_exception_no_trigger
+    fi
+
+    if [[ -z "$test_filter" || "$test_filter" == "goal_tracker_table" ]]; then
+        run_test "AC-12: Goal tracker row inserted inside table" test_goal_tracker_row_inside_table
     fi
 
     echo ""

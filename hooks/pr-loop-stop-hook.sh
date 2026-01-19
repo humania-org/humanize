@@ -336,6 +336,9 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
         if [[ "$IS_ANCESTOR" == "no" ]]; then
             echo "Force push detected: $PR_LATEST_COMMIT_SHA is no longer reachable from $CURRENT_HEAD" >&2
 
+            # AC-4 FIX: Preserve OLD commit SHA before updating state
+            OLD_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
+
             # Update state file with new commit SHA and clear last_trigger_at
             # This prevents re-blocking on subsequent attempts after trigger is posted
             TEMP_FILE="${STATE_FILE}.forcepush.$$"
@@ -352,7 +355,7 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
 
 A force push (history rewrite) has been detected. Post a new @bot trigger comment: $PR_BOT_MENTION_STRING"
             REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/force-push-detected.md" "$FALLBACK_MSG" \
-                "OLD_COMMIT=$PR_LATEST_COMMIT_SHA" "NEW_COMMIT=$CURRENT_HEAD" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING" \
+                "OLD_COMMIT=$OLD_COMMIT_SHA" "NEW_COMMIT=$CURRENT_HEAD" "BOT_MENTION_STRING=$PR_BOT_MENTION_STRING" \
                 "PR_NUMBER=$PR_NUMBER")
 
             jq -n --arg reason "$REASON" --arg msg "PR Loop: Force push detected - please re-trigger bots" \
@@ -552,71 +555,10 @@ if [[ -n "$DETECTED_TRIGGER_AT" ]]; then
 fi
 
 # ========================================
-# Claude Eyes Verification (EVERY exit attempt when claude is configured)
+# Determine if Trigger is Required (needed for Claude eyes check below)
 # ========================================
 
-# AC-9: Always verify Claude eyes on every exit attempt when claude is in configured_bots
-CLAUDE_CONFIGURED=false
-for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-    if [[ "$bot" == "claude" ]]; then
-        CLAUDE_CONFIGURED=true
-        break
-    fi
-done
-
-if [[ "$CLAUDE_CONFIGURED" == "true" ]]; then
-    # Use trigger comment ID from state or newly detected
-    TRIGGER_ID_TO_CHECK="${PR_TRIGGER_COMMENT_ID:-}"
-
-    if [[ -z "$TRIGGER_ID_TO_CHECK" ]]; then
-        # No trigger comment ID available - this is a blocking condition
-        echo "Error: Claude is configured but no trigger comment ID is available for eyes verification" >&2
-        REASON="# Claude Eyes Verification Failed
-
-Claude is configured as a bot reviewer, but no trigger comment ID is available to verify the eyes reaction.
-
-**This can happen when:**
-- No @bot trigger comment was posted
-- The trigger comment detection failed
-
-**Required Action:**
-Post a trigger comment mentioning @claude (or $PR_BOT_MENTION_STRING) to enable eyes verification.
-
-\`\`\`bash
-gh pr comment $PR_NUMBER --body \"$PR_BOT_MENTION_STRING please review\"
-\`\`\`"
-        jq -n --arg reason "$REASON" --arg msg "PR Loop: Missing trigger comment for Claude eyes verification" \
-            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
-        exit 0
-    fi
-
-    echo "Verifying Claude eyes reaction on trigger comment (ID: $TRIGGER_ID_TO_CHECK)..." >&2
-
-    # Check for eyes reaction with 3x5s retry
-    EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
-
-    if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
-        # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
-        FALLBACK_MSG="# Claude Bot Not Responding
-
-The Claude bot did not respond with an 'eyes' reaction within 15 seconds (3 x 5s retries).
-Please verify the Claude bot is installed and configured for this repository."
-        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/claude-eyes-timeout.md" "$FALLBACK_MSG" \
-            "RETRY_COUNT=3" "TOTAL_WAIT_SECONDS=15")
-
-        jq -n --arg reason "$REASON" --arg msg "PR Loop: Claude bot not responding - check bot configuration" \
-            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
-        exit 0
-    else
-        echo "Claude eyes reaction confirmed!" >&2
-    fi
-fi
-
-# ========================================
-# Validate Trigger Comment Exists (Based on startup_case and round)
-# ========================================
-
-# Trigger requirement logic:
+# Trigger requirement logic (AC-5):
 # - Round 0, startup_case 1: No trigger required (waiting for initial auto-reviews)
 # - Round 0, startup_case 2/3: No trigger required (process existing comments)
 # - Round 0, startup_case 4/5: Trigger required (new commits after reviews)
@@ -643,6 +585,62 @@ elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
             ;;
     esac
 fi
+
+# ========================================
+# Claude Eyes Verification (ONLY when trigger is required and exists)
+# ========================================
+
+# AC-9/AC-5: Verify Claude eyes ONLY when:
+# 1. Claude is configured AND
+# 2. A trigger is actually required (REQUIRE_TRIGGER=true) AND
+# 3. A trigger comment ID exists
+# This allows startup_case 1/2/3 to proceed without eyes verification (no trigger needed)
+
+CLAUDE_CONFIGURED=false
+for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
+    if [[ "$bot" == "claude" ]]; then
+        CLAUDE_CONFIGURED=true
+        break
+    fi
+done
+
+if [[ "$CLAUDE_CONFIGURED" == "true" && "$REQUIRE_TRIGGER" == "true" ]]; then
+    # Use trigger comment ID from state or newly detected
+    TRIGGER_ID_TO_CHECK="${PR_TRIGGER_COMMENT_ID:-}"
+
+    if [[ -n "$TRIGGER_ID_TO_CHECK" ]]; then
+        echo "Verifying Claude eyes reaction on trigger comment (ID: $TRIGGER_ID_TO_CHECK)..." >&2
+
+        # Check for eyes reaction with 3x5s retry
+        EYES_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" claude-eyes "$TRIGGER_ID_TO_CHECK" --retry 3 --delay 5 2>/dev/null) || EYES_REACTION=""
+
+        if [[ -z "$EYES_REACTION" || "$EYES_REACTION" == "null" ]]; then
+            # AC-9: Claude eyes verification is BLOCKING - error after 3x5s retries
+            FALLBACK_MSG="# Claude Bot Not Responding
+
+The Claude bot did not respond with an 'eyes' reaction within 15 seconds (3 x 5s retries).
+Please verify the Claude bot is installed and configured for this repository."
+            REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/claude-eyes-timeout.md" "$FALLBACK_MSG" \
+                "RETRY_COUNT=3" "TOTAL_WAIT_SECONDS=15")
+
+            jq -n --arg reason "$REASON" --arg msg "PR Loop: Claude bot not responding - check bot configuration" \
+                '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+            exit 0
+        else
+            echo "Claude eyes reaction confirmed!" >&2
+        fi
+    fi
+    # Note: If REQUIRE_TRIGGER=true but no trigger ID, the trigger validation below will block
+elif [[ "$CLAUDE_CONFIGURED" == "true" ]]; then
+    echo "Claude is configured but trigger not required (startup_case=${PR_STARTUP_CASE:-1}, round=$PR_CURRENT_ROUND) - skipping eyes verification" >&2
+fi
+
+# ========================================
+# Validate Trigger Comment Exists (Based on startup_case and round)
+# ========================================
+
+# Note: REQUIRE_TRIGGER was already determined above (before Claude eyes check)
+# Re-use that value here for trigger validation
 
 if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
     # Determine startup case description for template

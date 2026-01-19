@@ -176,14 +176,27 @@ if [[ $COMMENTED_COUNT -eq 0 ]]; then
     # Case 1: No reviewer comments at all
     CASE=1
 elif [[ $MISSING_COUNT -gt 0 ]]; then
-    # Case 2: Some (not all) reviewers commented
-    CASE=2
+    # Some (not all) reviewers commented
+    # Check for new commits after existing reviews
+    if [[ -n "$NEWEST_REVIEW_AT" && -n "$LATEST_COMMIT_AT" ]]; then
+        if [[ "$LATEST_COMMIT_AT" > "$NEWEST_REVIEW_AT" ]]; then
+            # Case 5: Some reviewers commented, new commits after reviews
+            HAS_COMMITS_AFTER_REVIEWS=true
+            CASE=5
+        else
+            # Case 2: Some reviewers commented, no new commits
+            CASE=2
+        fi
+    else
+        # Fallback: treat as Case 2 if timestamps unavailable
+        CASE=2
+    fi
 else
     # All reviewers have commented, check for new commits after reviews
     if [[ -n "$NEWEST_REVIEW_AT" && -n "$LATEST_COMMIT_AT" ]]; then
         # Compare timestamps
         if [[ "$LATEST_COMMIT_AT" > "$NEWEST_REVIEW_AT" ]]; then
-            # Case 4/5: New commits after all reviews
+            # Case 4: All reviewers commented, new commits after reviews
             HAS_COMMITS_AFTER_REVIEWS=true
             CASE=4
         else

@@ -1008,16 +1008,34 @@ update_pr_goal_tracker() {
         "$tracker_file" > "$temp_file"
 
     # Step 2: Add row to Issue Summary table
-    # Find the line after the table header separator and insert a new row
+    # AC-12 FIX: Insert row INSIDE the table (after last table row, before blank line)
+    # The table ends with a blank line before "## Total Statistics"
     local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
 
-    # Find the Total Statistics section and insert row just before it
+    # Use awk to find the last row of the Issue Summary table and insert after it
+    # Logic: Track when we're in the Issue Summary section, find last pipe row, insert after
     awk -v row="$new_row" '
-        /^## Total Statistics/ {
-            print row
-            print ""
+        BEGIN { in_table = 0; last_row_printed = 0 }
+        /^## Issue Summary/ { in_table = 1 }
+        /^## Total Statistics/ { in_table = 0 }
+        {
+            # If we hit Total Statistics and havent printed the new row yet, print it first
+            if (/^## Total Statistics/ && !last_row_printed) {
+                print row
+                print ""
+                last_row_printed = 1
+            }
+            # If in table and this is a table row (starts with |), store it
+            if (in_table && /^\|/) {
+                last_table_line = NR
+            }
+            # If in table and this is a blank line after table rows, insert new row
+            if (in_table && /^[[:space:]]*$/ && last_table_line > 0 && !last_row_printed) {
+                print row
+                last_row_printed = 1
+            }
+            print
         }
-        { print }
     ' "$temp_file" > "${temp_file}.2"
     mv "${temp_file}.2" "$temp_file"
 
