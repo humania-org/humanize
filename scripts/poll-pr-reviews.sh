@@ -119,12 +119,33 @@ fi
 # Get Repository Info
 # ========================================
 
-# IMPORTANT: Use the PR's base repository, not the local checkout's repo
-# When working with forks, gh repo view returns the fork, but the PR number
-# belongs to the upstream/base repository where comments are posted
-PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
-    echo "Error: Failed to get PR base repository" >&2
+# IMPORTANT: For fork PRs, we need to resolve the base (upstream) repository
+# gh pr view without --repo fails in forks because the PR number doesn't exist there
+# Strategy: First get current repo, then try to get PR's base repo with --repo flag
+
+# Step 1: Get the current repo (works in both forks and base repos)
+CURRENT_REPO=$(gh repo view --json owner,name -q '.owner.login + "/" + .name' 2>/dev/null) || {
+    echo "Error: Failed to get current repository" >&2
     exit 1
+}
+
+# Step 2: Try to get PR base repo using --repo flag (handles fork case)
+# First try current repo, then check if PR exists there
+PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json baseRepository \
+    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
+    # If current repo doesn't have this PR, it might be a fork
+    # Try to get the parent/upstream repo
+    PARENT_REPO=$(gh repo view --json parent -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+    if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+        PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json baseRepository \
+            -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
+            echo "Error: Failed to get PR base repository from parent repo" >&2
+            exit 1
+        }
+    else
+        echo "Error: Failed to get PR base repository" >&2
+        exit 1
+    fi
 }
 
 REPO_OWNER="${PR_BASE_REPO%%/*}"
