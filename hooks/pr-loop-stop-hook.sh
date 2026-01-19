@@ -194,10 +194,54 @@ if [[ ! "$PR_CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
 fi
 
 # ========================================
+# Resolve PR Base Repository (for fork PRs)
+# ========================================
+# IMPORTANT: For fork PRs, comments are on the base repository, not the fork.
+# gh pr view without --repo fails in forks because the PR number doesn't exist there.
+# Strategy: First get current repo, then try to get PR's base repo with --repo flag.
+# NOTE: This MUST be done BEFORE PR state checks, which also need --repo for forks.
+
+# Step 1: Get the current repo (works in both forks and base repos)
+CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+    -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
+
+# Step 2: Try to get PR base repo using --repo flag (handles fork case)
+PR_BASE_REPO=""
+PR_LOOKUP_REPO=""  # Repo where PR was found (for subsequent lookups)
+
+if [[ -n "$CURRENT_REPO" ]]; then
+    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" \
+        --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+    if [[ -n "$PR_BASE_REPO" ]]; then
+        PR_LOOKUP_REPO="$CURRENT_REPO"
+    fi
+fi
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    # If current repo doesn't have this PR, it might be a fork - try parent repo
+    PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
+        -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+    if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" \
+            --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+        if [[ -n "$PR_BASE_REPO" ]]; then
+            PR_LOOKUP_REPO="$PARENT_REPO"
+        fi
+    fi
+fi
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    echo "Warning: Could not resolve PR base repository, using current repo" >&2
+    PR_BASE_REPO="$CURRENT_REPO"
+    PR_LOOKUP_REPO="$CURRENT_REPO"
+fi
+
+# ========================================
 # Check PR State (detect CLOSED/MERGED before polling)
 # ========================================
+# NOTE: Uses PR_LOOKUP_REPO (resolved above) for fork PR support
 
-PR_STATE=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json state -q .state 2>/dev/null) || PR_STATE=""
+PR_STATE=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json state -q .state 2>/dev/null) || PR_STATE=""
 
 if [[ "$PR_STATE" == "MERGED" ]]; then
     echo "PR #$PR_NUMBER has been merged. Marking loop as complete." >&2
@@ -209,39 +253,6 @@ if [[ "$PR_STATE" == "CLOSED" ]]; then
     echo "PR #$PR_NUMBER has been closed. Marking loop as closed." >&2
     mv "$STATE_FILE" "$LOOP_DIR/closed-state.md"
     exit 0
-fi
-
-# ========================================
-# Resolve PR Base Repository (for fork PRs)
-# ========================================
-# IMPORTANT: For fork PRs, comments are on the base repository, not the fork.
-# gh pr view without --repo fails in forks because the PR number doesn't exist there.
-# Strategy: First get current repo, then try to get PR's base repo with --repo flag.
-
-# Step 1: Get the current repo (works in both forks and base repos)
-CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
-    -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
-
-# Step 2: Try to get PR base repo using --repo flag (handles fork case)
-PR_BASE_REPO=""
-if [[ -n "$CURRENT_REPO" ]]; then
-    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" \
-        --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
-fi
-
-if [[ -z "$PR_BASE_REPO" ]]; then
-    # If current repo doesn't have this PR, it might be a fork - try parent repo
-    PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
-        -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
-    if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
-        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" \
-            --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
-    fi
-fi
-
-if [[ -z "$PR_BASE_REPO" ]]; then
-    echo "Warning: Could not resolve PR base repository, using current repo" >&2
-    PR_BASE_REPO="$CURRENT_REPO"
 fi
 
 # ========================================
@@ -373,7 +384,8 @@ if [[ -n "$PR_LATEST_COMMIT_SHA" ]]; then
 
             # Get the timestamp of the new HEAD commit for trigger validation
             # This ensures detect_trigger_comment only accepts comments AFTER the force push
-            NEW_HEAD_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+            # NOTE: Uses PR_LOOKUP_REPO for fork PR support
+            NEW_HEAD_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json commits \
                 --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || NEW_HEAD_COMMIT_AT=""
 
             if [[ -z "$NEW_HEAD_COMMIT_AT" ]]; then
@@ -590,7 +602,8 @@ fi
 # not a stale value from state. This prevents old triggers from being accepted
 # after new (non-force) commits are pushed.
 
-CURRENT_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+# NOTE: Uses PR_LOOKUP_REPO for fork PR support
+CURRENT_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json commits \
     --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || CURRENT_LATEST_COMMIT_AT=""
 
 # Track if new commits were detected (used to override REQUIRE_TRIGGER for cases 2/3)
@@ -1489,18 +1502,13 @@ if grep -q "### Issues Found" "$CHECK_FILE" 2>/dev/null; then
         | grep -cE '^[0-9]+\.|^- |^\* ' 2>/dev/null || echo "0")
 fi
 
-# Count resolved issues: when a bot approves, it means all its issues are resolved
-# So if issues were found and any bot approved, resolved = issues found (all resolved)
-# This aligns resolved count with issues found rather than counting approved bots
-if [[ $ISSUES_FOUND_COUNT -gt 0 ]]; then
-    for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
-        if [[ "$(_map_get BOTS_APPROVED "$bot")" == "true" ]]; then
-            # Bot approved after finding issues - all issues from this round are resolved
-            ISSUES_RESOLVED_COUNT=$ISSUES_FOUND_COUNT
-            break
-        fi
-    done
-fi
+# Count resolved issues: issues are only resolved when ALL bots approve
+# NOTE: If we reach this point, not all bots have approved (full APPROVE case
+# already triggered early exit above), so issues found in this round are NOT
+# resolved yet. Setting resolved=0 prevents inflating the resolved count when
+# only some bots approve while others report issues.
+# ISSUES_RESOLVED_COUNT stays 0 - issues will be marked resolved in a future
+# round when all bots approve and the early exit path records the resolution.
 
 # Call update_pr_goal_tracker if goal tracker exists
 if [[ -f "$GOAL_TRACKER_FILE" ]]; then
@@ -1514,7 +1522,8 @@ CONFIGURED_BOTS_YAML=$(build_yaml_list "${PR_CONFIGURED_BOTS_ARRAY[@]}")
 # Update latest_commit_sha to current HEAD (for force push detection in next round)
 NEW_LATEST_COMMIT_SHA=$(run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD 2>/dev/null) || NEW_LATEST_COMMIT_SHA="$PR_LATEST_COMMIT_SHA"
 # NOTE: Sort by committedDate before selecting last - API order is not guaranteed
-NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json commits \
+# NOTE: Uses PR_LOOKUP_REPO for fork PR support
+NEW_LATEST_COMMIT_AT=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json commits \
     --jq '.commits | sort_by(.committedDate) | last | .committedDate' 2>/dev/null) || NEW_LATEST_COMMIT_AT="$PR_LATEST_COMMIT_AT"
 
 # Re-evaluate startup_case dynamically

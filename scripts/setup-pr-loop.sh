@@ -286,8 +286,43 @@ if [[ -z "$START_BRANCH" ]]; then
     exit 1
 fi
 
-# Check for associated PR
-PR_NUMBER=$(gh pr view --json number -q .number 2>/dev/null) || true
+# ========================================
+# Resolve Repository Context (for fork PR support)
+# ========================================
+# IMPORTANT: For fork PRs, the PR lives in the upstream (parent) repo, not the fork.
+# We must resolve the correct repo BEFORE attempting to get PR number/state.
+
+# Step 1: Get current repo
+CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
+    -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
+
+# Step 2: Check if current repo is a fork and get parent repo
+PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
+    -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
+
+# Step 3: Determine which repo to use for PR lookups
+# Try current repo first, then parent (for fork case)
+PR_LOOKUP_REPO=""
+PR_NUMBER=""
+
+# Try current repo first
+if [[ -n "$CURRENT_REPO" ]]; then
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$CURRENT_REPO" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    if [[ -n "$PR_NUMBER" ]]; then
+        PR_LOOKUP_REPO="$CURRENT_REPO"
+    fi
+fi
+
+# If not found in current repo and we have a parent (fork case), try parent
+if [[ -z "$PR_NUMBER" && -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
+    echo "Checking parent repo for PR (fork detected)..." >&2
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$PARENT_REPO" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    if [[ -n "$PR_NUMBER" ]]; then
+        PR_LOOKUP_REPO="$PARENT_REPO"
+        echo "Found PR #$PR_NUMBER in parent repo: $PARENT_REPO" >&2
+    fi
+fi
+
 if [[ -z "$PR_NUMBER" ]]; then
     echo "Error: No pull request found for branch '$START_BRANCH'" >&2
     echo "" >&2
@@ -302,8 +337,8 @@ if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Get PR state
-PR_STATE=$(gh pr view --json state -q .state 2>/dev/null) || true
+# Get PR state (using resolved repo for fork support)
+PR_STATE=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json state -q .state 2>/dev/null) || PR_STATE=""
 if [[ "$PR_STATE" == "MERGED" ]]; then
     echo "Error: PR #$PR_NUMBER has already been merged" >&2
     exit 1
@@ -315,13 +350,12 @@ fi
 
 # IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
 # Comments are on the base repo, not the fork
-PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json baseRepository \
+PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json baseRepository \
     -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
 
 if [[ -z "$PR_BASE_REPO" ]]; then
-    echo "Warning: Could not resolve PR base repository, using current repo" >&2
-    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
-        -q '.owner.login + "/" + .name' 2>/dev/null) || PR_BASE_REPO=""
+    echo "Warning: Could not resolve PR base repository, using lookup repo" >&2
+    PR_BASE_REPO="$PR_LOOKUP_REPO"
 fi
 
 # ========================================

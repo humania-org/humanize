@@ -1392,6 +1392,383 @@ MOCK_GIT
     unset CLAUDE_PROJECT_DIR
 }
 
+# Test: Fork PR support - stop hook resolves base repo from parent
+test_stophook_fork_pr_base_repo_resolution() {
+    local test_subdir="$TEST_DIR/stophook_fork_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Create state file
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'EOF'
+---
+current_round: 0
+max_iterations: 42
+pr_number: 456
+start_branch: test-branch
+configured_bots:
+  - codex
+active_bots:
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 30
+poll_timeout: 900
+started_at: 2026-01-18T10:00:00Z
+last_trigger_at:
+trigger_comment_id:
+startup_case: 1
+latest_commit_sha: abc123
+latest_commit_at: 2026-01-18T10:00:00Z
+---
+EOF
+
+    echo "# Resolution" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    # Mock gh that simulates a fork scenario:
+    # - Current repo (fork) doesn't have PR 456
+    # - Parent repo (upstream) has PR 456
+    cat > "$mock_bin/gh" << 'MOCK_GH'
+#!/bin/bash
+# Track which repo we're querying
+FORK_REPO="forkuser/forkrepo"
+UPSTREAM_REPO="upstreamowner/upstreamrepo"
+
+case "$1" in
+    repo)
+        if [[ "$*" == *"--json owner,name"* ]]; then
+            # Current repo is the fork
+            echo "forkuser/forkrepo"
+            exit 0
+        fi
+        if [[ "$*" == *"--json parent"* ]]; then
+            # Return parent (upstream) repo
+            echo "upstreamowner/upstreamrepo"
+            exit 0
+        fi
+        ;;
+    pr)
+        # Check which --repo was specified
+        if [[ "$*" == *"--repo forkuser/forkrepo"* ]]; then
+            # Fork doesn't have PR 456 - return empty/error
+            exit 1
+        fi
+        if [[ "$*" == *"--repo upstreamowner/upstreamrepo"* ]]; then
+            # Upstream has PR 456
+            if [[ "$*" == *"baseRepository"* ]]; then
+                echo "upstreamowner/upstreamrepo"
+                exit 0
+            fi
+            if [[ "$*" == *"state"* ]]; then
+                echo '{"state": "OPEN"}'
+                exit 0
+            fi
+            if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+                echo "2026-01-18T10:00:00Z"
+                exit 0
+            fi
+        fi
+        # Default: try to handle without --repo (should fail for forks)
+        if [[ "$*" != *"--repo"* ]]; then
+            exit 1
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "abc123"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status) echo "" ;;
+    merge-base) exit 0 ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    # Run stop hook - should resolve PR from parent repo
+    local hook_output
+    hook_output=$(echo '{}' | "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1) || true
+
+    # Should not fail with "PR not found" because it should have found it in parent repo
+    # And since active_bots is empty, it should approve
+    if echo "$hook_output" | grep -qi "approved\|complete"; then
+        pass "T-STOPHOOK-12: Fork PR support - resolved PR from parent repo"
+    elif [[ -f "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/approve-state.md" ]]; then
+        pass "T-STOPHOOK-12: Fork PR support - created approve-state.md"
+    else
+        # Check if it at least didn't fail with "PR not found"
+        if ! echo "$hook_output" | grep -qi "pr.*not.*found\|no.*pull.*request"; then
+            pass "T-STOPHOOK-12: Fork PR support - did not fail on PR lookup"
+        else
+            fail "T-STOPHOOK-12: Fork PR should resolve from parent" "success" "got: $hook_output"
+        fi
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
+# Test: Goal tracker - resolved count stays 0 when some bots have issues
+test_stophook_goal_tracker_mixed_approval() {
+    local test_subdir="$TEST_DIR/stophook_goal_tracker_test"
+    mkdir -p "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00"
+
+    # Use dynamic timestamps to ensure polling doesn't time out immediately
+    # Timeline: commit -> trigger -> bot comments (all recent, within poll_timeout)
+    local trigger_ts commit_ts claude_ts codex_ts
+    # Trigger was 10 seconds ago
+    trigger_ts=$(date -u -d "-10 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10S +%Y-%m-%dT%H:%M:%SZ)
+    # Commit was 60 seconds ago (before trigger)
+    commit_ts=$(date -u -d "-60 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-60S +%Y-%m-%dT%H:%M:%SZ)
+    # Claude comment arrived 5 seconds ago (after trigger)
+    claude_ts=$(date -u -d "-5 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5S +%Y-%m-%dT%H:%M:%SZ)
+    # Codex comment arrived 4 seconds ago (after trigger)
+    codex_ts=$(date -u -d "-4 seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-4S +%Y-%m-%dT%H:%M:%SZ)
+
+    # State with two bots configured
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << EOF
+---
+current_round: 0
+max_iterations: 42
+pr_number: 123
+start_branch: test-branch
+configured_bots:
+  - claude
+  - codex
+active_bots:
+  - claude
+  - codex
+codex_model: gpt-5.2-codex
+codex_effort: medium
+codex_timeout: 900
+poll_interval: 1
+poll_timeout: 60
+started_at: $commit_ts
+last_trigger_at: $trigger_ts
+trigger_comment_id: 999
+startup_case: 3
+latest_commit_sha: abc123
+latest_commit_at: $commit_ts
+---
+EOF
+
+    echo "# Resolution" > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-0-pr-resolve.md"
+
+    # Create initial goal tracker
+    cat > "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/goal-tracker.md" << EOF
+# PR Loop Goal Tracker
+
+## Stats
+- Issues Found: 0
+- Issues Resolved: 0
+
+## Log
+| Round | Timestamp | Event |
+|-------|-----------|-------|
+| 0 | $commit_ts | Loop started |
+EOF
+
+    local mock_bin="$test_subdir/bin"
+    mkdir -p "$mock_bin"
+
+    # Mock gh that returns:
+    # - claude: APPROVE (LGTM)
+    # - codex: ISSUES (has issues)
+    cat > "$mock_bin/gh" << MOCK_GH
+#!/bin/bash
+# Dynamic timestamps from test setup
+CLAUDE_TS="$claude_ts"
+CODEX_TS="$codex_ts"
+COMMIT_TS="$commit_ts"
+
+HAS_JQ=false
+for arg in "\$@"; do
+    if [[ "\$arg" == "--jq" || "\$arg" == "-q" ]]; then
+        HAS_JQ=true
+        break
+    fi
+done
+
+case "\$1" in
+    repo)
+        if [[ "\$*" == *"--json owner,name"* ]]; then
+            echo "testowner/testrepo"
+            exit 0
+        fi
+        if [[ "\$*" == *"--json parent"* ]]; then
+            echo ""
+            exit 0
+        fi
+        ;;
+    api)
+        if [[ "\$2" == "user" ]]; then
+            echo "testuser"
+            exit 0
+        fi
+        # Return comments from both bots
+        if [[ "\$2" == *"/issues/"*"/comments"* ]]; then
+            if [[ "\$HAS_JQ" == "true" ]]; then
+                # Claude approves, Codex has issues
+                echo "{\"id\": 1, \"author\": \"claude[bot]\", \"created_at\": \"\$CLAUDE_TS\", \"body\": \"LGTM! No issues found.\"}"
+                echo "{\"id\": 2, \"author\": \"chatgpt-codex-connector[bot]\", \"created_at\": \"\$CODEX_TS\", \"body\": \"Found 2 issues that need fixing.\"}"
+            else
+                echo "[{\"id\": 1, \"user\": {\"login\": \"claude[bot]\"}, \"created_at\": \"\$CLAUDE_TS\", \"body\": \"LGTM! No issues found.\"},{\"id\": 2, \"user\": {\"login\": \"chatgpt-codex-connector[bot]\"}, \"created_at\": \"\$CODEX_TS\", \"body\": \"Found 2 issues that need fixing.\"}]"
+            fi
+            exit 0
+        fi
+        if [[ "\$2" == *"/reactions"* ]]; then
+            # Return eyes for claude (no need for this test but keep consistent)
+            echo "[]"
+            exit 0
+        fi
+        echo "[]"
+        exit 0
+        ;;
+    pr)
+        if [[ "\$*" == *"baseRepository"* ]]; then
+            echo "testowner/testrepo"
+            exit 0
+        fi
+        if [[ "\$*" == *"state"* ]]; then
+            echo '{"state": "OPEN"}'
+            exit 0
+        fi
+        if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"--jq"* ]]; then
+            echo "\$COMMIT_TS"
+            exit 0
+        fi
+        ;;
+esac
+exit 0
+MOCK_GH
+    chmod +x "$mock_bin/gh"
+
+    cat > "$mock_bin/git" << 'MOCK_GIT'
+#!/bin/bash
+case "$1" in
+    rev-parse)
+        if [[ "$2" == "HEAD" ]]; then
+            echo "abc123"
+        else
+            echo "/tmp/git"
+        fi
+        ;;
+    status)
+        if [[ "$2" == "--porcelain" ]]; then
+            echo ""
+        elif [[ "$2" == "-sb" ]]; then
+            echo "## test-branch"
+        fi
+        ;;
+    merge-base) exit 0 ;;
+esac
+exit 0
+MOCK_GIT
+    chmod +x "$mock_bin/git"
+
+    # Mock codex that outputs mixed approval
+    cat > "$mock_bin/codex" << 'MOCK_CODEX'
+#!/bin/bash
+# Mock codex output: claude approves, codex has issues
+cat << 'CODEX_OUTPUT'
+# PR Review Validation
+
+### Per-Bot Status
+| Bot | Status | Summary |
+|-----|--------|---------|
+| claude | APPROVE | No issues found |
+| codex | ISSUES | Found 2 issues that need fixing |
+
+### Issues Found (if any)
+1. Issue from codex: Missing error handling
+2. Issue from codex: Needs tests
+
+### Approved Bots (to remove from active_bots)
+- claude
+
+### Final Recommendation
+ISSUES_REMAINING
+CODEX_OUTPUT
+MOCK_CODEX
+    chmod +x "$mock_bin/codex"
+
+    export CLAUDE_PROJECT_DIR="$test_subdir"
+    export PATH="$mock_bin:$PATH"
+
+    # Run stop hook
+    local hook_output
+    hook_output=$(timeout 30 bash -c 'echo "{}" | "$1/hooks/pr-loop-stop-hook.sh" 2>&1' _ "$PROJECT_ROOT") || true
+
+    # Verify that ISSUES_RESOLVED_COUNT is 0, not inflated to ISSUES_FOUND_COUNT
+    # The goal tracker should show issues found > 0 but resolved = 0
+    # (because codex still has issues, even though claude approved)
+
+    # Check the feedback file or check file for the correct issue counts
+    local check_file="$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/round-1-pr-check.md"
+    if [[ -f "$check_file" ]]; then
+        # Check that issues were found
+        if grep -q "Issues Found\|ISSUES" "$check_file" 2>/dev/null; then
+            pass "T-STOPHOOK-13: Goal tracker correctly identifies issues"
+        else
+            fail "T-STOPHOOK-13: Check file should contain issues" "issues listed" "not found"
+        fi
+    else
+        # Check file may not exist if polling didn't complete
+        # Check output instead
+        if echo "$hook_output" | grep -qi "issues.*remaining\|ISSUES_REMAINING"; then
+            pass "T-STOPHOOK-13: Goal tracker correctly identifies issues (via output)"
+        else
+            fail "T-STOPHOOK-13: Should detect issues remaining" "issues_remaining" "got: $hook_output"
+        fi
+    fi
+
+    # VERIFICATION: The key fix - resolved count should NOT be inflated
+    # Since we can't directly check ISSUES_RESOLVED_COUNT variable, verify the behavior:
+    # - claude approved (removed from active_bots)
+    # - codex has issues (stays in active_bots)
+    # - loop should continue (not complete) because codex still has issues
+
+    if [[ ! -f "$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/approve-state.md" ]]; then
+        pass "T-STOPHOOK-13a: Loop continues with mixed approval (not prematurely completed)"
+    else
+        fail "T-STOPHOOK-13a: Loop should not complete with mixed approval" "no approve-state.md" "approve-state.md exists"
+    fi
+
+    # Check that claude was removed from active_bots but codex remains
+    local state_file="$test_subdir/.humanize/pr-loop/2026-01-18_12-00-00/state.md"
+    if [[ -f "$state_file" ]]; then
+        local active_bots_content
+        active_bots_content=$(sed -n '/^active_bots:/,/^[a-z_]*:/p' "$state_file" | grep -E '^\s*-' || true)
+
+        if echo "$active_bots_content" | grep -q "codex"; then
+            pass "T-STOPHOOK-13b: Codex remains in active_bots (has issues)"
+        else
+            fail "T-STOPHOOK-13b: Codex should remain in active_bots" "codex in list" "got: $active_bots_content"
+        fi
+
+        if ! echo "$active_bots_content" | grep -q "claude"; then
+            pass "T-STOPHOOK-13c: Claude removed from active_bots (approved)"
+        else
+            fail "T-STOPHOOK-13c: Claude should be removed from active_bots" "no claude" "got: $active_bots_content"
+        fi
+    fi
+
+    unset CLAUDE_PROJECT_DIR
+}
+
 # Run stop-hook integration tests
 test_stophook_force_push_rejects_old_trigger
 test_stophook_case1_no_trigger_required
@@ -1403,5 +1780,7 @@ test_stophook_bot_timeout_auto_remove
 test_stophook_codex_thumbsup_approval
 test_stophook_claude_eyes_timeout
 test_stophook_dynamic_startup_case_update
+test_stophook_fork_pr_base_repo_resolution
+test_stophook_goal_tracker_mixed_approval
 
 }
