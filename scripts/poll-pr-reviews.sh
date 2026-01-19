@@ -179,7 +179,12 @@ FILTERED_FILE="$TEMP_DIR/filtered.json"
 MAX_RETRIES=3
 RETRY_DELAY=2
 
+# Track API failures (for diagnostics, not script termination)
+API_FAILURES=0
+
 # Function to fetch with retries
+# Returns 0 even on failure to prevent script termination under set -euo pipefail
+# On failure, outputs empty array "[]" so jq processing continues gracefully
 fetch_with_retry() {
     local endpoint="$1"
     local attempt=1
@@ -192,13 +197,19 @@ fetch_with_retry() {
         }
 
         if [[ $attempt -lt $MAX_RETRIES ]]; then
+            echo "Warning: API fetch failed (attempt $attempt/$MAX_RETRIES), retrying..." >&2
             sleep "$RETRY_DELAY"
+        else
+            echo "Warning: API fetch failed after $MAX_RETRIES attempts for $endpoint" >&2
+            API_FAILURES=$((API_FAILURES + 1))
         fi
         ((attempt++))
     done
 
+    # Return empty array and success (0) to allow polling to continue
+    # Partial API outages shouldn't terminate the entire poll loop
     echo "[]"
-    return 1
+    return 0
 }
 
 # Initialize empty array
