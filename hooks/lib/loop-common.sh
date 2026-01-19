@@ -771,11 +771,19 @@ validate_pr_resolve_round() {
 
     if [[ -n "$claude_pr_round" ]] && [[ "$claude_pr_round" != "$pr_current_round" ]]; then
         local correct_path="$active_pr_loop_dir/round-${pr_current_round}-pr-resolve.md"
+        # NOTE: Avoid ${var^} (Bash 4+ only) for macOS Bash 3.2 compatibility
+        # Use tr for portable capitalization of first letter
+        local action_verb_cap
+        action_verb_cap=$(echo "$action_verb" | sed 's/^\(.\)/\U\1/')
+        # Fallback for systems where \U doesn't work (use awk instead)
+        if [[ "$action_verb_cap" == "$action_verb" ]] || [[ "$action_verb_cap" == *'U'* ]]; then
+            action_verb_cap=$(echo "$action_verb" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+        fi
         echo "# Wrong Round Number" >&2
         echo "" >&2
         echo "You tried to $action_verb round-${claude_pr_round}-pr-resolve.md but current PR loop round is **${pr_current_round}**." >&2
         echo "" >&2
-        echo "${action_verb^}: \`$correct_path\`" >&2
+        echo "$action_verb_cap: \`$correct_path\`" >&2
         return 2
     fi
 

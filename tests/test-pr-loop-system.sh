@@ -1734,9 +1734,9 @@ MOCK_CODEX
         return 1
     fi
 
-    # Check that Codex bot is mentioned in the row
-    if ! grep -q "Codex" "$goal_file"; then
-        echo "Goal tracker missing Codex bot entry"
+    # Check that codex bot is mentioned in the row (lowercase to match configured bot names)
+    if ! grep -qi "codex" "$goal_file"; then
+        echo "Goal tracker missing codex bot entry"
         echo "Contents: $(cat "$goal_file")"
         rm -rf "$test_dir"
         return 1

@@ -1512,7 +1512,9 @@ fi
 
 # Call update_pr_goal_tracker if goal tracker exists
 if [[ -f "$GOAL_TRACKER_FILE" ]]; then
-    BOT_RESULTS_JSON="{\"bot\": \"Codex\", \"issues\": $ISSUES_FOUND_COUNT, \"resolved\": $ISSUES_RESOLVED_COUNT}"
+    # NOTE: Use lowercase "codex" to match configured bot names and avoid duplicate rows
+    # (Codex itself writes rows with lowercase names in goal tracker)
+    BOT_RESULTS_JSON="{\"bot\": \"codex\", \"issues\": $ISSUES_FOUND_COUNT, \"resolved\": $ISSUES_RESOLVED_COUNT}"
     update_pr_goal_tracker "$GOAL_TRACKER_FILE" "$NEXT_ROUND" "$BOT_RESULTS_JSON" || true
 fi
 
