@@ -366,8 +366,13 @@ $NON_HUMANIZE_STATUS
             elif [[ -z "$REMOTE_HEAD" && -n "$PR_NUMBER" ]]; then
                 # No origin/branch exists - compare with PR's headRefOid from GitHub
                 # This handles cases where branch was never pushed or remote ref is missing
-                PR_HEAD_SHA=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid' 2>/dev/null) || PR_HEAD_SHA=""
-                if [[ -n "$LOCAL_HEAD" && -n "$PR_HEAD_SHA" && "$LOCAL_HEAD" != "$PR_HEAD_SHA" ]]; then
+                # NOTE: Use --repo for fork PR support (PR_BASE_REPO resolved earlier)
+                PR_HEAD_SHA=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_BASE_REPO" --json headRefOid -q '.headRefOid' 2>/dev/null) || PR_HEAD_SHA=""
+                if [[ -z "$PR_HEAD_SHA" ]]; then
+                    # Failed to get PR head - fail closed (assume unpushed) for safety
+                    echo "Warning: Could not fetch PR head SHA, assuming unpushed commits" >&2
+                    AHEAD_COUNT=1
+                elif [[ -n "$LOCAL_HEAD" && "$LOCAL_HEAD" != "$PR_HEAD_SHA" ]]; then
                     # Local differs from PR head - count commits since PR head
                     AHEAD_COUNT=$(git rev-list --count "$PR_HEAD_SHA..HEAD" 2>/dev/null) || {
                         # PR head not in local history (force push?) - treat as 1 unpushed
