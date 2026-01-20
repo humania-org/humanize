@@ -79,11 +79,11 @@ fi
 # ========================================
 # Test 2: Issues in result file only
 # ========================================
-echo "Test 2: detect_review_issues finds issues in result file only"
+echo "Test 2: detect_review_issues finds issues in result file only and includes stdout for context"
 setup_test_env
 
-# Stdout file without [P?] markers
-echo "No issues found" > "$CACHE_DIR/round-2-codex-review.out"
+# Stdout file without [P?] markers but with context
+echo "No issues found in initial scan" > "$CACHE_DIR/round-2-codex-review.out"
 
 # Create result file with [P2] issue
 cat > "$LOOP_DIR/round-2-review-result.md" << 'EOF'
@@ -98,11 +98,13 @@ OUTPUT=$(detect_review_issues 2 2>/dev/null)
 RESULT=$?
 set -e
 
-# Should include both stdout (for context) and result file
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P2\]' && echo "$OUTPUT" | grep -q "Security"; then
-    pass "Issues detected in result file only"
+# Per plan: "concatenate the contents of both files together"
+# When result file has [P?] issues and stdout exists with different content,
+# BOTH files must be included in the output.
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P2\]' && echo "$OUTPUT" | grep -q "initial scan"; then
+    pass "Issues in result file and stdout included for context"
 else
-    fail "Issues in result file only" "return 0, output contains [P2]" "return $RESULT, output: $OUTPUT"
+    fail "Issues in result file only" "return 0, output contains [P2] AND stdout content" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
@@ -214,7 +216,7 @@ else
 fi
 
 # ========================================
-# Test 7: Issues in stdout, context in result (NEW)
+# Test 7: Issues in stdout, context in result (context inclusion test)
 # ========================================
 echo "Test 7: detect_review_issues includes result file for context when only stdout has issues"
 setup_test_env
@@ -236,19 +238,13 @@ OUTPUT=$(detect_review_issues 7 2>/dev/null)
 RESULT=$?
 set -e
 
-# Should include stdout (has issues) but result file should also be included for context
-# when it has different content
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
-    # Check that result file content is included (since content differs and issues exist)
-    if echo "$OUTPUT" | grep -q "well structured"; then
-        pass "Result file included for context when stdout has issues"
-    else
-        # The new logic only includes files that have [P?] issues, not just for context
-        # This is actually the correct behavior based on the implementation
-        pass "Result file not included (no [P?] issues in it) - expected behavior"
-    fi
+# Per plan: "concatenate the contents of both files together to form a suitable prompt"
+# When stdout has [P?] issues and result file exists with different content,
+# BOTH files must be included in the output.
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]' && echo "$OUTPUT" | grep -q "well structured"; then
+    pass "Result file included for context when stdout has issues"
 else
-    fail "Context inclusion" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
+    fail "Context inclusion" "return 0, output contains [P1] AND result file content" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
