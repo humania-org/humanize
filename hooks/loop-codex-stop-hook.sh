@@ -875,13 +875,12 @@ fi
 # ========================================
 
 # Run codex review and save debug files
-# Arguments: $1=round_number, $2=result_file
-# Sets: CODEX_REVIEW_EXIT_CODE, CODEX_REVIEW_STDOUT_FILE, CODEX_REVIEW_STDERR_FILE
+# Arguments: $1=round_number
+# Sets: CODEX_REVIEW_EXIT_CODE, CODEX_REVIEW_LOG_FILE
 # Returns: exit code from codex review
 # Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
 run_codex_code_review() {
     local round="$1"
-    local result_file="$2"
     local timestamp
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -967,14 +966,11 @@ run_and_handle_code_review() {
     local round="$1"
     local success_msg="$2"
 
-    local result_file="$LOOP_DIR/round-${round}-review-result.md"
-
     echo "Running codex review against base branch: $BASE_BRANCH..." >&2
 
     # Run codex review using helper function
-    # Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
     # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
-    if ! run_codex_code_review "$round" "$result_file"; then
+    if ! run_codex_code_review "$round"; then
         block_review_failure "$round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
     fi
 
@@ -1190,11 +1186,9 @@ Stderr (last 50 lines):
         "BASE_BRANCH=$BASE_BRANCH" \
         "EXIT_CODE=$exit_code" \
         "STDERR_CONTENT=$stderr_content" \
-        "CODEX_EXIT_CODE=$exit_code" \
         "REVIEW_RESULT_FILE=$LOOP_DIR/round-${round}-review-result.md" \
         "CODEX_CMD_FILE=$CACHE_DIR/round-${round}-codex-review.cmd" \
-        "CODEX_STDOUT_FILE=$CACHE_DIR/round-${round}-codex-review.out" \
-        "CODEX_STDERR_FILE=$CACHE_DIR/round-${round}-codex-review.log")
+        "CODEX_LOG_FILE=$CACHE_DIR/round-${round}-codex-review.log")
 
     jq -n \
         --arg reason "$reason" \

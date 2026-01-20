@@ -333,11 +333,10 @@ parse_state_file_strict() {
 # Required globals: LOOP_DIR, CACHE_DIR
 #
 # Algorithm:
-# 1. Read the last 50 lines of the log file (or all lines if < 50)
-# 2. Scan from the start of those lines to the end
-# 3. Find the first line where [P?] (? is a digit) appears in the first 10 characters
-# 4. If found: extract from that line to the end and output it
-# 5. If not found: no issues, return 1
+# 1. Scan the entire log file for [P?] markers in the first 10 characters of each line
+# 2. Find the first line where [P?] (? is a digit) appears in the first 10 characters
+# 3. If found: extract from that line to the end and output it
+# 4. If not found: no issues, return 1
 #
 # Note: codex review outputs to stderr, so we analyze the combined log file
 # which contains both stdout and stderr (redirected with 2>&1).
@@ -352,49 +351,38 @@ detect_review_issues() {
         return 2
     fi
 
-    # Get total line count
     local total_lines
     total_lines=$(wc -l < "$log_file")
-
     echo "Analyzing log file: $log_file ($total_lines lines)" >&2
 
-    # Scan the ENTIRE log file for [P?] markers in the first 10 characters of each line
-    # We must scan the full file because codex review may emit [P?] early followed by
-    # verbose details, and limiting to last N lines could miss real issues
-    local found_line=0
-    local current_line=1
-    while [[ "$current_line" -le "$total_lines" ]]; do
-        # Get the line content
-        local line_content
-        line_content=$(sed -n "${current_line}p" "$log_file")
+    # Use awk to find the first line where [P?] appears in the first 10 characters
+    # This is more efficient than a shell while loop with sed per line
+    local found_line
+    found_line=$(awk '
+        substr($0, 1, 10) ~ /\[P[0-9]\]/ {
+            print NR
+            exit
+        }
+    ' "$log_file")
 
-        # Check if [P?] (? is digit) appears in first 10 characters
-        # This prevents false positives from [P?] mentions in the middle of descriptions
-        local first_10_chars="${line_content:0:10}"
-        if [[ "$first_10_chars" =~ \[P[0-9]\] ]]; then
-            found_line="$current_line"
-            echo "Found [P?] issue at line $found_line" >&2
-            break
-        fi
-        current_line=$((current_line + 1))
-    done
+    if [[ -n "$found_line" && "$found_line" -gt 0 ]]; then
+        echo "Found [P?] issue at line $found_line" >&2
 
-    if [[ "$found_line" -gt 0 ]]; then
-        # Extract from found_line to end and output
+        # Extract from found_line to end
         local extracted_content
         extracted_content=$(sed -n "${found_line},\$p" "$log_file")
 
-        # Also save to result file for audit purposes
+        # Save to result file for audit purposes
         printf '%s\n' "$extracted_content" > "$result_file"
         echo "Review issues extracted to: $result_file" >&2
 
         # Output the content for the caller
         printf '## Codex Review Issues\n\n%s\n' "$extracted_content"
         return 0
-    else
-        echo "No [P?] issues found in log file analysis range" >&2
-        return 1
     fi
+
+    echo "No [P?] issues found in log file" >&2
+    return 1
 }
 
 # Convert a string to lowercase
