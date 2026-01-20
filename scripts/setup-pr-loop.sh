@@ -307,7 +307,7 @@ PR_NUMBER=""
 
 # Try current repo first
 if [[ -n "$CURRENT_REPO" ]]; then
-    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$CURRENT_REPO" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$CURRENT_REPO" "$START_BRANCH" --json number -q .number 2>/dev/null) || PR_NUMBER=""
     if [[ -n "$PR_NUMBER" ]]; then
         PR_LOOKUP_REPO="$CURRENT_REPO"
     fi
@@ -316,7 +316,7 @@ fi
 # If not found in current repo and we have a parent (fork case), try parent
 if [[ -z "$PR_NUMBER" && -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
     echo "Checking parent repo for PR (fork detected)..." >&2
-    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$PARENT_REPO" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$PARENT_REPO" "$START_BRANCH" --json number -q .number 2>/dev/null) || PR_NUMBER=""
     if [[ -n "$PR_NUMBER" ]]; then
         PR_LOOKUP_REPO="$PARENT_REPO"
         echo "Found PR #$PR_NUMBER in parent repo: $PARENT_REPO" >&2
@@ -348,15 +348,9 @@ if [[ "$PR_STATE" == "CLOSED" ]]; then
     exit 1
 fi
 
-# IMPORTANT: Use the PR's base repository for API calls (for fork PR support)
-# Comments are on the base repo, not the fork
-PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PR_LOOKUP_REPO" --json baseRepository \
-    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
-
-if [[ -z "$PR_BASE_REPO" ]]; then
-    echo "Warning: Could not resolve PR base repository, using lookup repo" >&2
-    PR_BASE_REPO="$PR_LOOKUP_REPO"
-fi
+# IMPORTANT: Use the PR's lookup repository for API calls
+# Since PR_LOOKUP_REPO was already validated to contain this PR, we can use it directly
+PR_BASE_REPO="$PR_LOOKUP_REPO"
 
 # ========================================
 # Validate YAML Safety

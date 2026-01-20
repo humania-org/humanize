@@ -129,24 +129,25 @@ CURRENT_REPO=$(gh repo view --json owner,name -q '.owner.login + "/" + .name' 2>
     exit 1
 }
 
-# Step 2: Try to get PR base repo using --repo flag (handles fork case)
-# First try current repo, then check if PR exists there
-PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json baseRepository \
-    -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
-    # If current repo doesn't have this PR, it might be a fork
-    # Try to get the parent/upstream repo
+# Step 2: Determine the correct repo for PR operations
+# Try current repo first - if PR exists there, use it
+PR_BASE_REPO=""
+if gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json number -q .number >/dev/null 2>&1; then
+    PR_BASE_REPO="$CURRENT_REPO"
+else
+    # PR not found in current repo - check if this is a fork and try parent repo
     PARENT_REPO=$(gh repo view --json parent -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
     if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
-        PR_BASE_REPO=$(gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json baseRepository \
-            -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || {
-            echo "Error: Failed to get PR base repository from parent repo" >&2
-            exit 1
-        }
-    else
-        echo "Error: Failed to get PR base repository" >&2
-        exit 1
+        if gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json number -q .number >/dev/null 2>&1; then
+            PR_BASE_REPO="$PARENT_REPO"
+        fi
     fi
-}
+fi
+
+if [[ -z "$PR_BASE_REPO" ]]; then
+    echo "Error: Failed to find PR #$PR_NUMBER in current or parent repository" >&2
+    exit 1
+fi
 
 REPO_OWNER="${PR_BASE_REPO%%/*}"
 REPO_NAME="${PR_BASE_REPO##*/}"

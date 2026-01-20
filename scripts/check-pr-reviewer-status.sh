@@ -108,26 +108,29 @@ IFS=',' read -ra BOTS <<< "$BOT_LIST"
 
 # IMPORTANT: For fork PRs, we need to resolve the base (upstream) repository
 # gh pr view without --repo fails in forks because the PR number doesn't exist there
-# Strategy: First get current repo, then try to get PR's base repo with --repo flag
+# Strategy: First get current repo, check if PR exists there, then try parent repo for forks
 
 # Step 1: Get the current repo (works in both forks and base repos)
 CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
     -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
 
-# Step 2: Try to get PR base repo using --repo flag (handles fork case)
+# Step 2: Determine the correct repo for PR operations
+# Try current repo first - if PR exists there, use it
 PR_BASE_REPO=""
 if [[ -n "$CURRENT_REPO" ]]; then
-    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" \
-        --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+    if run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json number -q .number >/dev/null 2>&1; then
+        PR_BASE_REPO="$CURRENT_REPO"
+    fi
 fi
 
 if [[ -z "$PR_BASE_REPO" ]]; then
-    # If current repo doesn't have this PR, it might be a fork - try parent repo
+    # PR not found in current repo - check if this is a fork and try parent repo
     PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
         -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
     if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
-        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" \
-            --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
+        if run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json number -q .number >/dev/null 2>&1; then
+            PR_BASE_REPO="$PARENT_REPO"
+        fi
     fi
 fi
 
