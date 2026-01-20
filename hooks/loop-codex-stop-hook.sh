@@ -256,6 +256,13 @@ fi
 # ========================================
 # Quick-check 0.6: Plan File Integrity
 # ========================================
+# Skip this check in Review Phase (review_started=true)
+# In review phase, the plan file is no longer needed - only code review matters.
+# This is especially important for skip-impl mode where no real plan file exists.
+
+if [[ "$REVIEW_STARTED" == "true" ]]; then
+    echo "Review phase: skipping plan file integrity check (plan no longer needed)" >&2
+else
 
 BACKUP_PLAN="$LOOP_DIR/plan.md"
 FULL_PLAN_PATH="$PROJECT_ROOT/$PLAN_FILE"
@@ -326,6 +333,8 @@ Backup available at: \`$BACKUP_PLAN\`"
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
     exit 0
 fi
+
+fi  # End of REVIEW_STARTED != true check for plan file integrity
 
 # ========================================
 # Quick Check: Are All Todos Completed?
