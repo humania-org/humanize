@@ -314,9 +314,16 @@ if [[ -n "$CURRENT_REPO" ]]; then
 fi
 
 # If not found in current repo and we have a parent (fork case), try parent
+# IMPORTANT: For fork PRs, the head branch lives in the fork, so we must use
+# the fork-qualified format (FORK_OWNER:BRANCH) when looking up in parent repo
 if [[ -z "$PR_NUMBER" && -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
     echo "Checking parent repo for PR (fork detected)..." >&2
-    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$PARENT_REPO" "$START_BRANCH" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    # Extract fork owner from CURRENT_REPO (format: owner/repo)
+    FORK_OWNER="${CURRENT_REPO%%/*}"
+    # Use fork-qualified branch name: FORK_OWNER:BRANCH
+    QUALIFIED_BRANCH="${FORK_OWNER}:${START_BRANCH}"
+    echo "  Using qualified branch: $QUALIFIED_BRANCH" >&2
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$PARENT_REPO" "$QUALIFIED_BRANCH" --json number -q .number 2>/dev/null) || PR_NUMBER=""
     if [[ -n "$PR_NUMBER" ]]; then
         PR_LOOKUP_REPO="$PARENT_REPO"
         echo "Found PR #$PR_NUMBER in parent repo: $PARENT_REPO" >&2
