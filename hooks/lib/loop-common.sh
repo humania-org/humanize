@@ -353,23 +353,20 @@ detect_review_issues() {
     local total_lines
     total_lines=$(wc -l < "$log_file")
 
-    # Calculate start line for analysis (last 50 lines, or line 1 if fewer)
-    local start_line=1
-    if [[ "$total_lines" -gt 50 ]]; then
-        start_line=$((total_lines - 50 + 1))
-    fi
+    echo "Analyzing log file: $log_file ($total_lines lines)" >&2
 
-    echo "Analyzing log file: $log_file (lines $start_line to $total_lines)" >&2
-
-    # Find the first line in the analysis range where [P?] appears in first 10 chars
+    # Scan the ENTIRE log file for [P?] markers in the first 10 characters of each line
+    # We must scan the full file because codex review may emit [P?] early followed by
+    # verbose details, and limiting to last N lines could miss real issues
     local found_line=0
-    local current_line="$start_line"
+    local current_line=1
     while [[ "$current_line" -le "$total_lines" ]]; do
         # Get the line content
         local line_content
         line_content=$(sed -n "${current_line}p" "$log_file")
 
         # Check if [P?] (? is digit) appears in first 10 characters
+        # This prevents false positives from [P?] mentions in the middle of descriptions
         local first_10_chars="${line_content:0:10}"
         if [[ "$first_10_chars" =~ \[P[0-9]\] ]]; then
             found_line="$current_line"

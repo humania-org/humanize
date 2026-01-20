@@ -4,16 +4,15 @@
 #
 # Tests that detect_review_issues() correctly:
 # - Detects [P0-9] patterns in first 10 characters of each line
-# - Analyzes only the last 50 lines of the log file
+# - Scans the ENTIRE log file (not just last N lines)
 # - Extracts content from the first matching line to the end
 # - Returns appropriate exit codes
 #
 # Algorithm being tested:
-# 1. Read the last 50 lines of the log file (or all lines if < 50)
-# 2. Scan from the start of those lines to the end
-# 3. Find the first line where [P?] (? is a digit) appears in the first 10 characters
-# 4. If found: extract from that line to the end and output it
-# 5. If not found: no issues, return 1
+# 1. Scan the entire log file from line 1
+# 2. Find the first line where [P?] (? is a digit) appears in the first 10 characters
+# 3. If found: extract from that line to the end and output it
+# 4. If not found: no issues, return 1
 #
 
 set -uo pipefail
@@ -170,12 +169,12 @@ else
 fi
 
 # ========================================
-# Test 6: Log file with >50 lines, [P?] in last 50
+# Test 6: Log file with >50 lines, [P?] late in file
 # ========================================
-echo "Test 6: detect_review_issues finds [P?] in last 50 lines of long log"
+echo "Test 6: detect_review_issues finds [P?] late in a long log"
 setup_test_env
 
-# Create a log file with 60 lines, [P1] at line 55 (within last 50)
+# Create a log file with 60 lines, [P1] at line 55
 {
     for i in $(seq 1 54); do
         echo "Debug line $i - some processing output"
@@ -192,23 +191,24 @@ RESULT=$?
 set -e
 
 if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
-    pass "[P?] found in last 50 lines"
+    pass "[P?] found late in long log"
 else
-    fail "[P?] in last 50 lines" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
+    fail "[P?] late in long log" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 7: Log file with >50 lines, [P?] outside last 50 - should NOT detect
+# Test 7: Log file with >50 lines, [P?] early in file - should detect
 # ========================================
-echo "Test 7: detect_review_issues ignores [P?] outside last 50 lines"
+echo "Test 7: detect_review_issues finds [P?] early in a long log (full file scan)"
 setup_test_env
 
-# Create a log file with 70 lines, [P1] at line 5 (outside last 50)
+# Create a log file with 70 lines, [P1] at line 5 (early in the file)
+# This tests that we scan the full file, not just the last N lines
 {
     for i in $(seq 1 4); do
         echo "Debug line $i"
     done
-    echo "- [P1] This is outside the last 50 lines - /path/to/file.py:1"
+    echo "- [P1] This is early in the file - /path/to/file.py:1"
     for i in $(seq 6 70); do
         echo "More output line $i - no issues here"
     done
@@ -219,11 +219,11 @@ OUTPUT=$(detect_review_issues 7 2>/dev/null)
 RESULT=$?
 set -e
 
-# [P1] is at line 5, but we only scan lines 21-70 (last 50), so should return 1
-if [[ $RESULT -eq 1 ]]; then
-    pass "[P?] outside last 50 lines ignored"
+# [P1] is at line 5 - full file scan should find it
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
+    pass "[P?] early in file detected (full scan)"
 else
-    fail "[P?] outside last 50 lines" "return 1 (not found)" "return $RESULT, output: $OUTPUT"
+    fail "[P?] early in file" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
