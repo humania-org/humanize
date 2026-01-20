@@ -695,12 +695,8 @@ DOCS_PATH="docs"
 # Create State File
 # ========================================
 
-# Determine initial review_started value
-if [[ "$SKIP_IMPL" == "true" ]]; then
-    INITIAL_REVIEW_STARTED="true"
-else
-    INITIAL_REVIEW_STARTED="false"
-fi
+# Determine initial review_started value based on skip-impl mode
+INITIAL_REVIEW_STARTED="$SKIP_IMPL"
 
 cat > "$LOOP_DIR/state.md" << EOF
 ---

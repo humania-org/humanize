@@ -60,16 +60,16 @@ else
     fail "Invalid JSON handling" "exit 2" "exit $EXIT_CODE"
 fi
 
-# Test 2: Empty input should exit 2 (parse error)
+# Test 2: Empty input should exit 0 (allow proceeding - no transcript available)
 echo "Test 2: Empty input"
 set +e
 RESULT=$(echo "" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 2 ]]; then
-    pass "Empty input returns exit code 2"
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Empty input allows proceeding (exit 0)"
 else
-    fail "Empty input handling" "exit 2" "exit $EXIT_CODE"
+    fail "Empty input handling" "exit 0" "exit $EXIT_CODE"
 fi
 
 # Test 3: Valid JSON without transcript_path should exit 0

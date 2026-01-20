@@ -1519,7 +1519,7 @@ load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_
     "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" > "$NEXT_PROMPT_FILE"
 
 # Add special instructions for post-Full Alignment Check rounds
-if [[ $((CURRENT_ROUND % FULL_REVIEW_ROUND)) -eq $((FULL_REVIEW_ROUND - 1)) ]]; then
+if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
     POST_ALIGNMENT=$(load_template "$TEMPLATE_DIR" "claude/post-alignment-action-items.md" 2>/dev/null)
     if [[ -n "$POST_ALIGNMENT" ]]; then
         echo "$POST_ALIGNMENT" >> "$NEXT_PROMPT_FILE"
