@@ -151,7 +151,7 @@ fi
 # ========================================
 # Quick-check 0.1: Schema Validation (v1.5.0+ fields)
 # ========================================
-# Validate review_started field for v1.5.0+ state files
+# Validate review_started and base_branch fields for v1.5.0+ state files
 
 if [[ -z "$REVIEW_STARTED" || ( "$REVIEW_STARTED" != "true" && "$REVIEW_STARTED" != "false" ) ]]; then
     REASON="RLCR loop state file is missing or has invalid review_started field.
@@ -163,6 +163,20 @@ This indicates the loop was started with an older version of humanize (pre-1.5.0
 2. Update humanize plugin to version 1.5.0+
 3. Restart the RLCR loop with the updated plugin"
     jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing review_started)" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+if [[ -z "$BASE_BRANCH" ]]; then
+    REASON="RLCR loop state file is missing base_branch field.
+
+This indicates the loop was started with an older version of humanize (pre-1.5.0).
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.5.0+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing base_branch)" \
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
     exit 0
 fi
@@ -879,6 +893,65 @@ run_codex_code_review() {
     return "$CODEX_REVIEW_EXIT_CODE"
 }
 
+# Detect review issues from both stdout and result file
+# Returns: 0 if issues found, 1 if no issues
+# Outputs: merged content to stdout if issues found
+# Arguments: $1=round_number
+detect_review_issues() {
+    local round="$1"
+    local result_file="$LOOP_DIR/round-${round}-review-result.md"
+    local stdout_file="$CACHE_DIR/round-${round}-codex-review.out"
+
+    local has_issues=false
+    local merged_content=""
+
+    # Check stdout file for [P0-9] patterns
+    if [[ -f "$stdout_file" && -s "$stdout_file" ]]; then
+        if grep -qE '\[P[0-9]\]' "$stdout_file"; then
+            has_issues=true
+            merged_content+="## Codex Review Output (stdout)
+
+$(cat "$stdout_file")
+
+"
+            echo "Found [P0-9] issues in codex review stdout" >&2
+        fi
+    else
+        echo "Warning: Codex review stdout file not found or empty: $stdout_file" >&2
+    fi
+
+    # Check result file for [P0-9] patterns
+    if [[ -f "$result_file" && -s "$result_file" ]]; then
+        if grep -qE '\[P[0-9]\]' "$result_file"; then
+            has_issues=true
+            # Only add result file content if it's different from stdout
+            # or if stdout wasn't already added
+            if [[ -z "$merged_content" ]]; then
+                merged_content+="## Code Review Results
+
+$(cat "$result_file")
+"
+            elif [[ -f "$stdout_file" ]] && ! diff -q "$stdout_file" "$result_file" >/dev/null 2>&1; then
+                # Files are different, include both
+                merged_content+="## Code Review Results (from file)
+
+$(cat "$result_file")
+"
+            fi
+            echo "Found [P0-9] issues in review result file" >&2
+        fi
+    else
+        echo "Warning: Review result file not found or empty: $result_file" >&2
+    fi
+
+    if [[ "$has_issues" == true ]]; then
+        printf '%s' "$merged_content"
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Enter finalize phase with appropriate prompt
 # Arguments: $1=skip_reason (empty if not skipped), $2=system_message
 enter_finalize_phase() {
@@ -1233,15 +1306,23 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
                 echo "Warning: Codex review failed (exit code $CODEX_REVIEW_EXIT_CODE). Skipping to finalize phase." >&2
                 REVIEW_SKIPPED="true"
                 REVIEW_SKIP_REASON="Codex review failed with exit code $CODEX_REVIEW_EXIT_CODE"
-            elif [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
-                echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
-                REVIEW_SKIPPED="true"
-                REVIEW_SKIP_REASON="Codex review produced no output"
-            elif grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
-                # Issues found - continue review loop using helper function
-                continue_review_loop_with_issues "$REVIEW_ROUND" "$(cat "$CODE_REVIEW_RESULT_FILE")"
             else
-                echo "Code review passed with no issues. Proceeding to finalize phase." >&2
+                # Check both stdout and result file for [P0-9] issues (plan requirement)
+                # Use || true to prevent set -e from exiting when function returns 1 (no issues)
+                MERGED_REVIEW_CONTENT=$(detect_review_issues "$REVIEW_ROUND") || true
+                DETECT_EXIT_CODE=$?
+                if [[ -n "$MERGED_REVIEW_CONTENT" ]]; then
+                    # Issues found - continue review loop with merged content
+                    continue_review_loop_with_issues "$REVIEW_ROUND" "$MERGED_REVIEW_CONTENT"
+                elif [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]] && \
+                     [[ ! -f "$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out" || ! -s "$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out" ]]; then
+                    # Neither file has content
+                    echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
+                    REVIEW_SKIPPED="true"
+                    REVIEW_SKIP_REASON="Codex review produced no output"
+                else
+                    echo "Code review passed with no issues. Proceeding to finalize phase." >&2
+                fi
             fi
         fi
 
@@ -1316,15 +1397,17 @@ Write your review to: {{REVIEW_RESULT_FILE}}"
         enter_finalize_phase "Codex review failed with exit code $CODEX_REVIEW_EXIT_CODE" "Loop: Finalize Phase - Code review skipped"
     fi
 
-    # Handle missing or empty review output
-    if [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]]; then
+    # Check both stdout and result file for [P0-9] issues (plan requirement)
+    # Use || true to prevent set -e from exiting when function returns 1 (no issues)
+    MERGED_REVIEW_CONTENT=$(detect_review_issues "$REVIEW_ROUND") || true
+    if [[ -n "$MERGED_REVIEW_CONTENT" ]]; then
+        # Issues found - continue review loop with merged content
+        continue_review_loop_with_issues "$REVIEW_ROUND" "$MERGED_REVIEW_CONTENT"
+    elif [[ ! -f "$CODE_REVIEW_RESULT_FILE" || ! -s "$CODE_REVIEW_RESULT_FILE" ]] && \
+         [[ ! -f "$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out" || ! -s "$CACHE_DIR/round-${REVIEW_ROUND}-codex-review.out" ]]; then
+        # Neither file has content
         echo "Warning: Codex review produced no output. Skipping to finalize phase." >&2
         enter_finalize_phase "Codex review produced no output" "Loop: Finalize Phase - Code review empty"
-    fi
-
-    # Check for issues using [P0-9] pattern
-    if grep -qE '\[P[0-9]\]' "$CODE_REVIEW_RESULT_FILE"; then
-        continue_review_loop_with_issues "$REVIEW_ROUND" "$(cat "$CODE_REVIEW_RESULT_FILE")"
     else
         echo "Code review passed with no issues. Proceeding to finalize phase." >&2
         enter_finalize_phase "" "Loop: Finalize Phase - Code review passed"

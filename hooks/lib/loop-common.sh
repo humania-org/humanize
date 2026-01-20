@@ -291,6 +291,10 @@ parse_state_file_strict() {
         echo "Error: Missing required field: review_started" >&2
         return 3
     fi
+    if [[ -z "$STATE_BASE_BRANCH" ]]; then
+        echo "Error: Missing required field: base_branch" >&2
+        return 3
+    fi
 
     # Validate current_round is numeric (including 0 and negative)
     if ! [[ "$STATE_CURRENT_ROUND" =~ ^-?[0-9]+$ ]]; then

@@ -49,8 +49,10 @@ mkdir -p "$XDG_CACHE_HOME"
 source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
 
 # Create a mock codex that outputs COMPLETE or custom content
+# Second arg (optional) is the codex review output (defaults to clean review)
 setup_mock_codex() {
     local output="$1"
+    local review_output="${2:-No issues found.}"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
 #!/bin/bash
@@ -59,6 +61,11 @@ if [[ "\$1" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
+elif [[ "\$1" == "review" ]]; then
+    # Handle codex review command
+    cat << 'REVIEWOUT'
+$review_output
+REVIEWOUT
 fi
 EOF
     chmod +x "$TEST_DIR/bin/codex"
@@ -66,8 +73,10 @@ EOF
 }
 
 # Create a mock codex that tracks if it was called
+# Second arg (optional) is the codex review output (defaults to clean review)
 setup_mock_codex_with_tracking() {
     local output="$1"
+    local review_output="${2:-No issues found.}"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
 #!/bin/bash
@@ -77,6 +86,10 @@ if [[ "\$1" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
+elif [[ "\$1" == "review" ]]; then
+    cat << 'REVIEWOUT'
+$review_output
+REVIEWOUT
 fi
 EOF
     chmod +x "$TEST_DIR/bin/codex"
