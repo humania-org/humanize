@@ -271,7 +271,8 @@ echo ""
 echo "Test 18: Concurrent template loads succeed"
 echo "Template {{NUM}}" > "$TEST_DIR/concurrent.md"
 
-ERRORS=0
+# Store PIDs to check each job's exit status
+PIDS=()
 for i in $(seq 1 10); do
     (
         RESULT=$(load_and_render_safe "$TEST_DIR" "concurrent.md" "fallback" "NUM=$i" 2>/dev/null)
@@ -279,14 +280,22 @@ for i in $(seq 1 10); do
             exit 1
         fi
     ) &
+    PIDS+=($!)
 done
-wait
 
-# Check that file still exists and is readable
-if [[ -f "$TEST_DIR/concurrent.md" ]]; then
-    pass "Concurrent template loads succeeded"
+# Wait for each job and count failures
+FAILURES=0
+for pid in "${PIDS[@]}"; do
+    if ! wait "$pid"; then
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
+# Check that all loads succeeded AND file still exists
+if [[ $FAILURES -eq 0 ]] && [[ -f "$TEST_DIR/concurrent.md" ]]; then
+    pass "Concurrent template loads succeeded (10/10 jobs passed)"
 else
-    fail "Concurrent loads" "file preserved" "file missing"
+    fail "Concurrent loads" "0 failures, file preserved" "$FAILURES failures, file exists: $([[ -f "$TEST_DIR/concurrent.md" ]] && echo yes || echo no)"
 fi
 
 # ========================================

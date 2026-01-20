@@ -251,14 +251,17 @@ echo ""
 # Test 11: Multiple concurrent reads of state file
 echo "Test 11: Multiple concurrent reads succeed"
 mkdir -p "$TEST_DIR/concurrent"
-create_state_file "$TEST_DIR/concurrent"
+# Use non-zero round (5) so we can distinguish successful reads from parse failures
+# (get_current_round returns 0 on failure, so checking for 0 would mask errors)
+create_state_file "$TEST_DIR/concurrent" 5
 
 # Spawn 10 parallel reads using temp files to track results
 mkdir -p "$TEST_DIR/concurrent/results"
 for i in $(seq 1 10); do
     (
         ROUND=$(get_current_round "$TEST_DIR/concurrent/state.md")
-        if [[ "$ROUND" == "0" ]]; then
+        # Only count as success if we read the actual value (5), not the default (0)
+        if [[ "$ROUND" == "5" ]]; then
             touch "$TEST_DIR/concurrent/results/success_$i"
         fi
     ) &
