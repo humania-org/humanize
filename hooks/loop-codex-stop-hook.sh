@@ -858,14 +858,35 @@ fi
 run_codex_code_review() {
     local round="$1"
     local result_file="$2"
+    local timestamp
+    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
     CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${round}-codex-review.out"
     CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${round}-codex-review.log"
+    local prompt_file="$LOOP_DIR/round-${round}-review-prompt.md"
+
+    # Create audit prompt file (codex review doesn't accept prompts, but we create this for audit)
+    local prompt_fallback="# Code Review Phase - Round ${round}
+
+This file documents the code review invocation for audit purposes.
+Note: codex review does not accept prompt input; it performs automated code review based on git diff.
+
+## Review Configuration
+- Base Branch: ${BASE_BRANCH}
+- Review Round: ${round}
+- Timestamp: ${timestamp}
+"
+    load_and_render_safe "$TEMPLATE_DIR" "codex/code-review-phase.md" "$prompt_fallback" \
+        "REVIEW_ROUND=$round" \
+        "BASE_BRANCH=$BASE_BRANCH" \
+        "TIMESTAMP=$timestamp" > "$prompt_file"
+
+    echo "Code review prompt (audit) saved to: $prompt_file" >&2
 
     {
         echo "# Codex review invocation debug info"
-        echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "# Timestamp: $timestamp"
         echo "# Working directory: $PROJECT_ROOT"
         echo "# Base branch: $BASE_BRANCH"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
