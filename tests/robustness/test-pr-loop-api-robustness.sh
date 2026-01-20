@@ -804,29 +804,33 @@ OUTPUT=$(PATH="$TEST_DIR/poll3/bin:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews
 EXIT_CODE=$?
 set -e
 
-# On API failure, poll-pr-reviews MUST exit 0 with valid JSON containing has_new_comments:false
-# Output may contain warnings before JSON, so extract just the JSON part
+# On API failure, poll-pr-reviews MUST:
+# 1. Exit with code 0
+# 2. Output valid JSON (parseable by jq -e)
+# 3. Have has_new_comments exactly equal to false
+# NO FALLBACKS - all three conditions must be met
 if [[ $EXIT_CODE -ne 0 ]]; then
-    fail "poll-pr-reviews API failure" "exit 0 with JSON" "exit=$EXIT_CODE, output: $OUTPUT"
+    fail "poll-pr-reviews API failure" "exit 0" "exit=$EXIT_CODE"
 else
-    # Extract JSON from output (last { ... } block)
-    JSON_OUTPUT=$(echo "$OUTPUT" | grep -E '^\{' | tail -1 || echo "")
-    if [[ -z "$JSON_OUTPUT" ]]; then
-        # Try getting complete JSON object
-        JSON_OUTPUT=$(echo "$OUTPUT" | sed -n '/{/,/}/p' | tail -n +1 || echo "")
-    fi
-    HAS_NEW=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments // empty' 2>/dev/null || echo "")
-    if [[ "$HAS_NEW" == "false" ]]; then
-        pass "poll-pr-reviews returns exit 0 with has_new_comments:false on API failure"
-    elif [[ -n "$HAS_NEW" ]]; then
-        # has_new_comments exists but not false - still valid JSON but unexpected
-        pass "poll-pr-reviews returns exit 0 with JSON (has_new_comments=$HAS_NEW)"
+    # Extract JSON from output (warnings precede JSON, JSON may be multi-line)
+    # Find the line number where JSON starts (first '{') and extract from there to end
+    JSON_START_LINE=$(echo "$OUTPUT" | grep -n '^{' | head -1 | cut -d: -f1)
+    if [[ -z "$JSON_START_LINE" ]]; then
+        fail "poll-pr-reviews API failure" "JSON output" "no JSON found in output"
     else
-        # Check if output contains the has_new_comments field anywhere
-        if echo "$OUTPUT" | grep -q '"has_new_comments".*false'; then
-            pass "poll-pr-reviews returns exit 0 with has_new_comments:false on API failure"
+        JSON_OUTPUT=$(echo "$OUTPUT" | tail -n +$JSON_START_LINE)
+
+        # Validate JSON is parseable using jq -e (exits non-zero on invalid JSON)
+        if ! echo "$JSON_OUTPUT" | jq -e '.' >/dev/null 2>&1; then
+            fail "poll-pr-reviews API failure" "valid JSON output" "invalid JSON: $JSON_OUTPUT"
         else
-            fail "poll-pr-reviews API failure" "JSON with has_new_comments:false" "output: $OUTPUT"
+            # Extract has_new_comments and verify it is exactly false (boolean)
+            HAS_NEW=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments')
+            if [[ "$HAS_NEW" == "false" ]]; then
+                pass "poll-pr-reviews returns exit 0 with valid JSON and has_new_comments:false"
+            else
+                fail "poll-pr-reviews API failure" "has_new_comments:false" "has_new_comments=$HAS_NEW"
+            fi
         fi
     fi
 fi
