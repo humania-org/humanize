@@ -676,8 +676,10 @@ fi
 
 NEXT_ROUND=$((CURRENT_ROUND + 1))
 
-# Skip max iterations check in Finalize Phase since we already received COMPLETE
-if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
+# Skip max iterations check in Finalize Phase or Review Phase
+# - Finalize Phase: already received COMPLETE from codex
+# - Review Phase: must continue until [P?] issues are cleared, regardless of iteration count
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
     exit 0
