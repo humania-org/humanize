@@ -684,8 +684,9 @@ The loop will:
 3. When no issues remain, enter finalize phase
 
 SKIP_IMPL_PLAN_EOF
-    # Update PLAN_FILE to point to the actual placeholder location
-    PLAN_FILE="$LOOP_DIR/plan.md"
+    # Update PLAN_FILE to point to the actual placeholder location (repo-relative path)
+    # Using relative path because git ls-files requires repo-relative paths
+    PLAN_FILE=".humanize/rlcr/$TIMESTAMP/plan.md"
 else
     cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
 fi
