@@ -305,12 +305,28 @@ PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
 PR_LOOKUP_REPO=""
 PR_NUMBER=""
 
-# Try current repo first - use no arguments to let gh infer PR from branch tracking info
+# Try to find PR using gh's auto-detection (no --repo flag)
 # This handles cases where local branch name differs from PR head (e.g., renamed branch)
-if [[ -n "$CURRENT_REPO" ]]; then
-    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --json number -q .number 2>/dev/null) || PR_NUMBER=""
-    if [[ -n "$PR_NUMBER" ]]; then
-        PR_LOOKUP_REPO="$CURRENT_REPO"
+# IMPORTANT: gh pr view can auto-resolve to upstream repo when in a fork, so we must
+# extract the actual repo from the PR URL rather than assuming it's CURRENT_REPO
+PR_INFO=$(run_with_timeout "$GH_TIMEOUT" gh pr view --json number,url -q '.number,.url' 2>/dev/null) || PR_INFO=""
+if [[ -n "$PR_INFO" ]]; then
+    # Parse number and URL from newline-separated output (jq outputs each field on separate line)
+    PR_NUMBER=$(echo "$PR_INFO" | head -1)
+    PR_URL=$(echo "$PR_INFO" | tail -1)
+    # Validate PR_NUMBER is numeric
+    if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+        echo "Error: Invalid PR number from gh CLI: $PR_INFO" >&2
+        PR_NUMBER=""
+        PR_URL=""
+    else
+        # Extract repo from URL: https://github.com/OWNER/REPO/pull/NUMBER -> OWNER/REPO
+        if [[ "$PR_URL" =~ github\.com/([^/]+/[^/]+)/pull/ ]]; then
+            PR_LOOKUP_REPO="${BASH_REMATCH[1]}"
+        else
+            # Fallback to current repo if URL parsing fails
+            PR_LOOKUP_REPO="$CURRENT_REPO"
+        fi
     fi
 fi
 

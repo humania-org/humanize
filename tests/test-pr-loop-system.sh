@@ -1647,9 +1647,15 @@ case "\$1" in
             echo "{\"commits\":[{\"committedDate\":\"\$COMMIT_TS\"}]}"
             exit 0
         fi
+        # PR lookup with number and url: gh pr view --json number,url -q '.number,.url'
+        if [[ "\$*" == *"number,url"* ]]; then
+            echo '123'
+            echo 'https://github.com/testowner/testrepo/pull/123'
+            exit 0
+        fi
         # PR existence check: gh pr view --repo ... --json number -q .number
         if [[ "\$*" == *"number"* ]] && [[ "\$*" != *"commits"* ]]; then
-            echo '{"number": 123}'
+            echo '123'
             exit 0
         fi
         if [[ "\$*" == *"state"* ]]; then

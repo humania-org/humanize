@@ -56,7 +56,10 @@ case "$COMMAND" in
                 done
 
                 # Return based on requested fields
-                if [[ "${FIELDS:-}" == "number" ]]; then
+                if [[ "${FIELDS:-}" == "number,url" ]]; then
+                    # For number,url query with jq '.number,.url', return newline-separated values
+                    echo "{\"number\": $MOCK_GH_PR_NUMBER, \"url\": \"https://github.com/testowner/testrepo/pull/$MOCK_GH_PR_NUMBER\"}" | jq -r "${JQ_EXPR:-.}"
+                elif [[ "${FIELDS:-}" == "number" ]]; then
                     echo "{\"number\": $MOCK_GH_PR_NUMBER}" | jq -r "${JQ_EXPR:-.}"
                 elif [[ "${FIELDS:-}" == "state" ]]; then
                     echo "{\"state\": \"$MOCK_GH_PR_STATE\"}" | jq -r "${JQ_EXPR:-.}"
