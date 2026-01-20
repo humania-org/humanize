@@ -63,6 +63,9 @@ TEST_SUITES=(
     "robustness/test-plan-file-robustness.sh"
     "robustness/test-cancel-security-robustness.sh"
     "robustness/test-timeout-robustness.sh"
+    "robustness/test-base-branch-detection.sh"
+    "robustness/test-setup-scripts-robustness.sh"
+    "robustness/test-concurrent-state-robustness.sh"
 )
 
 # Tests that must be run with zsh (not bash)
