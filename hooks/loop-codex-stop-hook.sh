@@ -851,20 +851,18 @@ fi
 # ========================================
 
 # Run codex review and save debug files
-# Arguments: $1=round_number, $2=prompt_file, $3=result_file
+# Arguments: $1=round_number, $2=result_file
 # Sets: CODEX_REVIEW_EXIT_CODE, CODEX_REVIEW_STDOUT_FILE, CODEX_REVIEW_STDERR_FILE
 # Returns: exit code from codex review
+# Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
 run_codex_code_review() {
     local round="$1"
-    local prompt_file="$2"
-    local result_file="$3"
+    local result_file="$2"
 
     CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
     CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${round}-codex-review.out"
     CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${round}-codex-review.log"
 
-    local prompt_content
-    prompt_content=$(cat "$prompt_file")
     {
         echo "# Codex review invocation debug info"
         echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -872,17 +870,14 @@ run_codex_code_review() {
         echo "# Base branch: $BASE_BRANCH"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "codex review --base $BASE_BRANCH ${CODEX_REVIEW_ARGS[*]} \"<prompt>\""
-        echo ""
-        echo "# Prompt content:"
-        echo "$prompt_content"
+        echo "codex review --base $BASE_BRANCH ${CODEX_REVIEW_ARGS[*]}"
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
     echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
 
     CODEX_REVIEW_EXIT_CODE=0
-    printf '%s' "$prompt_content" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}" - \
+    run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}" \
         > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
@@ -900,9 +895,8 @@ run_codex_code_review() {
 # Run code review and handle the result
 # Arguments: $1=round_number, $2=success_system_message
 # This function consolidates the common pattern of:
-#   1. Building the review prompt
-#   2. Running codex review
-#   3. Checking results and handling outcomes
+#   1. Running codex review (no prompt - uses --base only)
+#   2. Checking results and handling outcomes
 # On success (no issues), calls enter_finalize_phase and exits
 # On issues found, calls continue_review_loop_with_issues and exits
 # On failure, calls block_review_failure and exits
@@ -910,31 +904,14 @@ run_and_handle_code_review() {
     local review_round="$1"
     local success_msg="$2"
 
-    local prompt_file="$LOOP_DIR/round-${review_round}-review-prompt.md"
     local result_file="$LOOP_DIR/round-${review_round}-review-result.md"
-
-    # Build codex review prompt from template
-    local fallback="# Code Review Request
-
-Review the code changes between the base branch and current HEAD.
-
-Base branch: {{BASE_BRANCH}}
-
-Focus on code quality, potential bugs, and implementation issues.
-
-Use severity markers [P0] through [P9] to indicate issue priority.
-
-Write your review to: {{REVIEW_RESULT_FILE}}"
-
-    load_and_render_safe "$TEMPLATE_DIR" "codex/code-review.md" "$fallback" \
-        "BASE_BRANCH=$BASE_BRANCH" \
-        "REVIEW_RESULT_FILE=$result_file" > "$prompt_file"
 
     echo "Running codex review against base branch: $BASE_BRANCH..." >&2
 
     # Run codex review using helper function
+    # Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
     # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
-    if ! run_codex_code_review "$review_round" "$prompt_file" "$result_file"; then
+    if ! run_codex_code_review "$review_round" "$result_file"; then
         block_review_failure "$review_round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
     fi
 
