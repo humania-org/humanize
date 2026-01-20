@@ -785,8 +785,16 @@ fi
 # Calculate derived values for templates
 LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
 COMPLETED_ITERATIONS=$((CURRENT_ROUND + 1))
+# Clamp previous round indices to 0 minimum to avoid negative file references
+# This can happen with --full-review-round 2 where first alignment check is at round 1
 PREV_ROUND=$((CURRENT_ROUND - 1))
+if [[ $PREV_ROUND -lt 0 ]]; then
+    PREV_ROUND=0
+fi
 PREV_PREV_ROUND=$((CURRENT_ROUND - 2))
+if [[ $PREV_PREV_ROUND -lt 0 ]]; then
+    PREV_PREV_ROUND=0
+fi
 
 # Build the review prompt
 FULL_ALIGNMENT_FALLBACK="# Full Alignment Review (Round {{CURRENT_ROUND}})
