@@ -593,6 +593,16 @@ if [[ "$BASE_BRANCH" == *[:\#\"\'\`]* ]] || [[ "$BASE_BRANCH" =~ $'\n' ]]; then
     exit 1
 fi
 
+# Capture the base commit SHA at loop start time
+# This prevents issues when working on the base branch itself (e.g., main)
+# where the branch ref advances with commits, making diff against itself empty
+BASE_COMMIT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse "$BASE_BRANCH" 2>/dev/null)
+if [[ -z "$BASE_COMMIT" ]]; then
+    echo "Error: Failed to get commit SHA for base branch: $BASE_BRANCH" >&2
+    exit 1
+fi
+echo "Base commit SHA captured: $BASE_COMMIT" >&2
+
 # ========================================
 # Setup State Directory
 # ========================================
@@ -627,6 +637,7 @@ plan_file: $PLAN_FILE
 plan_tracked: $TRACK_PLAN_FILE
 start_branch: $START_BRANCH
 base_branch: $BASE_BRANCH
+base_commit: $BASE_COMMIT
 review_started: false
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---

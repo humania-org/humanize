@@ -103,6 +103,7 @@ fi
 PLAN_TRACKED="$STATE_PLAN_TRACKED"
 START_BRANCH="$STATE_START_BRANCH"
 BASE_BRANCH="${STATE_BASE_BRANCH:-}"
+BASE_COMMIT="${STATE_BASE_COMMIT:-}"
 PLAN_FILE="$STATE_PLAN_FILE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
@@ -884,6 +885,15 @@ run_codex_code_review() {
     local timestamp
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+    # Determine review base: prefer BASE_COMMIT (captured at loop start) over BASE_BRANCH
+    # Using the fixed commit SHA prevents comparing a branch to itself when working on main,
+    # as the branch ref advances with each commit but the captured SHA stays fixed
+    local review_base="${BASE_COMMIT:-$BASE_BRANCH}"
+    local review_base_type="branch"
+    if [[ -n "$BASE_COMMIT" ]]; then
+        review_base_type="commit"
+    fi
+
     CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
     # Note: codex review outputs everything to stderr, so we capture both stdout and stderr to the log file
     CODEX_REVIEW_LOG_FILE="$CACHE_DIR/round-${round}-codex-review.log"
@@ -897,12 +907,17 @@ Note: codex review does not accept prompt input; it performs automated code revi
 
 ## Review Configuration
 - Base Branch: ${BASE_BRANCH}
+- Base Commit: ${BASE_COMMIT:-N/A}
+- Review Base (${review_base_type}): ${review_base}
 - Review Round: ${round}
 - Timestamp: ${timestamp}
 "
     load_and_render_safe "$TEMPLATE_DIR" "codex/code-review-phase.md" "$prompt_fallback" \
         "REVIEW_ROUND=$round" \
         "BASE_BRANCH=$BASE_BRANCH" \
+        "BASE_COMMIT=${BASE_COMMIT:-N/A}" \
+        "REVIEW_BASE=$review_base" \
+        "REVIEW_BASE_TYPE=$review_base_type" \
         "TIMESTAMP=$timestamp" > "$prompt_file"
 
     echo "Code review prompt (audit) saved to: $prompt_file" >&2
@@ -912,19 +927,21 @@ Note: codex review does not accept prompt input; it performs automated code revi
         echo "# Timestamp: $timestamp"
         echo "# Working directory: $PROJECT_ROOT"
         echo "# Base branch: $BASE_BRANCH"
+        echo "# Base commit: ${BASE_COMMIT:-N/A}"
+        echo "# Review base ($review_base_type): $review_base"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "codex review --base $BASE_BRANCH ${CODEX_REVIEW_ARGS[*]}"
+        echo "codex review --base $review_base ${CODEX_REVIEW_ARGS[*]}"
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-    echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT..." >&2
+    echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
 
     # Run codex review from PROJECT_ROOT to ensure correct git context
     # (hooks may execute from plugin directory, not project root)
     # Note: codex review outputs to stderr, so we redirect both stdout and stderr to the log file
     CODEX_REVIEW_EXIT_CODE=0
-    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}") \
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
         > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
