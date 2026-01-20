@@ -897,6 +897,66 @@ run_codex_code_review() {
 
 # Note: detect_review_issues() is defined in loop-common.sh and sourced above
 
+# Run code review and handle the result
+# Arguments: $1=round_number, $2=success_system_message
+# This function consolidates the common pattern of:
+#   1. Building the review prompt
+#   2. Running codex review
+#   3. Checking results and handling outcomes
+# On success (no issues), calls enter_finalize_phase and exits
+# On issues found, calls continue_review_loop_with_issues and exits
+# On failure, calls block_review_failure and exits
+run_and_handle_code_review() {
+    local review_round="$1"
+    local success_msg="$2"
+
+    local prompt_file="$LOOP_DIR/round-${review_round}-review-prompt.md"
+    local result_file="$LOOP_DIR/round-${review_round}-review-result.md"
+
+    # Build codex review prompt from template
+    local fallback="# Code Review Request
+
+Review the code changes between the base branch and current HEAD.
+
+Base branch: {{BASE_BRANCH}}
+
+Focus on code quality, potential bugs, and implementation issues.
+
+Use severity markers [P0] through [P9] to indicate issue priority.
+
+Write your review to: {{REVIEW_RESULT_FILE}}"
+
+    load_and_render_safe "$TEMPLATE_DIR" "codex/code-review.md" "$fallback" \
+        "BASE_BRANCH=$BASE_BRANCH" \
+        "REVIEW_RESULT_FILE=$result_file" > "$prompt_file"
+
+    echo "Running codex review against base branch: $BASE_BRANCH..." >&2
+
+    # Run codex review using helper function
+    # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
+    if ! run_codex_code_review "$review_round" "$prompt_file" "$result_file"; then
+        block_review_failure "$review_round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
+    fi
+
+    # Check both stdout and result file for [P0-9] issues (plan requirement)
+    # detect_review_issues returns: 0=issues found, 1=no issues, 2=stdout missing (hard error)
+    local merged_content=""
+    local detect_exit=0
+    merged_content=$(detect_review_issues "$review_round") || detect_exit=$?
+
+    if [[ "$detect_exit" -eq 2 ]]; then
+        # Stdout missing/empty is a hard error - block and require retry
+        block_review_failure "$review_round" "Codex review produced no stdout output" "N/A"
+    elif [[ "$detect_exit" -eq 0 ]] && [[ -n "$merged_content" ]]; then
+        # Issues found - continue review loop with merged content
+        continue_review_loop_with_issues "$review_round" "$merged_content"
+    else
+        # No issues found (exit code 1) - proceed to finalize
+        echo "Code review passed with no issues. Proceeding to finalize phase." >&2
+        enter_finalize_phase "" "$success_msg"
+    fi
+}
+
 # Enter finalize phase with appropriate prompt
 # Arguments: $1=skip_reason (empty if not skipped), $2=system_message
 enter_finalize_phase() {
@@ -1299,62 +1359,9 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             # Create marker file to validate review phase was properly entered
             touch "$LOOP_DIR/.review-phase-started"
 
-            # Run codex review
-            REVIEW_ROUND=$((CURRENT_ROUND + 1))
-            CODE_REVIEW_PROMPT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-review-prompt.md"
-            CODE_REVIEW_RESULT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-review-result.md"
-
-            # Build codex review prompt from template
-            CODE_REVIEW_FALLBACK="# Code Review Request
-
-Review the code changes between the base branch and current HEAD.
-
-Base branch: {{BASE_BRANCH}}
-
-Focus on code quality, potential bugs, and implementation issues.
-
-Use severity markers [P0] through [P9] to indicate issue priority.
-
-Write your review to: {{REVIEW_RESULT_FILE}}"
-
-            load_and_render_safe "$TEMPLATE_DIR" "codex/code-review.md" "$CODE_REVIEW_FALLBACK" \
-                "BASE_BRANCH=$BASE_BRANCH" \
-                "REVIEW_RESULT_FILE=$CODE_REVIEW_RESULT_FILE" > "$CODE_REVIEW_PROMPT_FILE"
-
-            echo "Running codex review against base branch: $BASE_BRANCH..." >&2
-
-            # Run codex review using helper function
-            # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
-            if ! run_codex_code_review "$REVIEW_ROUND" "$CODE_REVIEW_PROMPT_FILE" "$CODE_REVIEW_RESULT_FILE"; then
-                block_review_failure "$REVIEW_ROUND" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
-            fi
-
-            # Check both stdout and result file for [P0-9] issues (plan requirement)
-            # detect_review_issues returns: 0=issues found, 1=no issues, 2=stdout missing (hard error)
-            MERGED_REVIEW_CONTENT=""
-            DETECT_EXIT_CODE=0
-            MERGED_REVIEW_CONTENT=$(detect_review_issues "$REVIEW_ROUND") || DETECT_EXIT_CODE=$?
-
-            if [[ "$DETECT_EXIT_CODE" -eq 2 ]]; then
-                # Stdout missing/empty is a hard error - block and require retry
-                block_review_failure "$REVIEW_ROUND" "Codex review produced no stdout output" "N/A"
-            elif [[ "$DETECT_EXIT_CODE" -eq 0 ]] && [[ -n "$MERGED_REVIEW_CONTENT" ]]; then
-                # Issues found - continue review loop with merged content
-                continue_review_loop_with_issues "$REVIEW_ROUND" "$MERGED_REVIEW_CONTENT"
-            else
-                # No issues found (exit code 1) - proceed to finalize
-                echo "Code review passed with no issues. Proceeding to finalize phase." >&2
-            fi
-        fi
-
-        # Proceed to finalize phase (only reached if no issues and no errors)
-        if [[ "$REVIEW_STARTED" == "true" ]]; then
-            if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
-                echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
-            else
-                echo "Codex review passed. Entering Finalize Phase..." >&2
-            fi
-            enter_finalize_phase "" "Loop: Finalize Phase - Simplify and refactor code before completion"
+            # Run code review and handle results (may exit on issues/failure/success)
+            echo "Implementation complete. Running initial code review..." >&2
+            run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Simplify and refactor code before completion"
         fi
     fi
 fi
@@ -1385,53 +1392,10 @@ Use \`/humanize:cancel-rlcr-loop\` to end this loop."
         exit 0
     fi
 
-    echo "Review Phase: Running code review against base branch: $BASE_BRANCH..." >&2
+    echo "Review Phase: Running code review..." >&2
 
-    # Run codex review
-    REVIEW_ROUND=$((CURRENT_ROUND + 1))
-    CODE_REVIEW_PROMPT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-review-prompt.md"
-    CODE_REVIEW_RESULT_FILE="$LOOP_DIR/round-${REVIEW_ROUND}-review-result.md"
-
-    # Build codex review prompt from template
-    CODE_REVIEW_FALLBACK="# Code Review Request
-
-Review the code changes between the base branch and current HEAD.
-
-Base branch: {{BASE_BRANCH}}
-
-Focus on code quality, potential bugs, and implementation issues.
-
-Use severity markers [P0] through [P9] to indicate issue priority.
-
-Write your review to: {{REVIEW_RESULT_FILE}}"
-
-    load_and_render_safe "$TEMPLATE_DIR" "codex/code-review.md" "$CODE_REVIEW_FALLBACK" \
-        "BASE_BRANCH=$BASE_BRANCH" \
-        "REVIEW_RESULT_FILE=$CODE_REVIEW_RESULT_FILE" > "$CODE_REVIEW_PROMPT_FILE"
-
-    # Run codex review using helper function
-    # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
-    if ! run_codex_code_review "$REVIEW_ROUND" "$CODE_REVIEW_PROMPT_FILE" "$CODE_REVIEW_RESULT_FILE"; then
-        block_review_failure "$REVIEW_ROUND" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
-    fi
-
-    # Check both stdout and result file for [P0-9] issues (plan requirement)
-    # detect_review_issues returns: 0=issues found, 1=no issues, 2=stdout missing (hard error)
-    MERGED_REVIEW_CONTENT=""
-    DETECT_EXIT_CODE=0
-    MERGED_REVIEW_CONTENT=$(detect_review_issues "$REVIEW_ROUND") || DETECT_EXIT_CODE=$?
-
-    if [[ "$DETECT_EXIT_CODE" -eq 2 ]]; then
-        # Stdout missing/empty is a hard error - block and require retry
-        block_review_failure "$REVIEW_ROUND" "Codex review produced no stdout output" "N/A"
-    elif [[ "$DETECT_EXIT_CODE" -eq 0 ]] && [[ -n "$MERGED_REVIEW_CONTENT" ]]; then
-        # Issues found - continue review loop with merged content
-        continue_review_loop_with_issues "$REVIEW_ROUND" "$MERGED_REVIEW_CONTENT"
-    else
-        # No issues found (exit code 1) - proceed to finalize
-        echo "Code review passed with no issues. Proceeding to finalize phase." >&2
-        enter_finalize_phase "" "Loop: Finalize Phase - Code review passed"
-    fi
+    # Run code review and handle results (may exit on issues/failure/success)
+    run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Code review passed"
 fi
 
 # Handle STOP - circuit breaker triggered
