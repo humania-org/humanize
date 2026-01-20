@@ -167,12 +167,12 @@ else
 fi
 
 # ========================================
-# Test 5: Files don't exist
+# Test 5: Stdout file missing (HARD ERROR)
 # ========================================
-echo "Test 5: detect_review_issues handles missing files"
+echo "Test 5: detect_review_issues returns error code 2 when stdout is missing"
 setup_test_env
 
-# Don't create any files
+# Don't create stdout file (this is a hard error)
 rm -f "$CACHE_DIR/round-5-codex-review.out" 2>/dev/null || true
 rm -f "$LOOP_DIR/round-5-review-result.md" 2>/dev/null || true
 
@@ -181,10 +181,12 @@ OUTPUT=$(detect_review_issues 5 2>/dev/null)
 RESULT=$?
 set -e
 
-if [[ $RESULT -eq 1 ]]; then
-    pass "Missing files returns 1 (no issues)"
+# Missing stdout should return error code 2 (not 1)
+# This is a hard error that blocks skipping to finalize
+if [[ $RESULT -eq 2 ]]; then
+    pass "Missing stdout returns 2 (hard error)"
 else
-    fail "Missing files handling" "return 1" "return $RESULT"
+    fail "Missing stdout handling" "return 2 (hard error)" "return $RESULT"
 fi
 
 # ========================================
@@ -245,6 +247,76 @@ if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]' && echo "$OUTPUT" | 
     pass "Result file included for context when stdout has issues"
 else
     fail "Context inclusion" "return 0, output contains [P1] AND result file content" "return $RESULT, output: $OUTPUT"
+fi
+
+# ========================================
+# Test 8: Empty stdout file (HARD ERROR)
+# ========================================
+echo "Test 8: detect_review_issues returns error code 2 when stdout is empty"
+setup_test_env
+
+# Create empty stdout file
+touch "$CACHE_DIR/round-8-codex-review.out"
+# Create result file with issues (but empty stdout should still be an error)
+echo "[P1] Some issue" > "$LOOP_DIR/round-8-review-result.md"
+
+set +e
+OUTPUT=$(detect_review_issues 8 2>/dev/null)
+RESULT=$?
+set -e
+
+# Empty stdout should return error code 2 (hard error)
+# Even if result file has issues, empty stdout is a hard error
+if [[ $RESULT -eq 2 ]]; then
+    pass "Empty stdout returns 2 (hard error)"
+else
+    fail "Empty stdout handling" "return 2 (hard error)" "return $RESULT"
+fi
+
+# ========================================
+# Test 9: Stdout exists with content, result file missing (OK)
+# ========================================
+echo "Test 9: detect_review_issues works when only stdout has content (no issues)"
+setup_test_env
+
+# Create stdout with content but no [P?] issues
+echo "Code looks good, no problems found." > "$CACHE_DIR/round-9-codex-review.out"
+# Don't create result file
+rm -f "$LOOP_DIR/round-9-review-result.md" 2>/dev/null || true
+
+set +e
+OUTPUT=$(detect_review_issues 9 2>/dev/null)
+RESULT=$?
+set -e
+
+# No issues should return 1
+if [[ $RESULT -eq 1 ]]; then
+    pass "Stdout only with no issues returns 1"
+else
+    fail "Stdout only no issues" "return 1" "return $RESULT"
+fi
+
+# ========================================
+# Test 10: Stdout exists with [P?] issues, result file missing (OK)
+# ========================================
+echo "Test 10: detect_review_issues works when only stdout has issues"
+setup_test_env
+
+# Create stdout with [P?] issues
+echo "[P2] Missing error handling at line 50" > "$CACHE_DIR/round-10-codex-review.out"
+# Don't create result file
+rm -f "$LOOP_DIR/round-10-review-result.md" 2>/dev/null || true
+
+set +e
+OUTPUT=$(detect_review_issues 10 2>/dev/null)
+RESULT=$?
+set -e
+
+# Issues found should return 0
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P2\]'; then
+    pass "Stdout only with issues returns 0"
+else
+    fail "Stdout only with issues" "return 0, output contains [P2]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================

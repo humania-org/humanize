@@ -321,13 +321,20 @@ parse_state_file_strict() {
 }
 
 # Detect review issues from both stdout and result file
-# Returns: 0 if issues found, 1 if no issues
+# Returns:
+#   0 - issues found (caller should continue review loop)
+#   1 - no issues found (caller can proceed to finalize)
+#   2 - stdout missing/empty (hard error - caller must block and require retry)
 # Outputs: merged content to stdout if issues found
 # Arguments: $1=round_number
 # Required globals: LOOP_DIR, CACHE_DIR
 #
 # When issues are found in either file, both files are included in the output
 # (if they exist and are non-empty) to provide complete context for fixes.
+#
+# IMPORTANT: The stdout file from codex review is REQUIRED. If it is missing
+# or empty, this is a hard error and the caller must block exit and require
+# a retry. The review result file is optional (codex may not write it).
 detect_review_issues() {
     local round="$1"
     local result_file="$LOOP_DIR/round-${round}-review-result.md"
@@ -337,8 +344,10 @@ detect_review_issues() {
     local result_has_issues=false
     local stdout_content=""
     local result_content=""
+    local stdout_missing=false
 
     # Check stdout file for [P0-9] patterns
+    # CRITICAL: stdout is REQUIRED - if missing/empty, return error code 2
     if [[ -f "$stdout_file" && -s "$stdout_file" ]]; then
         stdout_content=$(cat "$stdout_file")
         if grep -qE '\[P[0-9]\]' "$stdout_file"; then
@@ -347,9 +356,11 @@ detect_review_issues() {
         fi
     else
         echo "Error: Codex review stdout file not found or empty: $stdout_file" >&2
+        stdout_missing=true
     fi
 
     # Check result file for [P0-9] patterns
+    # Note: result file is optional (warning only, not an error)
     if [[ -f "$result_file" && -s "$result_file" ]]; then
         result_content=$(cat "$result_file")
         if grep -qE '\[P[0-9]\]' "$result_file"; then
@@ -358,6 +369,12 @@ detect_review_issues() {
         fi
     else
         echo "Warning: Review result file not found or empty: $result_file" >&2
+    fi
+
+    # If stdout is missing/empty, return error code 2 (hard error)
+    # This prevents skipping to finalize when codex review fails to produce output
+    if [[ "$stdout_missing" == true ]]; then
+        return 2
     fi
 
     # If any file has issues, include both files in output (when available)
