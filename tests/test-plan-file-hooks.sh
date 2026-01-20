@@ -72,7 +72,7 @@ EOF
     # Create plan backup
     cp plans/test-plan.md "$LOOP_DIR/plan.md"
 
-    # Create state file with v1.1.2+ fields (plan_file is quoted in YAML)
+    # Create state file with v1.5.0+ fields (plan_file is quoted in YAML)
     # Use actual branch name to handle both 'main' and 'master' defaults
     cat > "$LOOP_DIR/state.md" << EOF
 ---
@@ -81,6 +81,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $CURRENT_BRANCH
+base_branch: $CURRENT_BRANCH
+review_started: false
 ---
 EOF
 }
@@ -118,8 +120,8 @@ else
     fail "Hook parsing YAML-quoted plan_file" "exit 0, no output" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 2: Hook blocks when plan_tracked field is missing
-echo "Test 2: Hook blocks when plan_tracked field is missing"
+# Test 2: Hook blocks when state file is missing v1.5.0 required fields
+echo "Test 2: Hook blocks when state file is missing required fields (v1.5.0+ schema)"
 cat > "$LOOP_DIR/state.md" << EOF
 ---
 current_round: 0
@@ -132,14 +134,15 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | grep -q "plan_tracked"; then
-    pass "Hook blocks on missing plan_tracked"
+# v1.5.0+ requires review_started and base_branch - validator rejects malformed state
+if echo "$RESULT" | grep -qi "malformed\|blocking"; then
+    pass "Hook blocks on malformed state (missing v1.5.0 fields)"
 else
-    fail "Hook blocking missing plan_tracked" "block with plan_tracked error" "$RESULT"
+    fail "Hook blocking malformed state" "malformed state error" "$RESULT"
 fi
 
 # Test 3: Hook blocks when start_branch field is missing
-echo "Test 3: Hook blocks when start_branch field is missing"
+echo "Test 3: Hook blocks when start_branch field is missing (also missing v1.5.0 fields)"
 cat > "$LOOP_DIR/state.md" << 'EOF'
 ---
 current_round: 0
@@ -152,10 +155,11 @@ set +e
 RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 0 ]] && echo "$RESULT" | grep -q "start_branch"; then
-    pass "Hook blocks on missing start_branch"
+# v1.5.0+ requires start_branch, review_started, and base_branch - validator rejects malformed state
+if echo "$RESULT" | grep -qi "malformed\|blocking"; then
+    pass "Hook blocks on malformed state (missing start_branch and v1.5.0 fields)"
 else
-    fail "Hook blocking missing start_branch" "block with start_branch error" "$RESULT"
+    fail "Hook blocking malformed state" "malformed state error" "$RESULT"
 fi
 
 # Restore valid state for remaining tests
@@ -171,6 +175,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $DEFAULT_BRANCH
+base_branch: $DEFAULT_BRANCH
+review_started: false
 ---
 EOF
 set +e
@@ -349,6 +355,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: "$DEFAULT_BRANCH"
+base_branch: $DEFAULT_BRANCH
+review_started: false
 ---
 EOF
 set +e
@@ -372,6 +380,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: "different-branch"
+base_branch: main
+review_started: false
 ---
 EOF
 set +e
@@ -395,6 +405,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: "$DEFAULT_BRANCH"
+base_branch: $DEFAULT_BRANCH
+review_started: false
 ---
 EOF
 # Create summary to get past that check
@@ -447,6 +459,8 @@ max_iterations: 42
 plan_file: "my-plans/test-plan.md"
 plan_tracked: false
 start_branch: "$DEFAULT_BRANCH"
+base_branch: $DEFAULT_BRANCH
+review_started: false
 ---
 EOF
 set +e
@@ -594,6 +608,8 @@ max_iterations: 42
 plan_file: tracked-plan.md
 plan_tracked: true
 start_branch: $TEST12_BRANCH
+base_branch: $TEST12_BRANCH
+review_started: false
 ---
 EOF
 cat > "$TRACKED_LOOP_DIR/round-0-summary.md" << 'EOF'
@@ -688,6 +704,8 @@ max_iterations: 42
 plan_file: tracked-plan.md
 plan_tracked: true
 start_branch: $TEST14_BRANCH
+base_branch: $TEST14_BRANCH
+review_started: false
 ---
 EOF
 cat > "$TRACKED_LOOP_DIR/round-0-summary.md" << 'EOF'
@@ -770,6 +788,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $TEST_BRANCH
+base_branch: $TEST_BRANCH
+review_started: false
 ---
 EOF
 cat > "$LOOP_DIR_14_1/round-0-summary.md" << 'EOF'
@@ -839,6 +859,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $TEST_BRANCH
+base_branch: $TEST_BRANCH
+review_started: false
 ---
 EOF
 cat > "$LOOP_DIR_14_2/round-0-summary.md" << 'EOF'
@@ -908,6 +930,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $TEST_BRANCH
+base_branch: $TEST_BRANCH
+review_started: false
 ---
 EOF
 cat > "$LOOP_DIR_14_3/round-0-summary.md" << 'EOF'
@@ -975,6 +999,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $TEST_BRANCH
+base_branch: $TEST_BRANCH
+review_started: false
 ---
 EOF
 cat > "$LOOP_DIR_14_4/round-0-summary.md" << 'EOF'

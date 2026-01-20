@@ -141,6 +141,8 @@ push_every_round: false
 plan_file: plans/test-plan.md
 plan_tracked: false
 start_branch: $current_branch
+base_branch: main
+review_started: false
 started_at: 2024-01-01T12:00:00Z
 ---
 EOF

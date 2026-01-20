@@ -106,6 +106,8 @@ current_round: 7
 max_iterations: 15
 plan_file: "path/to/plan.md"
 start_branch: "feature/test-branch"
+base_branch: main
+review_started: false
 ---
 EOF
 
@@ -318,6 +320,8 @@ current_round: 5
 max_iterations: 10
 plan_file: "path/with spaces/plan.md"
 start_branch: "feature/test-with-special"
+base_branch: main
+review_started: false
 ---
 EOF
 

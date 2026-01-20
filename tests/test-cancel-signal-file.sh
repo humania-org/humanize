@@ -51,6 +51,8 @@ max_iterations: 10
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
+base_branch: main
+review_started: false
 ---
 EOF
     export CLAUDE_PROJECT_DIR="$TEST_DIR"

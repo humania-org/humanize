@@ -56,6 +56,8 @@ max_iterations: 42
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
+base_branch: main
+review_started: false
 ---
 EOF
 
@@ -80,6 +82,8 @@ max_iterations: 42
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
+base_branch: main
+review_started: false
 ---
 EOF
 
