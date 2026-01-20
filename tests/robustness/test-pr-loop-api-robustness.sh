@@ -824,12 +824,15 @@ else
         if ! echo "$JSON_OUTPUT" | jq -e '.' >/dev/null 2>&1; then
             fail "poll-pr-reviews API failure" "valid JSON output" "invalid JSON: $JSON_OUTPUT"
         else
-            # Extract has_new_comments and verify it is exactly false (boolean)
-            HAS_NEW=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments')
-            if [[ "$HAS_NEW" == "false" ]]; then
-                pass "poll-pr-reviews returns exit 0 with valid JSON and has_new_comments:false"
+            # Verify has_new_comments is exactly boolean false (not string "false")
+            # jq -e '.has_new_comments == false' returns 0 only if the value is boolean false
+            if echo "$JSON_OUTPUT" | jq -e '.has_new_comments == false' >/dev/null 2>&1; then
+                pass "poll-pr-reviews returns exit 0 with valid JSON and has_new_comments:false (boolean)"
             else
-                fail "poll-pr-reviews API failure" "has_new_comments:false" "has_new_comments=$HAS_NEW"
+                # Show actual value and type for debugging
+                HAS_NEW_VALUE=$(echo "$JSON_OUTPUT" | jq '.has_new_comments')
+                HAS_NEW_TYPE=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments | type')
+                fail "poll-pr-reviews API failure" "has_new_comments: boolean false" "value=$HAS_NEW_VALUE type=$HAS_NEW_TYPE"
             fi
         fi
     fi
