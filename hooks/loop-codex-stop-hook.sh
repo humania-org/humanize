@@ -922,33 +922,36 @@ Note: codex review does not accept prompt input; it performs automated code revi
 # On success (no issues), calls enter_finalize_phase and exits
 # On issues found, calls continue_review_loop_with_issues and exits
 # On failure, calls block_review_failure and exits
+#
+# Round numbering: After COMPLETE at round N, all review phase files use round N+1
+# The caller passes CURRENT_ROUND + 1 as the round_number parameter
 run_and_handle_code_review() {
-    local review_round="$1"
+    local round="$1"
     local success_msg="$2"
 
-    local result_file="$LOOP_DIR/round-${review_round}-review-result.md"
+    local result_file="$LOOP_DIR/round-${round}-review-result.md"
 
     echo "Running codex review against base branch: $BASE_BRANCH..." >&2
 
     # Run codex review using helper function
     # Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
     # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
-    if ! run_codex_code_review "$review_round" "$result_file"; then
-        block_review_failure "$review_round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
+    if ! run_codex_code_review "$round" "$result_file"; then
+        block_review_failure "$round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
     fi
 
     # Check both stdout and result file for [P0-9] issues (plan requirement)
     # detect_review_issues returns: 0=issues found, 1=no issues, 2=stdout missing (hard error)
     local merged_content=""
     local detect_exit=0
-    merged_content=$(detect_review_issues "$review_round") || detect_exit=$?
+    merged_content=$(detect_review_issues "$round") || detect_exit=$?
 
     if [[ "$detect_exit" -eq 2 ]]; then
         # Stdout missing/empty is a hard error - block and require retry
-        block_review_failure "$review_round" "Codex review produced no stdout output" "N/A"
+        block_review_failure "$round" "Codex review produced no stdout output" "N/A"
     elif [[ "$detect_exit" -eq 0 ]] && [[ -n "$merged_content" ]]; then
-        # Issues found - continue review loop with merged content
-        continue_review_loop_with_issues "$review_round" "$merged_content"
+        # Issues found - continue review loop
+        continue_review_loop_with_issues "$round" "$merged_content"
     else
         # No issues found (exit code 1) - proceed to finalize
         echo "Code review passed with no issues. Proceeding to finalize phase." >&2
@@ -1359,6 +1362,7 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             touch "$LOOP_DIR/.review-phase-started"
 
             # Run code review and handle results (may exit on issues/failure/success)
+            # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
             echo "Implementation complete. Running initial code review..." >&2
             run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Simplify and refactor code before completion"
         fi
@@ -1394,6 +1398,7 @@ Use \`/humanize:cancel-rlcr-loop\` to end this loop."
     echo "Review Phase: Running code review..." >&2
 
     # Run code review and handle results (may exit on issues/failure/success)
+    # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
     run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Code review passed"
 fi
 

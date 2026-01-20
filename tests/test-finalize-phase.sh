@@ -663,7 +663,7 @@ echo "T-NEG-9b: Codex review log file exists and is empty"
 LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
 SANITIZED_PROJECT_PATH=$(echo "$TEST_DIR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
 REVIEW_CACHE_DIR="$XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
-# Round 5 because we started at round 4 and incremented for review
+# Round 5 because we pass CURRENT_ROUND + 1 (4 + 1 = 5) to run_and_handle_code_review
 REVIEW_LOG="$REVIEW_CACHE_DIR/round-5-codex-review.log"
 if [[ -f "$REVIEW_LOG" ]] && [[ ! -s "$REVIEW_LOG" ]]; then
     pass "Codex review log file exists and is empty"
