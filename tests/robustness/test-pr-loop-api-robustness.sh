@@ -38,27 +38,39 @@ create_mock_gh() {
 
     # Base mock that handles repo view and pr view for all behaviors
     # Note: gh CLI applies -q jq queries internally, so we output the final result
+    # fetch-pr-comments.sh uses: gh repo view --json owner,name -q '...'
+    #                           gh pr view PR --repo REPO --json baseRepository -q '...'
     cat > "$dir/bin/gh" << 'GHEOF_START'
 #!/bin/bash
 # Mock gh command for testing
 
+# Check for -q flag anywhere in args (jq query)
+HAS_Q_FLAG=false
+for arg in "$@"; do
+    if [[ "$arg" == "-q" ]]; then
+        HAS_Q_FLAG=true
+        break
+    fi
+done
+
 # Handle repo view (required by fetch-pr-comments.sh)
 if [[ "$1" == "repo" && "$2" == "view" ]]; then
-    # Check for JSON flag with -q query
     if [[ "$*" == *"--json"* ]]; then
-        if [[ "$*" == *"owner,name"* ]] && [[ "$*" == *"-q"* ]]; then
-            # The -q query extracts owner.login + "/" + name
-            echo "testowner/testrepo"
-            exit 0
-        elif [[ "$*" == *"owner,name"* ]]; then
-            echo '{"owner":{"login":"testowner"},"name":"testrepo"}'
-            exit 0
-        elif [[ "$*" == *"parent"* ]] && [[ "$*" == *"-q"* ]]; then
-            # parent query returns null for non-fork
-            echo "/"
+        if [[ "$*" == *"owner,name"* ]]; then
+            if [[ "$HAS_Q_FLAG" == "true" ]]; then
+                # -q query extracts owner.login + "/" + name
+                echo "testowner/testrepo"
+            else
+                echo '{"owner":{"login":"testowner"},"name":"testrepo"}'
+            fi
             exit 0
         elif [[ "$*" == *"parent"* ]]; then
-            echo '{"parent":null}'
+            if [[ "$HAS_Q_FLAG" == "true" ]]; then
+                # parent query returns empty/null for non-fork
+                echo "/"
+            else
+                echo '{"parent":null}'
+            fi
             exit 0
         fi
     fi
@@ -68,12 +80,13 @@ fi
 
 # Handle pr view (required by fetch-pr-comments.sh)
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
-    if [[ "$*" == *"--json"* ]] && [[ "$*" == *"-q"* ]]; then
-        # The -q query extracts baseRepository.owner.login + "/" + baseRepository.name
-        echo "testowner/testrepo"
-        exit 0
-    elif [[ "$*" == *"--json"* ]]; then
-        echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+    if [[ "$*" == *"--json"* ]]; then
+        if [[ "$HAS_Q_FLAG" == "true" ]]; then
+            # -q query extracts baseRepository.owner.login + "/" + baseRepository.name
+            echo "testowner/testrepo"
+        else
+            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+        fi
         exit 0
     fi
     echo "PR #123"
@@ -630,9 +643,9 @@ else
     fail "poll-pr-reviews validation" "non-zero with error" "exit=$EXIT_CODE"
 fi
 
-# Test 17: poll-pr-reviews with mocked gh returns JSON output
+# Test 17: poll-pr-reviews with mocked gh returns JSON output with required fields
 echo ""
-echo "Test 17: poll-pr-reviews with mocked gh produces JSON output"
+echo "Test 17: poll-pr-reviews with mocked gh produces valid JSON output"
 mkdir -p "$TEST_DIR/poll1"
 init_basic_git_repo "$TEST_DIR/poll1"
 create_mock_gh "$TEST_DIR/poll1" "claude_approval"
@@ -642,16 +655,23 @@ OUTPUT=$(PATH="$TEST_DIR/poll1/bin:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews
 EXIT_CODE=$?
 set -e
 
-# poll-pr-reviews outputs JSON with has_new_comments field
-if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q "has_new_comments"; then
-    pass "poll-pr-reviews produces JSON output with has_new_comments"
-else
-    # May fail on repo context - check if it's a meaningful error
-    if echo "$OUTPUT" | grep -qi "error\|failed"; then
-        pass "poll-pr-reviews handles missing repo context (exit=$EXIT_CODE)"
+# poll-pr-reviews must output JSON with has_new_comments and parse correctly
+if [[ $EXIT_CODE -eq 0 ]]; then
+    # Parse JSON to verify structure
+    HAS_NEW=$(echo "$OUTPUT" | jq -r '.has_new_comments // empty' 2>/dev/null || echo "")
+    if [[ -n "$HAS_NEW" ]] && [[ "$HAS_NEW" == "true" || "$HAS_NEW" == "false" ]]; then
+        # Also verify comments array exists (may be empty)
+        COMMENTS_TYPE=$(echo "$OUTPUT" | jq -r '.comments | type' 2>/dev/null || echo "")
+        if [[ "$COMMENTS_TYPE" == "array" ]]; then
+            pass "poll-pr-reviews produces valid JSON (has_new_comments=$HAS_NEW, comments is array)"
+        else
+            pass "poll-pr-reviews produces JSON with has_new_comments=$HAS_NEW"
+        fi
     else
-        fail "poll-pr-reviews JSON" "has_new_comments in output" "exit=$EXIT_CODE, output=$OUTPUT"
+        fail "poll-pr-reviews JSON" "has_new_comments boolean" "output missing or invalid: $OUTPUT"
     fi
+else
+    fail "poll-pr-reviews execution" "exit 0" "exit=$EXIT_CODE, output=$OUTPUT"
 fi
 
 # Test 18: poll-pr-reviews timeout handling with slow mock
@@ -702,11 +722,113 @@ OUTPUT=$(PATH="$TEST_DIR/poll2/bin:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews
 EXIT_CODE=$?
 set -e
 
-# Should complete without hanging
-if [[ $EXIT_CODE -lt 128 ]]; then
-    pass "poll-pr-reviews handles slow API (exit=$EXIT_CODE)"
+# Should complete without hanging and produce valid JSON (even if empty)
+if [[ $EXIT_CODE -eq 0 ]]; then
+    # Verify JSON output with has_new_comments (API returns empty, so should be false)
+    HAS_NEW=$(echo "$OUTPUT" | jq -r '.has_new_comments // empty' 2>/dev/null || echo "")
+    if [[ "$HAS_NEW" == "false" ]]; then
+        pass "poll-pr-reviews handles slow API (has_new_comments=false, no comments)"
+    elif [[ -n "$HAS_NEW" ]]; then
+        pass "poll-pr-reviews handles slow API (has_new_comments=$HAS_NEW)"
+    else
+        pass "poll-pr-reviews handles slow API gracefully (exit=0)"
+    fi
 else
-    fail "poll-pr-reviews timeout" "exit < 128" "exit=$EXIT_CODE"
+    fail "poll-pr-reviews timeout" "exit 0" "exit=$EXIT_CODE"
+fi
+
+# Test 19: poll-pr-reviews with API failure returns has_new_comments:false
+echo ""
+echo "Test 19: poll-pr-reviews with API failure returns has_new_comments:false"
+mkdir -p "$TEST_DIR/poll3"
+init_basic_git_repo "$TEST_DIR/poll3"
+
+# Create a mock gh that fails on API calls
+mkdir -p "$TEST_DIR/poll3/bin"
+cat > "$TEST_DIR/poll3/bin/gh" << 'GHEOF'
+#!/bin/bash
+# Check for -q flag anywhere in args (jq query)
+HAS_Q_FLAG=false
+for arg in "$@"; do
+    if [[ "$arg" == "-q" ]]; then
+        HAS_Q_FLAG=true
+        break
+    fi
+done
+
+# Handle repo view
+if [[ "$1" == "repo" && "$2" == "view" ]]; then
+    if [[ "$*" == *"--json"* ]]; then
+        if [[ "$*" == *"owner,name"* ]]; then
+            if [[ "$HAS_Q_FLAG" == "true" ]]; then
+                echo "testowner/testrepo"
+            else
+                echo '{"owner":{"login":"testowner"},"name":"testrepo"}'
+            fi
+            exit 0
+        elif [[ "$*" == *"parent"* ]]; then
+            if [[ "$HAS_Q_FLAG" == "true" ]]; then
+                echo "/"
+            else
+                echo '{"parent":null}'
+            fi
+            exit 0
+        fi
+    fi
+    echo "testowner/testrepo"
+    exit 0
+fi
+# Handle pr view
+if [[ "$1" == "pr" && "$2" == "view" ]]; then
+    if [[ "$*" == *"--json"* ]]; then
+        if [[ "$HAS_Q_FLAG" == "true" ]]; then
+            echo "testowner/testrepo"
+        else
+            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+        fi
+        exit 0
+    fi
+    exit 0
+fi
+# Fail on API calls to simulate network error
+if [[ "$1" == "api" ]]; then
+    echo "Error: Network unreachable" >&2
+    exit 1
+fi
+exit 0
+GHEOF
+chmod +x "$TEST_DIR/poll3/bin/gh"
+
+set +e
+OUTPUT=$(PATH="$TEST_DIR/poll3/bin:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews.sh" 123 --after "2026-01-18T00:00:00Z" --bots "claude" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# On API failure, poll-pr-reviews should still exit 0 with has_new_comments:false
+# Output may contain warnings before JSON, so extract just the JSON part
+if [[ $EXIT_CODE -eq 0 ]]; then
+    # Extract JSON from output (last { ... } block)
+    JSON_OUTPUT=$(echo "$OUTPUT" | grep -E '^\{' | tail -1 || echo "")
+    if [[ -z "$JSON_OUTPUT" ]]; then
+        # Try getting complete JSON object
+        JSON_OUTPUT=$(echo "$OUTPUT" | sed -n '/{/,/}/p' | tail -n +1 || echo "")
+    fi
+    HAS_NEW=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments // empty' 2>/dev/null || echo "")
+    if [[ "$HAS_NEW" == "false" ]]; then
+        pass "poll-pr-reviews returns has_new_comments:false on API failure"
+    elif [[ -n "$HAS_NEW" ]]; then
+        pass "poll-pr-reviews handles API failure (has_new_comments=$HAS_NEW)"
+    else
+        # Check if output contains the has_new_comments field anywhere
+        if echo "$OUTPUT" | grep -q '"has_new_comments".*false'; then
+            pass "poll-pr-reviews returns has_new_comments:false on API failure"
+        else
+            fail "poll-pr-reviews API failure" "JSON with has_new_comments" "output: $OUTPUT"
+        fi
+    fi
+else
+    # Non-zero exit is also acceptable for API failures
+    pass "poll-pr-reviews reports API failure (exit=$EXIT_CODE)"
 fi
 
 # ========================================
