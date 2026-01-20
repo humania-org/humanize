@@ -430,7 +430,6 @@ plan_file: plan.md
 EOF
 
 # Spawn multiple hook invocations
-ERRORS=0
 for i in $(seq 1 10); do
     JSON='{"tool_name":"Read","tool_input":{"file_path":"/tmp/test'$i'.txt"}}'
     (
