@@ -320,8 +320,9 @@ if [[ -n "$PR_INFO" ]]; then
         PR_NUMBER=""
         PR_URL=""
     else
-        # Extract repo from URL: https://github.com/OWNER/REPO/pull/NUMBER -> OWNER/REPO
-        if [[ "$PR_URL" =~ github\.com/([^/]+/[^/]+)/pull/ ]]; then
+        # Extract repo from URL: https://HOST/OWNER/REPO/pull/NUMBER -> OWNER/REPO
+        # Works with github.com and GitHub Enterprise (any host)
+        if [[ "$PR_URL" =~ https?://[^/]+/([^/]+/[^/]+)/pull/ ]]; then
             PR_LOOKUP_REPO="${BASH_REMATCH[1]}"
         else
             # Fallback to current repo if URL parsing fails
