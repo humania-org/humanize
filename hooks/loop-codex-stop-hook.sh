@@ -772,6 +772,11 @@ GOAL_TRACKER_UPDATE_SECTION=$(load_and_render_safe "$TEMPLATE_DIR" "codex/goal-t
 
 # Determine if this is a Full Alignment Check round (every FULL_REVIEW_ROUND rounds)
 # Full Alignment Checks occur at rounds (N-1), (2N-1), (3N-1), etc. where N=FULL_REVIEW_ROUND
+# Validate FULL_REVIEW_ROUND is a positive integer (default to 5 if invalid/corrupted)
+if ! [[ "$FULL_REVIEW_ROUND" =~ ^[0-9]+$ ]] || [[ "$FULL_REVIEW_ROUND" -lt 2 ]]; then
+    echo "Warning: Invalid full_review_round value '$FULL_REVIEW_ROUND', defaulting to 5" >&2
+    FULL_REVIEW_ROUND=5
+fi
 FULL_ALIGNMENT_CHECK=false
 if [[ $((CURRENT_ROUND % FULL_REVIEW_ROUND)) -eq $((FULL_REVIEW_ROUND - 1)) ]]; then
     FULL_ALIGNMENT_CHECK=true

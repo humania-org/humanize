@@ -275,6 +275,11 @@ if [[ -z "$PLAN_FILE" ]]; then
         # Use internal placeholder for skip-impl mode
         PLAN_FILE=".humanize/skip-impl-placeholder.md"
         SKIP_IMPL_NO_PLAN="true"
+        # Force TRACK_PLAN_FILE to false since there's no real plan file to track
+        if [[ "$TRACK_PLAN_FILE" == "true" ]]; then
+            echo "Warning: --track-plan-file ignored in skip-impl mode without a plan file" >&2
+            TRACK_PLAN_FILE="false"
+        fi
     else
         echo "Error: No plan file provided" >&2
         echo "" >&2
