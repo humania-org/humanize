@@ -1,6 +1,6 @@
 # Code Review Findings
 
-You are in the **Review Phase** of the RLCR loop. Codex has performed a code review and found issues that need to be addressed.
+You are in the **Review Phase**. Codex has performed a code review and found issues that need to be addressed.
 
 ## Review Results
 

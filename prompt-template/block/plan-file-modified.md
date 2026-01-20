@@ -1,12 +1,12 @@
 # Plan File Modified
 
-The plan file `{{PLAN_FILE}}` has been modified since the RLCR loop started.
+The plan file `{{PLAN_FILE}}` has been modified since the session started.
 
-**Modifying plan files is forbidden during an active RLCR loop.**
+**Modifying plan files is forbidden during an active session.**
 
 If you need to change the plan:
-1. Cancel the current loop: `/humanize:cancel-rlcr-loop`
+1. Cancel the current session: `/humanize:cancel-rlcr-loop`
 2. Update the plan file
-3. Start a new loop: `/humanize:start-rlcr-loop {{PLAN_FILE}}`
+3. Start a new session: `/humanize:start-rlcr-loop {{PLAN_FILE}}`
 
 Backup available at: `{{BACKUP_PATH}}`

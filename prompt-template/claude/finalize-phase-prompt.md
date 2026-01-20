@@ -6,7 +6,7 @@ You are now in the **Finalize Phase**. This is your opportunity to simplify and 
 
 ## Your Task
 
-Use the `code-simplifier:code-simplifier` agent via the Task tool to review and simplify the code changes made during this RLCR session.
+Use the `code-simplifier:code-simplifier` agent via the Task tool to review and simplify the recent code changes.
 
 Example invocation:
 ```
@@ -25,7 +25,7 @@ These constraints are **non-negotiable**:
 ## Focus Areas
 
 The code-simplifier agent should focus on:
-- Code that was added or modified during this RLCR session
+- Code that was recently added or modified
 - Focus more on changes between branch from `{{BASE_BRANCH}}` to `{{START_BRANCH}}`
 - Removing unnecessary complexity
 - Improving readability and maintainability
