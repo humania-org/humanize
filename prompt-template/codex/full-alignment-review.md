@@ -1,6 +1,6 @@
 # FULL GOAL ALIGNMENT CHECK - Round {{CURRENT_ROUND}}
 
-This is a **mandatory checkpoint** (every 5 rounds). You must conduct a comprehensive goal alignment audit.
+This is a **mandatory checkpoint** (at configurable intervals). You must conduct a comprehensive goal alignment audit.
 
 ## Original Implementation Plan
 
@@ -71,7 +71,7 @@ The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the histor
 - `@.humanize/rlcr/{{LOOP_TIMESTAMP}}/round-{{PREV_PREV_ROUND}}-review-result.md` (2 rounds ago)
 - `@.humanize/rlcr/{{LOOP_TIMESTAMP}}/round-{{PREV_ROUND}}-summary.md` (previous summary)
 
-**Your Task**: Review the historical review results, especially the **last 5 rounds** of development progress and review outcomes, to determine if the development has stalled.
+**Your Task**: Review the historical review results, especially the **recent rounds** of development progress and review outcomes, to determine if the development has stalled.
 
 **Signs of Stagnation** (circuit breaker triggers):
 - Same issues appearing repeatedly across multiple rounds

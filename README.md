@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.5.1**
+**Current Version: 1.5.2**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -112,6 +112,10 @@ OPTIONS:
   --push-every-round     Require git push after each round (default: commits stay local)
   --base-branch <BRANCH> Base branch for code review phase (default: auto-detect)
                          Auto-detection priority: remote default > main > master
+  --full-review-round <N>
+                         Interval for Full Alignment Check rounds (default: 5, min: 2)
+  --skip-impl            Skip implementation phase, go directly to code review
+                         Plan file is optional when using this flag
   -h, --help             Show help message
 ```
 

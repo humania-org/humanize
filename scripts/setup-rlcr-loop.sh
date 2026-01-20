@@ -19,6 +19,7 @@ DEFAULT_CODEX_MODEL="gpt-5.2-codex"
 DEFAULT_CODEX_EFFORT="high"
 DEFAULT_CODEX_TIMEOUT=5400
 DEFAULT_MAX_ITERATIONS=42
+DEFAULT_FULL_REVIEW_ROUND=5
 
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
@@ -40,6 +41,9 @@ CODEX_EFFORT="$DEFAULT_CODEX_EFFORT"
 CODEX_TIMEOUT="$DEFAULT_CODEX_TIMEOUT"
 PUSH_EVERY_ROUND="false"
 BASE_BRANCH=""
+FULL_REVIEW_ROUND="$DEFAULT_FULL_REVIEW_ROUND"
+SKIP_IMPL="false"
+SKIP_IMPL_NO_PLAN="false"
 
 show_help() {
     cat << 'HELP_EOF'
@@ -64,6 +68,11 @@ OPTIONS:
   --base-branch <BRANCH>
                        Base branch for code review phase (default: auto-detect)
                        Priority: user input > remote default > main > master
+  --full-review-round <N>
+                       Interval for Full Alignment Check rounds (default: 5, min: 2)
+                       Full Alignment Checks occur at rounds N-1, 2N-1, 3N-1, etc.
+  --skip-impl          Skip implementation phase and go directly to code review
+                       Plan file is optional when using this flag
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -176,6 +185,26 @@ while [[ $# -gt 0 ]]; do
             BASE_BRANCH="$2"
             shift 2
             ;;
+        --full-review-round)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --full-review-round requires a number argument" >&2
+                exit 1
+            fi
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --full-review-round must be a positive integer, got: $2" >&2
+                exit 1
+            fi
+            if [[ "$2" -lt 2 ]]; then
+                echo "Error: --full-review-round must be at least 2, got: $2" >&2
+                exit 1
+            fi
+            FULL_REVIEW_ROUND="$2"
+            shift 2
+            ;;
+        --skip-impl)
+            SKIP_IMPL="true"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1" >&2
             echo "Use --help for usage information" >&2
@@ -240,14 +269,20 @@ if [[ -n "$PLAN_FILE_EXPLICIT" ]]; then
     PLAN_FILE="$PLAN_FILE_EXPLICIT"
 fi
 
-# Check plan file is provided
+# Check plan file is provided (optional when --skip-impl is used)
 if [[ -z "$PLAN_FILE" ]]; then
-    echo "Error: No plan file provided" >&2
-    echo "" >&2
-    echo "Usage: /humanize:start-rlcr-loop <path/to/plan.md> [OPTIONS]" >&2
-    echo "" >&2
-    echo "For help: /humanize:start-rlcr-loop --help" >&2
-    exit 1
+    if [[ "$SKIP_IMPL" == "true" ]]; then
+        # Use internal placeholder for skip-impl mode
+        PLAN_FILE=".humanize/skip-impl-placeholder.md"
+        SKIP_IMPL_NO_PLAN="true"
+    else
+        echo "Error: No plan file provided" >&2
+        echo "" >&2
+        echo "Usage: /humanize:start-rlcr-loop <path/to/plan.md> [OPTIONS]" >&2
+        echo "" >&2
+        echo "For help: /humanize:start-rlcr-loop --help" >&2
+        exit 1
+    fi
 fi
 
 # ========================================
@@ -269,6 +304,13 @@ fi
 # ========================================
 # Plan File Path Validation
 # ========================================
+
+# Skip plan file validation in skip-impl mode with no plan provided
+if [[ "$SKIP_IMPL_NO_PLAN" == "true" ]]; then
+    echo "Skip-impl mode: skipping plan file validation" >&2
+    FULL_PLAN_PATH=""
+    PLAN_IS_TRACKED="false"
+else
 
 # Reject absolute paths
 if [[ "$PLAN_FILE" = /* ]]; then
@@ -424,9 +466,14 @@ else
     fi
 fi
 
+fi  # End of skip-impl plan file validation skip
+
 # ========================================
 # Plan File Content Validation
 # ========================================
+
+# Skip plan file content validation in skip-impl mode with no plan provided
+if [[ "$SKIP_IMPL_NO_PLAN" != "true" ]]; then
 
 # Check plan file has at least 5 lines
 LINE_COUNT=$(wc -l < "$FULL_PLAN_PATH" | tr -d ' ')
@@ -482,6 +529,11 @@ if [[ "$CONTENT_LINES" -lt 3 ]]; then
     echo "The plan file should contain meaningful content, not just blank lines or comments." >&2
     exit 1
 fi
+
+else
+    # Skip-impl mode: set placeholder LINE_COUNT
+    LINE_COUNT=0
+fi  # End of skip-impl plan file content validation skip
 
 # Check codex is available
 if ! command -v codex &>/dev/null; then
@@ -615,8 +667,26 @@ LOOP_DIR="$LOOP_BASE_DIR/$TIMESTAMP"
 
 mkdir -p "$LOOP_DIR"
 
-# Copy plan file to loop directory as backup
-cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
+# Copy plan file to loop directory as backup (or create placeholder for skip-impl)
+if [[ "$SKIP_IMPL_NO_PLAN" == "true" ]]; then
+    # Create placeholder plan file for skip-impl mode
+    cat > "$LOOP_DIR/plan.md" << 'SKIP_IMPL_PLAN_EOF'
+# Skip Implementation Mode
+
+This RLCR loop was started with `--skip-impl` flag, which skips the implementation phase
+and goes directly to code review.
+
+No implementation plan was provided - this is expected for skip-impl mode.
+
+The loop will:
+1. Run `codex review` on the current branch changes
+2. If issues are found, Claude will fix them
+3. When no issues remain, enter finalize phase
+
+SKIP_IMPL_PLAN_EOF
+else
+    cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
+fi
 
 # Docs path default
 DOCS_PATH="docs"
@@ -624,6 +694,13 @@ DOCS_PATH="docs"
 # ========================================
 # Create State File
 # ========================================
+
+# Determine initial review_started value
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    INITIAL_REVIEW_STARTED="true"
+else
+    INITIAL_REVIEW_STARTED="false"
+fi
 
 cat > "$LOOP_DIR/state.md" << EOF
 ---
@@ -633,21 +710,53 @@ codex_model: $CODEX_MODEL
 codex_effort: $CODEX_EFFORT
 codex_timeout: $CODEX_TIMEOUT
 push_every_round: $PUSH_EVERY_ROUND
+full_review_round: $FULL_REVIEW_ROUND
 plan_file: $PLAN_FILE
 plan_tracked: $TRACK_PLAN_FILE
 start_branch: $START_BRANCH
 base_branch: $BASE_BRANCH
 base_commit: $BASE_COMMIT
-review_started: false
+review_started: $INITIAL_REVIEW_STARTED
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
+
+# Create review phase marker file for skip-impl mode
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    touch "$LOOP_DIR/.review-phase-started"
+fi
 
 # ========================================
 # Create Goal Tracker File
 # ========================================
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
+
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    # Create simplified goal tracker for skip-impl mode (no placeholder text)
+    cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
+# Goal Tracker (Skip Implementation Mode)
+
+This RLCR loop was started with `--skip-impl` flag. The implementation phase was skipped,
+and the loop is running in code review mode only.
+
+## Mode: Code Review Only
+
+The goal tracker is not used in skip-impl mode because:
+- There is no implementation plan to track
+- The loop focuses solely on code review quality
+- No acceptance criteria tracking is needed
+
+## What This Loop Does
+
+1. Runs `codex review` on changes between base branch and current branch
+2. If issues are found, Claude fixes them iteratively
+3. When no issues remain, enters finalize phase for code simplification
+
+GOAL_TRACKER_EOF
+
+else
+    # Normal mode: create full goal tracker
 
 cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 # Goal Tracker
@@ -740,11 +849,50 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 |-------|-----------------|-------------|-----------------|
 GOAL_TRACKER_EOF
 
+fi  # End of skip-impl goal tracker handling
+
 # ========================================
 # Create Initial Prompt
 # ========================================
 
 SUMMARY_PATH="$LOOP_DIR/round-0-summary.md"
+
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    # Skip-impl mode: create a prompt for code review only
+    cat > "$LOOP_DIR/round-0-prompt.md" << EOF
+# Skip Implementation Mode - Code Review Loop
+
+This RLCR loop was started with \`--skip-impl\` flag.
+
+**Mode**: Code Review Only (skipping implementation phase)
+**Base Branch**: $BASE_BRANCH
+**Current Branch**: $START_BRANCH
+
+## What This Means
+
+The loop will immediately run \`codex review\` on your changes when you try to exit.
+If issues are found (marked with [P0-9] priority), you'll need to fix them before the loop ends.
+
+## Your Task
+
+1. Review your current work
+2. When ready, try to exit - Codex will review your code
+3. Fix any issues Codex finds
+4. Repeat until no issues remain
+5. Enter finalize phase for code simplification
+
+## Note
+
+Since this is skip-impl mode, there is no implementation plan to follow.
+The goal tracker is not used - focus on fixing code review issues.
+
+When you're ready for review, write a brief summary of your changes and try to exit.
+
+Write your summary to: @$SUMMARY_PATH
+
+EOF
+else
+    # Normal mode: create full implementation prompt
 
 # Write prompt header
 cat > "$LOOP_DIR/round-0-prompt.md" << EOF
@@ -814,6 +962,8 @@ Note: Since `--push-every-round` is enabled, you must push your commits to remot
 EOF
 fi
 
+fi  # End of skip-impl prompt handling
+
 # ========================================
 # Output Setup Message
 # ========================================
@@ -822,7 +972,33 @@ fi
 # This trap is set here (not at script start) to avoid affecting internal pipelines.
 trap 'exit 0' PIPE
 
-cat << EOF
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    cat << EOF
+=== start-rlcr-loop activated (SKIP-IMPL MODE) ===
+
+Mode: Code Review Only (--skip-impl)
+Start Branch: $START_BRANCH
+Base Branch: $BASE_BRANCH
+Codex Model: $CODEX_MODEL
+Codex Effort: $CODEX_EFFORT
+Codex Timeout: ${CODEX_TIMEOUT}s
+Loop Directory: $LOOP_DIR
+
+Skip-impl mode is active. The implementation phase is skipped.
+When you try to exit, codex review will run immediately.
+
+The loop will:
+1. Run codex review on changes between $BASE_BRANCH and $START_BRANCH
+2. If issues are found ([P0-9] markers), you'll need to fix them
+3. When no issues remain, enters Finalize Phase and loop ends
+
+To cancel: /humanize:cancel-rlcr-loop
+
+---
+
+EOF
+else
+    cat << EOF
 === start-rlcr-loop activated ===
 
 Plan File: $PLAN_FILE ($LINE_COUNT lines)
@@ -833,6 +1009,7 @@ Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
 Codex Timeout: ${CODEX_TIMEOUT}s
+Full Review Round: $FULL_REVIEW_ROUND (Full Alignment Checks at rounds $((FULL_REVIEW_ROUND - 1)), $((2 * FULL_REVIEW_ROUND - 1)), $((3 * FULL_REVIEW_ROUND - 1)), ...)
 Loop Directory: $LOOP_DIR
 
 The loop is now active. When you try to exit:
@@ -847,6 +1024,7 @@ To cancel: /humanize:cancel-rlcr-loop
 ---
 
 EOF
+fi
 
 # Output the initial prompt
 cat "$LOOP_DIR/round-0-prompt.md"

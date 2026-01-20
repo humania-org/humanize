@@ -92,6 +92,7 @@ RAW_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/
 # Check if critical fields are present before parsing (which applies defaults)
 RAW_CURRENT_ROUND=$(echo "$RAW_FRONTMATTER" | grep "^current_round:" || true)
 RAW_MAX_ITERATIONS=$(echo "$RAW_FRONTMATTER" | grep "^max_iterations:" || true)
+RAW_FULL_REVIEW_ROUND=$(echo "$RAW_FRONTMATTER" | grep "^full_review_round:" || true)
 
 # Use tolerant parsing to extract values
 # Note: parse_state_file applies defaults for missing current_round/max_iterations
@@ -108,6 +109,7 @@ PLAN_FILE="$STATE_PLAN_FILE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
 PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
+FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
 REVIEW_STARTED="$STATE_REVIEW_STARTED"
 CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
@@ -203,6 +205,19 @@ This indicates the loop was started with an older version of humanize (pre-1.5.0
     jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing base_branch)" \
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
     exit 0
+fi
+
+# ========================================
+# Quick-check 0.2: Schema Warning (v1.5.2+ fields)
+# ========================================
+# Warn about missing full_review_round field (introduced in v1.5.2)
+# This is a non-blocking warning - we continue with default value (5)
+
+if [[ -z "$RAW_FULL_REVIEW_ROUND" ]]; then
+    echo "Note: State file missing full_review_round field (introduced in v1.5.2)." >&2
+    echo "  Using default value: 5 (Full Alignment Checks at rounds 4, 9, 14, ...)" >&2
+    echo "  To use configurable Full Alignment Check intervals, upgrade to humanize v1.5.2+" >&2
+    echo "  and restart the RLCR loop with --full-review-round <N> option." >&2
 fi
 
 # ========================================
@@ -622,8 +637,10 @@ fi
 
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
-# Skip this check in Finalize Phase - goal tracker was already initialized before COMPLETE
-if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
+# Skip this check in Finalize Phase, Review Phase, or when review_started is already true (skip-impl mode)
+# - Finalize Phase: goal tracker was already initialized before COMPLETE
+# - Review Phase (review_started=true): skip-impl mode skips implementation, no goal tracker needed
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     # Check if goal-tracker.md still contains placeholder text
     # Extract each section and check for generic placeholder pattern within that section
     # This avoids coupling to specific placeholder wording and prevents false positives
@@ -744,9 +761,10 @@ If Claude's summary includes a Goal Tracker Update Request section, apply the re
 GOAL_TRACKER_UPDATE_SECTION=$(load_and_render_safe "$TEMPLATE_DIR" "codex/goal-tracker-update-section.md" "$GOAL_TRACKER_SECTION_FALLBACK" \
     "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
 
-# Determine if this is a Full Alignment Check round (every 5 rounds)
+# Determine if this is a Full Alignment Check round (every FULL_REVIEW_ROUND rounds)
+# Full Alignment Checks occur at rounds (N-1), (2N-1), (3N-1), etc. where N=FULL_REVIEW_ROUND
 FULL_ALIGNMENT_CHECK=false
-if [[ $((CURRENT_ROUND % 5)) -eq 4 ]]; then
+if [[ $((CURRENT_ROUND % FULL_REVIEW_ROUND)) -eq $((FULL_REVIEW_ROUND - 1)) ]]; then
     FULL_ALIGNMENT_CHECK=true
 fi
 
@@ -1453,7 +1471,7 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
         echo "UNEXPECTED CIRCUIT BREAKER" >&2
         echo "========================================" >&2
         echo "Codex output STOP during a non-alignment round (Round $CURRENT_ROUND)." >&2
-        echo "This is unusual - STOP is normally only expected during Full Alignment Checks (every 5 rounds)." >&2
+        echo "This is unusual - STOP is normally only expected during Full Alignment Checks (every $FULL_REVIEW_ROUND rounds)." >&2
         echo "Honoring the STOP request and terminating the loop." >&2
         echo "" >&2
         echo "Review the review result to understand why Codex requested an early stop:" >&2
@@ -1491,8 +1509,8 @@ load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_
     "REVIEW_CONTENT=$REVIEW_CONTENT" \
     "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" > "$NEXT_PROMPT_FILE"
 
-# Add special instructions for post-Full Alignment Check rounds (round after every 5th)
-if [[ $((CURRENT_ROUND % 5)) -eq 4 ]]; then
+# Add special instructions for post-Full Alignment Check rounds
+if [[ $((CURRENT_ROUND % FULL_REVIEW_ROUND)) -eq $((FULL_REVIEW_ROUND - 1)) ]]; then
     POST_ALIGNMENT=$(load_template "$TEMPLATE_DIR" "claude/post-alignment-action-items.md" 2>/dev/null)
     if [[ -n "$POST_ALIGNMENT" ]]; then
         echo "$POST_ALIGNMENT" >> "$NEXT_PROMPT_FILE"

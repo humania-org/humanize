@@ -1,6 +1,6 @@
 ---
 description: "Start iterative loop with Codex review"
-argument-hint: "[path/to/plan.md | --plan-file path/to/plan.md] [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--track-plan-file] [--push-every-round] [--base-branch BRANCH]"
+argument-hint: "[path/to/plan.md | --plan-file path/to/plan.md] [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--track-plan-file] [--push-every-round] [--base-branch BRANCH] [--full-review-round N] [--skip-impl]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"]
 hide-from-slash-command-tool: "true"
 ---
@@ -36,7 +36,7 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 1. **Acceptance Criteria**: Each task maps to a specific AC - nothing can be "forgotten"
 2. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
 3. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
-4. **Full Alignment Checks**: At rounds 4, 9, 14, etc. (after every 4 rounds of work), Codex conducts a comprehensive goal alignment audit
+4. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
 
 ### How to Use
 1. **Round 0**: Initialize the Goal Tracker with Ultimate Goal and Acceptance Criteria
@@ -65,3 +65,22 @@ The RLCR loop has two phases within the active loop:
 2. **Review Phase**: After COMPLETE, `codex review` checks code quality with `[P0-9]` severity markers
 
 The `--base-branch` option specifies the base branch for code review comparison. If not provided, it auto-detects from: remote default > local main > local master.
+
+## Skip Implementation Mode
+
+Use `--skip-impl` to skip the implementation phase and go directly to code review:
+
+```bash
+/humanize:start-rlcr-loop --skip-impl
+```
+
+In this mode:
+- Plan file is optional (not required)
+- No goal tracker initialization needed
+- Immediately starts code review when you try to exit
+- Useful for reviewing existing changes without an implementation plan
+
+This is helpful when you want to:
+- Review code changes made outside of an RLCR loop
+- Get code quality feedback on existing work
+- Skip the implementation tracking overhead for simple tasks

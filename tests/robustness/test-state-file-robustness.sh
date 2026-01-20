@@ -396,6 +396,83 @@ else
     fail "CRLF handling" "some value or empty" "crashed"
 fi
 
+# Test 19: State file with full_review_round field (v1.5.2+)
+echo ""
+echo "Test 19: State file with full_review_round field (v1.5.2+)"
+cat > "$TEST_DIR/state-full-review.md" << 'EOF'
+---
+current_round: 3
+max_iterations: 20
+full_review_round: 7
+codex_model: gpt-5.2-codex
+codex_effort: high
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-full-review.md"; then
+    if [[ "$STATE_FULL_REVIEW_ROUND" == "7" ]]; then
+        pass "Parses full_review_round field correctly"
+    else
+        fail "Parses full_review_round" "7" "$STATE_FULL_REVIEW_ROUND"
+    fi
+else
+    fail "Parses state with full_review_round" "return 0" "returned non-zero"
+fi
+
+# Test 20: State file without full_review_round uses default value
+echo ""
+echo "Test 20: State file without full_review_round uses default value (5)"
+cat > "$TEST_DIR/state-no-full-review.md" << 'EOF'
+---
+current_round: 2
+max_iterations: 15
+codex_model: gpt-5.2-codex
+codex_effort: high
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-no-full-review.md"; then
+    if [[ "$STATE_FULL_REVIEW_ROUND" == "5" ]]; then
+        pass "Uses default full_review_round value (5) when missing"
+    else
+        fail "Default full_review_round" "5" "$STATE_FULL_REVIEW_ROUND"
+    fi
+else
+    fail "Parses state without full_review_round" "return 0" "returned non-zero"
+fi
+
+# Test 21: State file with full_review_round=2 (minimum valid value)
+echo ""
+echo "Test 21: State file with full_review_round=2 (minimum valid value)"
+cat > "$TEST_DIR/state-min-full-review.md" << 'EOF'
+---
+current_round: 1
+max_iterations: 10
+full_review_round: 2
+codex_model: gpt-5.2-codex
+codex_effort: high
+plan_file: plan.md
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-min-full-review.md"; then
+    if [[ "$STATE_FULL_REVIEW_ROUND" == "2" ]]; then
+        pass "Parses minimum full_review_round value (2) correctly"
+    else
+        fail "Minimum full_review_round" "2" "$STATE_FULL_REVIEW_ROUND"
+    fi
+else
+    fail "Parses state with min full_review_round" "return 0" "returned non-zero"
+fi
+
 # ========================================
 # Summary
 # ========================================

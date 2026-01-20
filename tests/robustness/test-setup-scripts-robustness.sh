@@ -866,6 +866,207 @@ else
 fi
 
 # ========================================
+# Full Review Round Parameter Tests (v1.5.2+)
+# ========================================
+
+echo ""
+echo "--- Full Review Round Parameter Tests ---"
+echo ""
+
+# Test 36: --full-review-round with valid value (5)
+echo "Test 36: --full-review-round with valid value accepted"
+mkdir -p "$TEST_DIR/repo36"
+init_basic_git_repo "$TEST_DIR/repo36"
+create_minimal_plan "$TEST_DIR/repo36"
+echo "plan.md" >> "$TEST_DIR/repo36/.gitignore"
+git -C "$TEST_DIR/repo36" add .gitignore && git -C "$TEST_DIR/repo36" commit -q -m "Add gitignore"
+mkdir -p "$TEST_DIR/repo36/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo36/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo36" plan.md --full-review-round 5 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+# Should NOT fail at --full-review-round validation
+if echo "$OUTPUT" | grep -qi "full-review-round.*invalid\|must be at least 2"; then
+    fail "--full-review-round 5" "accepted" "rejected"
+else
+    pass "--full-review-round 5 accepted"
+fi
+
+# Test 37: --full-review-round with minimum valid value (2)
+echo ""
+echo "Test 37: --full-review-round with minimum value (2) accepted"
+mkdir -p "$TEST_DIR/repo37"
+init_basic_git_repo "$TEST_DIR/repo37"
+create_minimal_plan "$TEST_DIR/repo37"
+echo "plan.md" >> "$TEST_DIR/repo37/.gitignore"
+git -C "$TEST_DIR/repo37" add .gitignore && git -C "$TEST_DIR/repo37" commit -q -m "Add gitignore"
+mkdir -p "$TEST_DIR/repo37/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo37/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo37" plan.md --full-review-round 2 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+# Should NOT fail at --full-review-round validation
+if echo "$OUTPUT" | grep -qi "must be at least 2"; then
+    fail "--full-review-round 2" "accepted" "rejected"
+else
+    pass "--full-review-round 2 (minimum) accepted"
+fi
+
+# Test 38: --full-review-round with value 1 rejected (below minimum)
+echo ""
+echo "Test 38: --full-review-round with value 1 rejected (below minimum)"
+mkdir -p "$TEST_DIR/repo38"
+init_basic_git_repo "$TEST_DIR/repo38"
+create_minimal_plan "$TEST_DIR/repo38"
+echo "plan.md" >> "$TEST_DIR/repo38/.gitignore"
+git -C "$TEST_DIR/repo38" add .gitignore && git -C "$TEST_DIR/repo38" commit -q -m "Add gitignore"
+mkdir -p "$TEST_DIR/repo38/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo38/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo38" plan.md --full-review-round 1 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "must be at least 2"; then
+    pass "--full-review-round 1 rejected (must be at least 2)"
+else
+    fail "--full-review-round 1" "rejection with 'must be at least 2'" "exit=$EXIT_CODE"
+fi
+
+# Test 39: --full-review-round with non-numeric value rejected
+echo ""
+echo "Test 39: --full-review-round with non-numeric value rejected"
+mkdir -p "$TEST_DIR/repo39"
+init_basic_git_repo "$TEST_DIR/repo39"
+create_minimal_plan "$TEST_DIR/repo39"
+echo "plan.md" >> "$TEST_DIR/repo39/.gitignore"
+git -C "$TEST_DIR/repo39" add .gitignore && git -C "$TEST_DIR/repo39" commit -q -m "Add gitignore"
+mkdir -p "$TEST_DIR/repo39/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo39/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo39" plan.md --full-review-round abc 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
+    pass "--full-review-round non-numeric rejected"
+else
+    fail "--full-review-round non-numeric" "rejection with 'positive integer'" "exit=$EXIT_CODE"
+fi
+
+# Test 40: --full-review-round without value rejected
+echo ""
+echo "Test 40: --full-review-round without value rejected"
+mkdir -p "$TEST_DIR/repo40"
+init_basic_git_repo "$TEST_DIR/repo40"
+create_minimal_plan "$TEST_DIR/repo40"
+echo "plan.md" >> "$TEST_DIR/repo40/.gitignore"
+git -C "$TEST_DIR/repo40" add .gitignore && git -C "$TEST_DIR/repo40" commit -q -m "Add gitignore"
+mkdir -p "$TEST_DIR/repo40/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo40/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo40" plan.md --full-review-round 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "requires.*number\|requires.*argument"; then
+    pass "--full-review-round without value rejected"
+else
+    fail "--full-review-round without value" "rejection" "exit=$EXIT_CODE"
+fi
+
+# ========================================
+# Skip Implementation Mode Tests (v1.5.2+)
+# ========================================
+
+echo ""
+echo "--- Skip Implementation Mode Tests ---"
+echo ""
+
+# Test 41: --skip-impl without plan file accepted
+echo "Test 41: --skip-impl without plan file accepted"
+mkdir -p "$TEST_DIR/repo41"
+init_basic_git_repo "$TEST_DIR/repo41"
+mkdir -p "$TEST_DIR/repo41/bin"
+
+OUTPUT=$(PATH="$TEST_DIR/repo41/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo41" --skip-impl 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+# Should NOT fail at "No plan file provided" - skip-impl makes it optional
+if echo "$OUTPUT" | grep -qi "No plan file provided"; then
+    fail "--skip-impl without plan" "accepted" "rejected for missing plan"
+else
+    # May fail later at codex check, which is fine
+    pass "--skip-impl without plan file accepted"
+fi
+
+# Test 42: --skip-impl creates review phase marker
+echo ""
+echo "Test 42: --skip-impl creates review phase marker file"
+mkdir -p "$TEST_DIR/repo42"
+init_basic_git_repo "$TEST_DIR/repo42"
+
+# Create mock codex
+mkdir -p "$TEST_DIR/repo42/bin"
+echo '#!/bin/bash
+exit 0' > "$TEST_DIR/repo42/bin/codex"
+chmod +x "$TEST_DIR/repo42/bin/codex"
+
+OUTPUT=$(PATH="$TEST_DIR/repo42/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo42" --skip-impl 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+
+# Find the loop directory
+LOOP_DIR=$(find "$TEST_DIR/repo42/.humanize/rlcr" -maxdepth 1 -type d -name "20*" 2>/dev/null | head -1)
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/.review-phase-started" ]]; then
+    pass "--skip-impl creates .review-phase-started marker"
+else
+    fail "--skip-impl marker" "marker file created" "marker not found"
+fi
+
+# Test 43: --skip-impl sets review_started=true in state.md
+echo ""
+echo "Test 43: --skip-impl sets review_started=true"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/state.md" ]]; then
+    if grep -q "review_started: true" "$LOOP_DIR/state.md"; then
+        pass "--skip-impl sets review_started=true"
+    else
+        fail "--skip-impl review_started" "true" "$(grep review_started "$LOOP_DIR/state.md" || echo 'not found')"
+    fi
+else
+    fail "--skip-impl state.md" "state.md exists" "not found"
+fi
+
+# Test 44: --skip-impl creates goal-tracker without placeholder text
+echo ""
+echo "Test 44: --skip-impl creates goal-tracker without placeholder text"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/goal-tracker.md" ]]; then
+    # Check that it does NOT contain "[To be" placeholder text
+    if grep -q '\[To be ' "$LOOP_DIR/goal-tracker.md"; then
+        fail "--skip-impl goal-tracker" "no placeholder text" "contains '[To be' placeholder"
+    else
+        pass "--skip-impl creates goal-tracker without placeholder"
+    fi
+else
+    fail "--skip-impl goal-tracker" "goal-tracker.md exists" "not found"
+fi
+
+# Test 45: --skip-impl with plan file still works
+echo ""
+echo "Test 45: --skip-impl with plan file still works"
+mkdir -p "$TEST_DIR/repo45"
+init_basic_git_repo "$TEST_DIR/repo45"
+create_minimal_plan "$TEST_DIR/repo45"
+echo "plan.md" >> "$TEST_DIR/repo45/.gitignore"
+git -C "$TEST_DIR/repo45" add .gitignore && git -C "$TEST_DIR/repo45" commit -q -m "Add gitignore"
+
+mkdir -p "$TEST_DIR/repo45/bin"
+echo '#!/bin/bash
+exit 0' > "$TEST_DIR/repo45/bin/codex"
+chmod +x "$TEST_DIR/repo45/bin/codex"
+
+OUTPUT=$(PATH="$TEST_DIR/repo45/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo45" plan.md --skip-impl 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+# Should work - skip-impl with plan file is valid
+if echo "$OUTPUT" | grep -qi "SKIP-IMPL MODE"; then
+    pass "--skip-impl with plan file works"
+else
+    # May fail at codex but should at least get past args
+    if echo "$OUTPUT" | grep -qi "error"; then
+        fail "--skip-impl with plan" "accepted" "error occurred"
+    else
+        pass "--skip-impl with plan file works"
+    fi
+fi
+
+# ========================================
 # Summary
 # ========================================
 
