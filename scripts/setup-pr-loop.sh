@@ -305,9 +305,10 @@ PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
 PR_LOOKUP_REPO=""
 PR_NUMBER=""
 
-# Try current repo first
+# Try current repo first - use no arguments to let gh infer PR from branch tracking info
+# This handles cases where local branch name differs from PR head (e.g., renamed branch)
 if [[ -n "$CURRENT_REPO" ]]; then
-    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --repo "$CURRENT_REPO" "$START_BRANCH" --json number -q .number 2>/dev/null) || PR_NUMBER=""
+    PR_NUMBER=$(run_with_timeout "$GH_TIMEOUT" gh pr view --json number -q .number 2>/dev/null) || PR_NUMBER=""
     if [[ -n "$PR_NUMBER" ]]; then
         PR_LOOKUP_REPO="$CURRENT_REPO"
     fi
