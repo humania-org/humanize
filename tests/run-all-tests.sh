@@ -66,6 +66,10 @@ TEST_SUITES=(
     "robustness/test-base-branch-detection.sh"
     "robustness/test-setup-scripts-robustness.sh"
     "robustness/test-concurrent-state-robustness.sh"
+    "robustness/test-hook-system-robustness.sh"
+    "robustness/test-template-error-robustness.sh"
+    "robustness/test-state-transition-robustness.sh"
+    "robustness/test-pr-loop-api-robustness.sh"
 )
 
 # Tests that must be run with zsh (not bash)
