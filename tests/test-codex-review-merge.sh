@@ -1,13 +1,19 @@
 #!/bin/bash
 #
-# Tests for Code Review stdout + result file merge behavior
+# Tests for Code Review log file analysis behavior
 #
 # Tests that detect_review_issues() correctly:
-# - Detects [P0-9] patterns in stdout only
-# - Detects [P0-9] patterns in result file only
-# - Merges content from both sources when both have issues
-# - Returns no issues when neither has [P0-9] patterns
-# - Includes both files in output when any has issues (for context)
+# - Detects [P0-9] patterns in first 10 characters of each line
+# - Analyzes only the last 50 lines of the log file
+# - Extracts content from the first matching line to the end
+# - Returns appropriate exit codes
+#
+# Algorithm being tested:
+# 1. Read the last 50 lines of the log file (or all lines if < 50)
+# 2. Scan from the start of those lines to the end
+# 3. Find the first line where [P?] (? is a digit) appears in the first 10 characters
+# 4. If found: extract from that line to the end and output it
+# 5. If not found: no issues, return 1
 #
 
 set -uo pipefail
@@ -36,7 +42,7 @@ mkdir -p "$XDG_CACHE_HOME"
 # Source the loop-common.sh which contains detect_review_issues
 source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
 
-echo "=== Test: Code Review Stdout + Result Merge ==="
+echo "=== Test: Code Review Log File Analysis ==="
 echo ""
 
 # Setup test loop directory structure
@@ -49,48 +55,44 @@ setup_test_env() {
 }
 
 # ========================================
-# Test 1: Issues in stdout only
+# Test 1: [P?] in first 10 chars - should detect
 # ========================================
-echo "Test 1: detect_review_issues finds issues in stdout only"
+echo "Test 1: detect_review_issues finds [P?] in first 10 characters"
 setup_test_env
 
-# Create stdout file with [P1] issue
-cat > "$CACHE_DIR/round-1-codex-review.out" << 'EOF'
-Full review comments:
-
+cat > "$CACHE_DIR/round-1-codex-review.log" << 'EOF'
+Some debug output from codex
+More debug lines
+thinking about the code
 - [P1] Missing null check - /path/to/file.py:42-45
   The function does not check for null input before processing.
+- [P2] Another issue - /path/to/other.py:10-15
+  Description of the issue.
 EOF
-
-# No result file (or empty)
-rm -f "$LOOP_DIR/round-1-review-result.md"
 
 set +e
 OUTPUT=$(detect_review_issues 1 2>/dev/null)
 RESULT=$?
 set -e
 
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]' && echo "$OUTPUT" | grep -q "stdout"; then
-    pass "Issues detected in stdout only"
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]' && echo "$OUTPUT" | grep -q '\[P2\]'; then
+    pass "Issues detected with [P?] in first 10 chars"
 else
-    fail "Issues in stdout only" "return 0, output contains [P1] and stdout" "return $RESULT, output: $OUTPUT"
+    fail "Issues in first 10 chars" "return 0, output contains [P1] and [P2]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 2: Issues in result file only
+# Test 2: [P?] NOT in first 10 chars - should NOT detect
 # ========================================
-echo "Test 2: detect_review_issues finds issues in result file only and includes stdout for context"
+echo "Test 2: detect_review_issues ignores [P?] not in first 10 characters"
 setup_test_env
 
-# Stdout file without [P?] markers but with context
-echo "No issues found in initial scan" > "$CACHE_DIR/round-2-codex-review.out"
-
-# Create result file with [P2] issue
-cat > "$LOOP_DIR/round-2-review-result.md" << 'EOF'
-# Code Review
-
-- [P2] Security vulnerability - /path/to/auth.py:100-105
-  Password is not properly hashed before storage.
+cat > "$CACHE_DIR/round-2-codex-review.log" << 'EOF'
+Some debug output from codex
+More debug lines
+This line has [P1] but not in first 10 chars - should be ignored
+Another line mentioning [P2] somewhere in the middle
+Final line of output
 EOF
 
 set +e
@@ -98,35 +100,24 @@ OUTPUT=$(detect_review_issues 2 2>/dev/null)
 RESULT=$?
 set -e
 
-# Per plan: "concatenate the contents of both files together"
-# When result file has [P?] issues and stdout exists with different content,
-# BOTH files must be included in the output.
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P2\]' && echo "$OUTPUT" | grep -q "initial scan"; then
-    pass "Issues in result file and stdout included for context"
+# [P?] is not in first 10 chars, so should return 1 (no issues found)
+if [[ $RESULT -eq 1 ]]; then
+    pass "[P?] not in first 10 chars returns 1 (no issues)"
 else
-    fail "Issues in result file only" "return 0, output contains [P2] AND stdout content" "return $RESULT, output: $OUTPUT"
+    fail "[P?] position check" "return 1 (no issues)" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 3: Issues in both files (different content)
+# Test 3: No [P?] at all - should return 1
 # ========================================
-echo "Test 3: detect_review_issues merges issues from both files"
+echo "Test 3: detect_review_issues returns 1 when no [P?] patterns"
 setup_test_env
 
-# Create stdout file with [P0] issue
-cat > "$CACHE_DIR/round-3-codex-review.out" << 'EOF'
-Full review comments:
-
-- [P0] Critical: SQL injection vulnerability - /path/to/db.py:50-55
-  User input is directly concatenated into SQL query.
-EOF
-
-# Create result file with different [P3] issue
-cat > "$LOOP_DIR/round-3-review-result.md" << 'EOF'
-# Code Review
-
-- [P3] Code style: inconsistent naming - /path/to/utils.py:10-20
-  Variable names should follow snake_case convention.
+cat > "$CACHE_DIR/round-3-codex-review.log" << 'EOF'
+Code review complete
+No issues found
+All checks passed
+The code looks good
 EOF
 
 set +e
@@ -134,189 +125,232 @@ OUTPUT=$(detect_review_issues 3 2>/dev/null)
 RESULT=$?
 set -e
 
-# Should contain both issues
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P0\]' && echo "$OUTPUT" | grep -q '\[P3\]'; then
-    pass "Issues merged from both files"
+if [[ $RESULT -eq 1 ]]; then
+    pass "No [P?] returns 1"
 else
-    fail "Issues in both files" "return 0, output contains [P0] and [P3]" "return $RESULT, output: $OUTPUT"
+    fail "No issues detection" "return 1" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 4: No issues in either file
+# Test 4: Missing log file - should return 2
 # ========================================
-echo "Test 4: detect_review_issues returns 1 when no issues"
+echo "Test 4: detect_review_issues returns error code 2 when log file is missing"
 setup_test_env
 
-# Clean stdout file
-echo "Code looks good, no issues found." > "$CACHE_DIR/round-4-codex-review.out"
-
-# Clean result file
-echo "# Code Review
-
-All checks passed. No issues found." > "$LOOP_DIR/round-4-review-result.md"
+rm -f "$CACHE_DIR/round-4-codex-review.log" 2>/dev/null || true
 
 set +e
 OUTPUT=$(detect_review_issues 4 2>/dev/null)
 RESULT=$?
 set -e
 
-if [[ $RESULT -eq 1 ]]; then
-    pass "No issues returns 1"
+if [[ $RESULT -eq 2 ]]; then
+    pass "Missing log file returns 2 (hard error)"
 else
-    fail "No issues detection" "return 1" "return $RESULT, output: $OUTPUT"
+    fail "Missing log file handling" "return 2 (hard error)" "return $RESULT"
 fi
 
 # ========================================
-# Test 5: Stdout file missing (HARD ERROR)
+# Test 5: Empty log file - should return 2
 # ========================================
-echo "Test 5: detect_review_issues returns error code 2 when stdout is missing"
+echo "Test 5: detect_review_issues returns error code 2 when log file is empty"
 setup_test_env
 
-# Don't create stdout file (this is a hard error)
-rm -f "$CACHE_DIR/round-5-codex-review.out" 2>/dev/null || true
-rm -f "$LOOP_DIR/round-5-review-result.md" 2>/dev/null || true
+touch "$CACHE_DIR/round-5-codex-review.log"
 
 set +e
 OUTPUT=$(detect_review_issues 5 2>/dev/null)
 RESULT=$?
 set -e
 
-# Missing stdout should return error code 2 (not 1)
-# This is a hard error that blocks skipping to finalize
 if [[ $RESULT -eq 2 ]]; then
-    pass "Missing stdout returns 2 (hard error)"
+    pass "Empty log file returns 2 (hard error)"
 else
-    fail "Missing stdout handling" "return 2 (hard error)" "return $RESULT"
+    fail "Empty log file handling" "return 2 (hard error)" "return $RESULT"
 fi
 
 # ========================================
-# Test 6: Identical content in both files (no duplication)
+# Test 6: Log file with >50 lines, [P?] in last 50
 # ========================================
-echo "Test 6: detect_review_issues avoids duplication when files are identical"
+echo "Test 6: detect_review_issues finds [P?] in last 50 lines of long log"
 setup_test_env
 
-# Create identical files
-IDENTICAL_CONTENT="Full review comments:
-
-- [P1] Issue found - /path/to/file.py:1-5
-  Some issue description."
-
-echo "$IDENTICAL_CONTENT" > "$CACHE_DIR/round-6-codex-review.out"
-echo "$IDENTICAL_CONTENT" > "$LOOP_DIR/round-6-review-result.md"
+# Create a log file with 60 lines, [P1] at line 55 (within last 50)
+{
+    for i in $(seq 1 54); do
+        echo "Debug line $i - some processing output"
+    done
+    echo "- [P1] Bug found in the code - /path/to/file.py:100"
+    for i in $(seq 56 60); do
+        echo "More output line $i"
+    done
+} > "$CACHE_DIR/round-6-codex-review.log"
 
 set +e
 OUTPUT=$(detect_review_issues 6 2>/dev/null)
 RESULT=$?
 set -e
 
-# Should only include content once (from stdout section)
-COUNT=$(echo "$OUTPUT" | grep -c '\[P1\]' || true)
-if [[ $RESULT -eq 0 ]] && [[ "$COUNT" -eq 1 ]]; then
-    pass "Identical content not duplicated"
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
+    pass "[P?] found in last 50 lines"
 else
-    fail "Identical content handling" "return 0, [P1] appears once" "return $RESULT, [P1] count: $COUNT"
+    fail "[P?] in last 50 lines" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 7: Issues in stdout, context in result (context inclusion test)
+# Test 7: Log file with >50 lines, [P?] outside last 50 - should NOT detect
 # ========================================
-echo "Test 7: detect_review_issues includes result file for context when only stdout has issues"
+echo "Test 7: detect_review_issues ignores [P?] outside last 50 lines"
 setup_test_env
 
-# Create stdout file with [P1] issue
-cat > "$CACHE_DIR/round-7-codex-review.out" << 'EOF'
-- [P1] Missing null check - /path/to/file.py:42-45
-EOF
-
-# Create result file WITHOUT [P?] markers but with useful context
-cat > "$LOOP_DIR/round-7-review-result.md" << 'EOF'
-# Code Review Summary
-Overall the code is well structured but needs some improvements.
-The main issue is in the error handling section.
-EOF
+# Create a log file with 70 lines, [P1] at line 5 (outside last 50)
+{
+    for i in $(seq 1 4); do
+        echo "Debug line $i"
+    done
+    echo "- [P1] This is outside the last 50 lines - /path/to/file.py:1"
+    for i in $(seq 6 70); do
+        echo "More output line $i - no issues here"
+    done
+} > "$CACHE_DIR/round-7-codex-review.log"
 
 set +e
 OUTPUT=$(detect_review_issues 7 2>/dev/null)
 RESULT=$?
 set -e
 
-# Per plan: "concatenate the contents of both files together to form a suitable prompt"
-# When stdout has [P?] issues and result file exists with different content,
-# BOTH files must be included in the output.
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]' && echo "$OUTPUT" | grep -q "well structured"; then
-    pass "Result file included for context when stdout has issues"
+# [P1] is at line 5, but we only scan lines 21-70 (last 50), so should return 1
+if [[ $RESULT -eq 1 ]]; then
+    pass "[P?] outside last 50 lines ignored"
 else
-    fail "Context inclusion" "return 0, output contains [P1] AND result file content" "return $RESULT, output: $OUTPUT"
+    fail "[P?] outside last 50 lines" "return 1 (not found)" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 8: Empty stdout file (HARD ERROR)
+# Test 8: Multiple [P?] lines - first one is the start of extraction
 # ========================================
-echo "Test 8: detect_review_issues returns error code 2 when stdout is empty"
+echo "Test 8: detect_review_issues extracts from first [P?] line to end"
 setup_test_env
 
-# Create empty stdout file
-touch "$CACHE_DIR/round-8-codex-review.out"
-# Create result file with issues (but empty stdout should still be an error)
-echo "[P1] Some issue" > "$LOOP_DIR/round-8-review-result.md"
+cat > "$CACHE_DIR/round-8-codex-review.log" << 'EOF'
+Debug output line 1
+Debug output line 2
+- [P0] Critical issue - /path/to/critical.py:10
+  This is a critical bug.
+- [P2] Minor issue - /path/to/minor.py:20
+  This is a minor issue.
+Final debug line
+EOF
 
 set +e
 OUTPUT=$(detect_review_issues 8 2>/dev/null)
 RESULT=$?
 set -e
 
-# Empty stdout should return error code 2 (hard error)
-# Even if result file has issues, empty stdout is a hard error
-if [[ $RESULT -eq 2 ]]; then
-    pass "Empty stdout returns 2 (hard error)"
+# Should extract from [P0] line to the end, including [P2] and final line
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P0\]' && echo "$OUTPUT" | grep -q '\[P2\]' && echo "$OUTPUT" | grep -q "Final debug"; then
+    pass "Extraction from first [P?] to end works"
 else
-    fail "Empty stdout handling" "return 2 (hard error)" "return $RESULT"
+    fail "Multi-issue extraction" "return 0, contains [P0], [P2], and final line" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 9: Stdout exists with content, result file missing (OK)
+# Test 9: [P?] exactly at position 0 (first char)
 # ========================================
-echo "Test 9: detect_review_issues works when only stdout has content (no issues)"
+echo "Test 9: detect_review_issues finds [P?] at very start of line"
 setup_test_env
 
-# Create stdout with content but no [P?] issues
-echo "Code looks good, no problems found." > "$CACHE_DIR/round-9-codex-review.out"
-# Don't create result file
-rm -f "$LOOP_DIR/round-9-review-result.md" 2>/dev/null || true
+cat > "$CACHE_DIR/round-9-codex-review.log" << 'EOF'
+Debug output
+[P3] Issue at start of line - /path/to/file.py:5
+  Description of the issue.
+EOF
 
 set +e
 OUTPUT=$(detect_review_issues 9 2>/dev/null)
 RESULT=$?
 set -e
 
-# No issues should return 1
-if [[ $RESULT -eq 1 ]]; then
-    pass "Stdout only with no issues returns 1"
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P3\]'; then
+    pass "[P?] at position 0 detected"
 else
-    fail "Stdout only no issues" "return 1" "return $RESULT"
+    fail "[P?] at position 0" "return 0, output contains [P3]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================
-# Test 10: Stdout exists with [P?] issues, result file missing (OK)
+# Test 10: [P?] with dash prefix (common format)
 # ========================================
-echo "Test 10: detect_review_issues works when only stdout has issues"
+echo "Test 10: detect_review_issues finds [P?] with dash prefix"
 setup_test_env
 
-# Create stdout with [P?] issues
-echo "[P2] Missing error handling at line 50" > "$CACHE_DIR/round-10-codex-review.out"
-# Don't create result file
-rm -f "$LOOP_DIR/round-10-review-result.md" 2>/dev/null || true
+cat > "$CACHE_DIR/round-10-codex-review.log" << 'EOF'
+Review started
+Analyzing files...
+- [P1] Security vulnerability - /path/to/auth.py:50
+  Password stored in plain text.
+EOF
 
 set +e
 OUTPUT=$(detect_review_issues 10 2>/dev/null)
 RESULT=$?
 set -e
 
-# Issues found should return 0
-if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P2\]'; then
-    pass "Stdout only with issues returns 0"
+# "- [P1]" - the [P1] starts at position 2, which is within first 10 chars
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
+    pass "[P?] with dash prefix detected"
 else
-    fail "Stdout only with issues" "return 0, output contains [P2]" "return $RESULT, output: $OUTPUT"
+    fail "[P?] with dash prefix" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
+fi
+
+# ========================================
+# Test 11: Result file is created when issues found
+# ========================================
+echo "Test 11: detect_review_issues creates result file when issues found"
+setup_test_env
+
+cat > "$CACHE_DIR/round-11-codex-review.log" << 'EOF'
+Debug line
+- [P2] Test issue - /file.py:1
+  Issue description
+EOF
+
+# Ensure result file doesn't exist
+rm -f "$LOOP_DIR/round-11-review-result.md" 2>/dev/null || true
+
+set +e
+OUTPUT=$(detect_review_issues 11 2>/dev/null)
+RESULT=$?
+set -e
+
+# Check that result file was created
+if [[ $RESULT -eq 0 ]] && [[ -f "$LOOP_DIR/round-11-review-result.md" ]]; then
+    pass "Result file created when issues found"
+else
+    fail "Result file creation" "return 0, result file exists" "return $RESULT, file exists: $(test -f "$LOOP_DIR/round-11-review-result.md" && echo yes || echo no)"
+fi
+
+# ========================================
+# Test 12: Exactly 50 lines, [P?] on line 1
+# ========================================
+echo "Test 12: detect_review_issues handles exactly 50 lines"
+setup_test_env
+
+{
+    echo "- [P1] First line issue - /file.py:1"
+    for i in $(seq 2 50); do
+        echo "Line $i content"
+    done
+} > "$CACHE_DIR/round-12-codex-review.log"
+
+set +e
+OUTPUT=$(detect_review_issues 12 2>/dev/null)
+RESULT=$?
+set -e
+
+if [[ $RESULT -eq 0 ]] && echo "$OUTPUT" | grep -q '\[P1\]'; then
+    pass "Exactly 50 lines handled correctly"
+else
+    fail "Exactly 50 lines" "return 0, output contains [P1]" "return $RESULT, output: $OUTPUT"
 fi
 
 # ========================================

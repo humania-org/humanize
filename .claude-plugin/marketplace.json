@@ -8,7 +8,7 @@
       "name": "humanize",
       "source": "./",
       "description": "Humanize - An iterative development plugin that uses Codex to review Claude's work. Creates a feedback loop where Claude implements plans and Codex independently reviews progress, ensuring quality through continuous refinement.",
-      "version": "1.5.0"
+      "version": "1.5.1"
     }
   ]
 }

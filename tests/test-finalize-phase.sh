@@ -656,22 +656,22 @@ else
     fail "Empty review blocks" "block decision" "exit $EXIT_CODE, decision not block, output: $(echo "$RESULT" | head -5)"
 fi
 
-# T-NEG-9b: Verify the stdout file exists and is empty
-echo "T-NEG-9b: Codex review stdout file exists and is empty"
+# T-NEG-9b: Verify the log file exists and is empty (combined stdout+stderr)
+echo "T-NEG-9b: Codex review log file exists and is empty"
 # Compute the real cache dir using same logic as loop-codex-stop-hook.sh
-# Cache path: $XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP/round-N-codex-review.out
+# Cache path: $XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP/round-N-codex-review.log
 LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
 SANITIZED_PROJECT_PATH=$(echo "$TEST_DIR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
 REVIEW_CACHE_DIR="$XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 # Round 5 because we started at round 4 and incremented for review
-REVIEW_STDOUT="$REVIEW_CACHE_DIR/round-5-codex-review.out"
-if [[ -f "$REVIEW_STDOUT" ]] && [[ ! -s "$REVIEW_STDOUT" ]]; then
-    pass "Codex review stdout file exists and is empty"
+REVIEW_LOG="$REVIEW_CACHE_DIR/round-5-codex-review.log"
+if [[ -f "$REVIEW_LOG" ]] && [[ ! -s "$REVIEW_LOG" ]]; then
+    pass "Codex review log file exists and is empty"
 else
-    if [[ ! -f "$REVIEW_STDOUT" ]]; then
-        fail "Empty stdout verification" "stdout file exists (at $REVIEW_STDOUT)" "file does not exist"
+    if [[ ! -f "$REVIEW_LOG" ]]; then
+        fail "Empty log verification" "log file exists (at $REVIEW_LOG)" "file does not exist"
     else
-        fail "Empty stdout verification" "stdout file is empty" "stdout file has content: $(cat "$REVIEW_STDOUT" | head -3)"
+        fail "Empty log verification" "log file is empty" "log file has content: $(cat "$REVIEW_LOG" | head -3)"
     fi
 fi
 

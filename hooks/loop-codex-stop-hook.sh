@@ -862,8 +862,8 @@ run_codex_code_review() {
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
-    CODEX_REVIEW_STDOUT_FILE="$CACHE_DIR/round-${round}-codex-review.out"
-    CODEX_REVIEW_STDERR_FILE="$CACHE_DIR/round-${round}-codex-review.log"
+    # Note: codex review outputs everything to stderr, so we capture both stdout and stderr to the log file
+    CODEX_REVIEW_LOG_FILE="$CACHE_DIR/round-${round}-codex-review.log"
     local prompt_file="$LOOP_DIR/round-${round}-review-prompt.md"
 
     # Create audit prompt file (codex review doesn't accept prompts, but we create this for audit)
@@ -895,18 +895,17 @@ Note: codex review does not accept prompt input; it performs automated code revi
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-    echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
+    echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT..." >&2
 
+    # Run codex review from PROJECT_ROOT to ensure correct git context
+    # (hooks may execute from plugin directory, not project root)
+    # Note: codex review outputs to stderr, so we redirect both stdout and stderr to the log file
     CODEX_REVIEW_EXIT_CODE=0
-    run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}" \
-        > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}") \
+        > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
-
-    # Copy stdout to result file if codex didn't create it directly
-    if [[ "$CODEX_REVIEW_EXIT_CODE" -eq 0 && ! -f "$result_file" && -s "$CODEX_REVIEW_STDOUT_FILE" ]]; then
-        cp "$CODEX_REVIEW_STDOUT_FILE" "$result_file"
-    fi
+    echo "Codex review log saved to: $CODEX_REVIEW_LOG_FILE" >&2
 
     return "$CODEX_REVIEW_EXIT_CODE"
 }

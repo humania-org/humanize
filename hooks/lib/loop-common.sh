@@ -320,96 +320,79 @@ parse_state_file_strict() {
     return 0
 }
 
-# Detect review issues from both stdout and result file
+# Detect review issues from codex review log file
 # Returns:
 #   0 - issues found (caller should continue review loop)
 #   1 - no issues found (caller can proceed to finalize)
-#   2 - stdout missing/empty (hard error - caller must block and require retry)
-# Outputs: merged content to stdout if issues found
+#   2 - log file missing/empty (hard error - caller must block and require retry)
+# Outputs: extracted review content to stdout if issues found
 # Arguments: $1=round_number
 # Required globals: LOOP_DIR, CACHE_DIR
 #
-# When issues are found in either file, both files are included in the output
-# (if they exist and are non-empty) to provide complete context for fixes.
+# Algorithm:
+# 1. Read the last 50 lines of the log file (or all lines if < 50)
+# 2. Scan from the start of those lines to the end
+# 3. Find the first line where [P?] (? is a digit) appears in the first 10 characters
+# 4. If found: extract from that line to the end and output it
+# 5. If not found: no issues, return 1
 #
-# IMPORTANT: The stdout file from codex review is REQUIRED. If it is missing
-# or empty, this is a hard error and the caller must block exit and require
-# a retry. The review result file is optional (codex may not write it).
+# Note: codex review outputs to stderr, so we analyze the combined log file
+# which contains both stdout and stderr (redirected with 2>&1).
 detect_review_issues() {
     local round="$1"
+    local log_file="$CACHE_DIR/round-${round}-codex-review.log"
     local result_file="$LOOP_DIR/round-${round}-review-result.md"
-    local stdout_file="$CACHE_DIR/round-${round}-codex-review.out"
 
-    local stdout_has_issues=false
-    local result_has_issues=false
-    local stdout_content=""
-    local result_content=""
-    local stdout_missing=false
-
-    # Check stdout file for [P0-9] patterns
-    # CRITICAL: stdout is REQUIRED - if missing/empty, return error code 2
-    if [[ -f "$stdout_file" && -s "$stdout_file" ]]; then
-        stdout_content=$(cat "$stdout_file")
-        if grep -qE '\[P[0-9]\]' "$stdout_file"; then
-            stdout_has_issues=true
-            echo "Found [P0-9] issues in codex review stdout" >&2
-        fi
-    else
-        echo "Error: Codex review stdout file not found or empty: $stdout_file" >&2
-        stdout_missing=true
-    fi
-
-    # Check result file for [P0-9] patterns
-    # Note: result file is optional (warning only, not an error)
-    if [[ -f "$result_file" && -s "$result_file" ]]; then
-        result_content=$(cat "$result_file")
-        if grep -qE '\[P[0-9]\]' "$result_file"; then
-            result_has_issues=true
-            echo "Found [P0-9] issues in review result file" >&2
-        fi
-    else
-        echo "Warning: Review result file not found or empty: $result_file" >&2
-    fi
-
-    # If stdout is missing/empty, return error code 2 (hard error)
-    # This prevents skipping to finalize when codex review fails to produce output
-    if [[ "$stdout_missing" == true ]]; then
+    # Check if log file exists and is not empty
+    if [[ ! -f "$log_file" || ! -s "$log_file" ]]; then
+        echo "Error: Codex review log file not found or empty: $log_file" >&2
         return 2
     fi
 
-    # If any file has issues, include both files in output (when available)
-    if [[ "$stdout_has_issues" == true || "$result_has_issues" == true ]]; then
-        local merged_content=""
+    # Get total line count
+    local total_lines
+    total_lines=$(wc -l < "$log_file")
 
-        # Add stdout content if available
-        if [[ -n "$stdout_content" ]]; then
-            merged_content+="## Codex Review Output (stdout)
+    # Calculate start line for analysis (last 50 lines, or line 1 if fewer)
+    local start_line=1
+    if [[ "$total_lines" -gt 50 ]]; then
+        start_line=$((total_lines - 50 + 1))
+    fi
 
-$stdout_content
+    echo "Analyzing log file: $log_file (lines $start_line to $total_lines)" >&2
 
-"
+    # Find the first line in the analysis range where [P?] appears in first 10 chars
+    local found_line=0
+    local current_line="$start_line"
+    while [[ "$current_line" -le "$total_lines" ]]; do
+        # Get the line content
+        local line_content
+        line_content=$(sed -n "${current_line}p" "$log_file")
+
+        # Check if [P?] (? is digit) appears in first 10 characters
+        local first_10_chars="${line_content:0:10}"
+        if [[ "$first_10_chars" =~ \[P[0-9]\] ]]; then
+            found_line="$current_line"
+            echo "Found [P?] issue at line $found_line" >&2
+            break
         fi
+        current_line=$((current_line + 1))
+    done
 
-        # Add result file content if different from stdout and available
-        if [[ -n "$result_content" ]]; then
-            # Only add if we don't have stdout OR if content is different
-            if [[ -z "$stdout_content" ]]; then
-                merged_content+="## Code Review Results
+    if [[ "$found_line" -gt 0 ]]; then
+        # Extract from found_line to end and output
+        local extracted_content
+        extracted_content=$(sed -n "${found_line},\$p" "$log_file")
 
-$result_content
-"
-            elif [[ "$stdout_content" != "$result_content" ]]; then
-                merged_content+="## Code Review Results (from file)
+        # Also save to result file for audit purposes
+        printf '%s\n' "$extracted_content" > "$result_file"
+        echo "Review issues extracted to: $result_file" >&2
 
-$result_content
-"
-            fi
-            # Skip if identical to stdout (avoid duplication)
-        fi
-
-        printf '%s' "$merged_content"
+        # Output the content for the caller
+        printf '## Codex Review Issues\n\n%s\n' "$extracted_content"
         return 0
     else
+        echo "No [P?] issues found in log file analysis range" >&2
         return 1
     fi
 }
