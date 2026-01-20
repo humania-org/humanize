@@ -89,8 +89,13 @@ def find_latest_todos(transcript_path: Path) -> list:
 
 def main():
     # Read hook input from stdin
+    # First read the content, then parse - this handles empty input better
     try:
-        hook_input = json.load(sys.stdin)
+        stdin_content = sys.stdin.read().strip()
+        if not stdin_content:
+            # Empty input - no transcript path available, allow proceeding
+            sys.exit(0)
+        hook_input = json.loads(stdin_content)
     except json.JSONDecodeError as e:
         # Parse error - exit with code 2
         print(f"PARSE_ERROR: {e}", file=sys.stderr)

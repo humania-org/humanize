@@ -870,8 +870,9 @@ This RLCR loop was started with \`--skip-impl\` flag.
 
 ## What This Means
 
-The loop will immediately run \`codex review\` on your changes when you try to exit.
+The loop will automatically run \`codex review\` on your changes when you try to exit.
 If issues are found (marked with [P0-9] priority), you'll need to fix them before the loop ends.
+Do not try to execute anything to trigger the review - just stop and it will run automatically.
 
 ## Your Task
 
@@ -886,7 +887,7 @@ If issues are found (marked with [P0-9] priority), you'll need to fix them befor
 Since this is skip-impl mode, there is no implementation plan to follow.
 The goal tracker is not used - focus on fixing code review issues.
 
-When you're ready for review, write a brief summary of your changes and try to exit.
+When you're ready for review, write a brief summary of your changes and try to exit (do not try to execute anything, just stop).
 
 Write your summary to: @$SUMMARY_PATH
 
@@ -985,7 +986,7 @@ Codex Timeout: ${CODEX_TIMEOUT}s
 Loop Directory: $LOOP_DIR
 
 Skip-impl mode is active. The implementation phase is skipped.
-When you try to exit, codex review will run immediately.
+When you try to exit, codex review will run automatically by itself.
 
 The loop will:
 1. Run codex review on changes between $BASE_BRANCH and $START_BRANCH
