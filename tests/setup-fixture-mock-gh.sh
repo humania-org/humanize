@@ -53,10 +53,7 @@ case "\$1" in
         ;;
     pr)
         if [[ "\$2" == "view" ]]; then
-            if [[ "\$*" == *"baseRepository"* ]]; then
-                echo '{"baseRepository": {"owner": {"login": "testowner"}, "name": "testrepo"}}'
-                exit 0
-            elif [[ "\$*" == *"number"* ]]; then
+            if [[ "\$*" == *"number"* ]]; then
                 echo '{"number": 123}'
             elif [[ "\$*" == *"state"* ]]; then
                 echo '{"state": "OPEN"}'

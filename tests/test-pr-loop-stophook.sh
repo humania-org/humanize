@@ -1275,14 +1275,9 @@ case "\$1" in
         exit 0
         ;;
     pr)
-        # check-pr-reviewer-status.sh: gh pr view --repo ... --json baseRepository --jq '...'
-        if [[ "\$*" == *"baseRepository"* ]]; then
-            if [[ "\$HAS_JQ" == "true" ]]; then
-                # jq '.baseRepository.owner.login + "/" + .baseRepository.name'
-                echo "testowner/testrepo"
-            else
-                echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
-            fi
+        # PR existence check: gh pr view --repo ... --json number -q .number
+        if [[ "\$*" == *"number"* ]] && [[ "\$*" != *"commits"* ]]; then
+            echo '{"number": 123}'
             exit 0
         fi
         if [[ "\$*" == *"commits"* ]] && [[ "\$*" == *"headRefOid"* ]]; then
@@ -1456,8 +1451,8 @@ case "$1" in
         fi
         if [[ "$*" == *"--repo upstreamowner/upstreamrepo"* ]]; then
             # Upstream has PR 456
-            if [[ "$*" == *"baseRepository"* ]]; then
-                echo "upstreamowner/upstreamrepo"
+            if [[ "$*" == *"number"* ]] && [[ "$*" != *"commits"* ]]; then
+                echo '{"number": 456}'
                 exit 0
             fi
             if [[ "$*" == *"state"* ]]; then
@@ -1638,8 +1633,9 @@ case "\$1" in
         exit 0
         ;;
     pr)
-        if [[ "\$*" == *"baseRepository"* ]]; then
-            echo "testowner/testrepo"
+        # PR existence check: gh pr view --repo ... --json number -q .number
+        if [[ "\$*" == *"number"* ]] && [[ "\$*" != *"commits"* ]]; then
+            echo '{"number": 123}'
             exit 0
         fi
         if [[ "\$*" == *"state"* ]]; then

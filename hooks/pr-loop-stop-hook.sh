@@ -198,33 +198,32 @@ fi
 # ========================================
 # IMPORTANT: For fork PRs, comments are on the base repository, not the fork.
 # gh pr view without --repo fails in forks because the PR number doesn't exist there.
-# Strategy: First get current repo, then try to get PR's base repo with --repo flag.
+# Strategy: First get current repo, check if PR exists there, then try parent repo for forks.
 # NOTE: This MUST be done BEFORE PR state checks, which also need --repo for forks.
 
 # Step 1: Get the current repo (works in both forks and base repos)
 CURRENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json owner,name \
     -q '.owner.login + "/" + .name' 2>/dev/null) || CURRENT_REPO=""
 
-# Step 2: Try to get PR base repo using --repo flag (handles fork case)
+# Step 2: Determine the correct repo for PR operations
+# Try current repo first - if PR exists there, use it
 PR_BASE_REPO=""
 PR_LOOKUP_REPO=""  # Repo where PR was found (for subsequent lookups)
 
 if [[ -n "$CURRENT_REPO" ]]; then
-    PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" \
-        --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
-    if [[ -n "$PR_BASE_REPO" ]]; then
+    if run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$CURRENT_REPO" --json number -q .number >/dev/null 2>&1; then
+        PR_BASE_REPO="$CURRENT_REPO"
         PR_LOOKUP_REPO="$CURRENT_REPO"
     fi
 fi
 
 if [[ -z "$PR_BASE_REPO" ]]; then
-    # If current repo doesn't have this PR, it might be a fork - try parent repo
+    # PR not found in current repo - check if this is a fork and try parent repo
     PARENT_REPO=$(run_with_timeout "$GH_TIMEOUT" gh repo view --json parent \
         -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null) || PARENT_REPO=""
     if [[ -n "$PARENT_REPO" && "$PARENT_REPO" != "null/" && "$PARENT_REPO" != "/" ]]; then
-        PR_BASE_REPO=$(run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" \
-            --json baseRepository -q '.baseRepository.owner.login + "/" + .baseRepository.name' 2>/dev/null) || PR_BASE_REPO=""
-        if [[ -n "$PR_BASE_REPO" ]]; then
+        if run_with_timeout "$GH_TIMEOUT" gh pr view "$PR_NUMBER" --repo "$PARENT_REPO" --json number -q .number >/dev/null 2>&1; then
+            PR_BASE_REPO="$PARENT_REPO"
             PR_LOOKUP_REPO="$PARENT_REPO"
         fi
     fi
@@ -436,68 +435,73 @@ if [[ $NEXT_ROUND -gt $PR_MAX_ITERATIONS ]]; then
 fi
 
 # ========================================
-# Step 8: Check for Codex +1 Reaction (First Round Quick Approval)
+# Step 8: Check for Codex +1 Reaction (Any Round)
 # ========================================
 
-# On first round (round 0) with startup_case=1 (no prior comments), check if Codex
-# has given a +1 reaction on the PR. This indicates immediate approval.
-# Only applies to startup_case=1 where bots auto-review without trigger.
-if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 ]]; then
-    # Check for codex bot in active bots
-    CODEX_IN_ACTIVE=false
-    for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-        if [[ "$bot" == "codex" ]]; then
-            CODEX_IN_ACTIVE=true
-            break
-        fi
-    done
+# Check if Codex has given a +1 reaction on the PR. This indicates approval.
+# Codex may give +1 instead of commenting when there are no issues to report.
+# This check runs in ANY round where codex is an active bot.
 
-    if [[ "$CODEX_IN_ACTIVE" == "true" ]]; then
-        echo "Round 0, Case 1: Checking for Codex +1 reaction on PR..." >&2
+# Check for codex bot in active bots
+CODEX_IN_ACTIVE=false
+for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+    if [[ "$bot" == "codex" ]]; then
+        CODEX_IN_ACTIVE=true
+        break
+    fi
+done
 
-        # Check for +1 reaction from Codex after the loop started
-        CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "${PR_STARTED_AT}" 2>/dev/null) || CODEX_REACTION=""
+if [[ "$CODEX_IN_ACTIVE" == "true" ]]; then
+    echo "Round $PR_CURRENT_ROUND: Checking for Codex +1 reaction on PR..." >&2
 
-        if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
-            REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
-            echo "Codex +1 detected at $REACTION_AT - removing codex from active_bots" >&2
+    # Determine the timestamp for filtering +1 reactions
+    # Use trigger timestamp if available (for rounds where trigger is required)
+    # Otherwise fall back to loop start time
+    CODEX_REACTION_AFTER="${PR_LAST_TRIGGER_AT:-$PR_STARTED_AT}"
+    echo "  (Checking for +1 after: $CODEX_REACTION_AFTER)" >&2
 
-            # Remove only codex from active_bots, keep other bots
-            declare -a NEW_ACTIVE_BOTS_AFTER_THUMBSUP=()
-            for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-                if [[ "$bot" != "codex" ]]; then
-                    NEW_ACTIVE_BOTS_AFTER_THUMBSUP+=("$bot")
-                fi
-            done
+    # Check for +1 reaction from Codex
+    CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$CODEX_REACTION_AFTER" 2>/dev/null) || CODEX_REACTION=""
 
-            # If no other bots remain, loop is complete
-            if [[ ${#NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]} -eq 0 ]]; then
-                echo "Codex was the only active bot - PR loop approved!" >&2
-                mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
-                exit 0
+    if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
+        REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
+        echo "Codex +1 detected at $REACTION_AT - removing codex from active_bots" >&2
+
+        # Remove only codex from active_bots, keep other bots
+        declare -a NEW_ACTIVE_BOTS_AFTER_THUMBSUP=()
+        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+            if [[ "$bot" != "codex" ]]; then
+                NEW_ACTIVE_BOTS_AFTER_THUMBSUP+=("$bot")
             fi
+        done
 
-            # Update active_bots in state file and continue with other bots
-            echo "Continuing with remaining bots: ${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[*]}" >&2
-            PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
-
-            # Update state file
-            NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
-
-            TEMP_FILE="${STATE_FILE}.thumbsup.$$"
-            # Replace active_bots section in state file
-            awk -v new_bots="$NEW_ACTIVE_BOTS_YAML" '
-                /^active_bots:/ {
-                    print "active_bots:" new_bots
-                    in_bots=1
-                    next
-                }
-                in_bots && /^[[:space:]]+-/ { next }
-                in_bots && /^[a-zA-Z]/ { in_bots=0 }
-                { print }
-            ' "$STATE_FILE" > "$TEMP_FILE"
-            mv "$TEMP_FILE" "$STATE_FILE"
+        # If no other bots remain, loop is complete
+        if [[ ${#NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]} -eq 0 ]]; then
+            echo "Codex was the only active bot - PR loop approved!" >&2
+            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+            exit 0
         fi
+
+        # Update active_bots in state file and continue with other bots
+        echo "Continuing with remaining bots: ${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[*]}" >&2
+        PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
+
+        # Update state file
+        NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
+
+        TEMP_FILE="${STATE_FILE}.thumbsup.$$"
+        # Replace active_bots section in state file
+        awk -v new_bots="$NEW_ACTIVE_BOTS_YAML" '
+            /^active_bots:/ {
+                print "active_bots:" new_bots
+                in_bots=1
+                next
+            }
+            in_bots && /^[[:space:]]+-/ { next }
+            in_bots && /^[a-zA-Z]/ { in_bots=0 }
+            { print }
+        ' "$STATE_FILE" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$STATE_FILE"
     fi
 fi
 
@@ -971,9 +975,9 @@ while true; do
         done
     done
 
-    # Check for Codex +1 reaction during polling (Round 0, startup_case=1 only)
-    # Codex may give +1 instead of commenting if no issues found on initial auto-review
-    if [[ "$PR_CURRENT_ROUND" -eq 0 && "${PR_STARTUP_CASE:-1}" -eq 1 && "$(_map_get BOTS_RESPONDED codex)" != "true" ]]; then
+    # Check for Codex +1 reaction during polling (any round)
+    # Codex may give +1 instead of commenting if no issues found
+    if [[ "$(_map_get BOTS_RESPONDED codex)" != "true" ]]; then
         # Check if codex is a configured bot
         CODEX_CONFIGURED=false
         for bot in "${PR_CONFIGURED_BOTS_ARRAY[@]}"; do
@@ -981,8 +985,11 @@ while true; do
         done
 
         if [[ "$CODEX_CONFIGURED" == "true" ]]; then
+            # Determine timestamp for filtering - use trigger if available, else loop start
+            POLL_REACTION_AFTER="${PR_LAST_TRIGGER_AT:-$PR_STARTED_AT}"
+
             # Check for +1 reaction
-            THUMBSUP_RESULT=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$PR_STARTED_AT" 2>/dev/null) || THUMBSUP_RESULT=""
+            THUMBSUP_RESULT=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$POLL_REACTION_AFTER" 2>/dev/null) || THUMBSUP_RESULT=""
 
             if [[ -n "$THUMBSUP_RESULT" && "$THUMBSUP_RESULT" != "null" ]]; then
                 # +1 found - codex approved without issues

@@ -39,7 +39,7 @@ create_mock_gh() {
     # Base mock that handles repo view and pr view for all behaviors
     # Note: gh CLI applies -q jq queries internally, so we output the final result
     # fetch-pr-comments.sh uses: gh repo view --json owner,name -q '...'
-    #                           gh pr view PR --repo REPO --json baseRepository -q '...'
+    #                           gh pr view PR --repo REPO --json number -q .number
     cat > "$dir/bin/gh" << 'GHEOF_START'
 #!/bin/bash
 # Mock gh command for testing
@@ -79,13 +79,13 @@ if [[ "$1" == "repo" && "$2" == "view" ]]; then
 fi
 
 # Handle pr view (required by fetch-pr-comments.sh)
+# PR existence check uses: gh pr view --repo REPO --json number -q .number
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
     if [[ "$*" == *"--json"* ]]; then
-        if [[ "$HAS_Q_FLAG" == "true" ]]; then
-            # -q query extracts baseRepository.owner.login + "/" + baseRepository.name
-            echo "testowner/testrepo"
+        if [[ "$*" == *"number"* ]]; then
+            echo '{"number": 123}'
         else
-            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+            echo '{"state": "OPEN"}'
         fi
         exit 0
     fi
@@ -701,7 +701,11 @@ fi
 # Handle pr view
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
     if [[ "$*" == *"--json"* ]]; then
-        echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+        if [[ "$*" == *"number"* ]]; then
+            echo '{"number": 123}'
+        else
+            echo '{"state": "OPEN"}'
+        fi
         exit 0
     fi
     exit 0
@@ -781,10 +785,10 @@ fi
 # Handle pr view
 if [[ "$1" == "pr" && "$2" == "view" ]]; then
     if [[ "$*" == *"--json"* ]]; then
-        if [[ "$HAS_Q_FLAG" == "true" ]]; then
-            echo "testowner/testrepo"
+        if [[ "$*" == *"number"* ]]; then
+            echo '{"number": 123}'
         else
-            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+            echo '{"state": "OPEN"}'
         fi
         exit 0
     fi

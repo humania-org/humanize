@@ -1647,8 +1647,9 @@ case "\$1" in
             echo "{\"commits\":[{\"committedDate\":\"\$COMMIT_TS\"}]}"
             exit 0
         fi
-        if [[ "\$*" == *"baseRepository"* ]]; then
-            echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
+        # PR existence check: gh pr view --repo ... --json number -q .number
+        if [[ "\$*" == *"number"* ]] && [[ "\$*" != *"commits"* ]]; then
+            echo '{"number": 123}'
             exit 0
         fi
         if [[ "\$*" == *"state"* ]]; then

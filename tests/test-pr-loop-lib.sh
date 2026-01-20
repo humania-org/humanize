@@ -52,10 +52,7 @@ case "$1" in
         ;;
     pr)
         if [[ "$2" == "view" ]]; then
-            if [[ "$*" == *"baseRepository"* ]]; then
-                echo '{"baseRepository":{"owner":{"login":"testowner"},"name":"testrepo"}}'
-                exit 0
-            elif [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
+            if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
                 # Return just the timestamp when --jq is used
                 echo "2026-01-18T12:00:00Z"
                 exit 0
