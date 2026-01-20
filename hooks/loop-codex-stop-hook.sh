@@ -85,19 +85,30 @@ fi
 # Parse State File (using shared function)
 # ========================================
 
-# Use shared strict parsing function from loop-common.sh (fail closed on malformed state)
-if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then
-    echo "Error: Malformed state file, allowing exit for safety" >&2
-    exit 0
+# First extract raw frontmatter to check which fields are actually present
+# This prevents silently using defaults for missing critical fields
+RAW_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+
+# Check if critical fields are present before parsing (which applies defaults)
+RAW_CURRENT_ROUND=$(echo "$RAW_FRONTMATTER" | grep "^current_round:" || true)
+RAW_MAX_ITERATIONS=$(echo "$RAW_FRONTMATTER" | grep "^max_iterations:" || true)
+
+# Use tolerant parsing to extract values
+# Note: parse_state_file applies defaults for missing current_round/max_iterations
+if ! parse_state_file "$STATE_FILE" 2>/dev/null; then
+    echo "Warning: parse_state_file returned non-zero, proceeding to schema validation" >&2
 fi
 
 # Map STATE_* variables to local names for backward compatibility
 PLAN_TRACKED="$STATE_PLAN_TRACKED"
 START_BRANCH="$STATE_START_BRANCH"
+BASE_BRANCH="${STATE_BASE_BRANCH:-}"
+BASE_COMMIT="${STATE_BASE_COMMIT:-}"
 PLAN_FILE="$STATE_PLAN_FILE"
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
 PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
+REVIEW_STARTED="$STATE_REVIEW_STARTED"
 CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
@@ -115,14 +126,30 @@ if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     exit 0
 fi
 
-# Validate numeric fields early
+# Validate critical fields were actually present (not just defaulted)
+# This prevents silently treating a truncated state file as round 0
+if [[ -z "$RAW_CURRENT_ROUND" ]]; then
+    echo "Error: State file missing required field: current_round" >&2
+    echo "  State file may be truncated or corrupted" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
+    exit 0
+fi
+if [[ -z "$RAW_MAX_ITERATIONS" ]]; then
+    echo "Error: State file missing required field: max_iterations" >&2
+    echo "  State file may be truncated or corrupted" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
+    exit 0
+fi
+
+# Validate numeric fields
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
-    echo "Warning: State file corrupted (current_round), stopping loop" >&2
+    echo "Warning: State file corrupted (current_round not numeric), stopping loop" >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
 
 if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+    echo "Warning: State file corrupted (max_iterations not numeric), using default" >&2
     MAX_ITERATIONS=42
 fi
 
@@ -141,6 +168,39 @@ This indicates the loop was started with an older version of humanize.
 2. Update humanize plugin to version 1.1.2+
 3. Restart the RLCR loop with the updated plugin"
     jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+# ========================================
+# Quick-check 0.1: Schema Validation (v1.5.0+ fields)
+# ========================================
+# Validate review_started and base_branch fields for v1.5.0+ state files
+
+if [[ -z "$REVIEW_STARTED" || ( "$REVIEW_STARTED" != "true" && "$REVIEW_STARTED" != "false" ) ]]; then
+    REASON="RLCR loop state file is missing or has invalid review_started field.
+
+This indicates the loop was started with an older version of humanize (pre-1.5.0).
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.5.0+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing review_started)" \
+        '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+    exit 0
+fi
+
+if [[ -z "$BASE_BRANCH" ]]; then
+    REASON="RLCR loop state file is missing base_branch field.
+
+This indicates the loop was started with an older version of humanize (pre-1.5.0).
+
+**Options:**
+1. Cancel the loop: \`/humanize:cancel-rlcr-loop\`
+2. Update humanize plugin to version 1.5.0+
+3. Restart the RLCR loop with the updated plugin"
+    jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - state schema outdated (missing base_branch)" \
         '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
     exit 0
 fi
@@ -638,8 +698,10 @@ fi
 
 NEXT_ROUND=$((CURRENT_ROUND + 1))
 
-# Skip max iterations check in Finalize Phase since we already received COMPLETE
-if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
+# Skip max iterations check in Finalize Phase or Review Phase
+# - Finalize Phase: already received COMPLETE from codex
+# - Review Phase: must continue until [P?] issues are cleared, regardless of iteration count
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
     exit 0
@@ -663,8 +725,7 @@ fi
 # Get Docs Path from Config
 # ========================================
 
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
+# Note: PLUGIN_ROOT already defined at line 51
 DOCS_PATH="docs"
 
 # ========================================
@@ -752,8 +813,10 @@ else
 fi
 
 # ========================================
-# Run Codex Review
+# Shared Setup: Cache Directory and Codex Arguments
 # ========================================
+# Initialize these before the REVIEW_STARTED guard so they are available in both
+# impl phase (codex exec) and review phase (codex review)
 
 # First, check if codex command exists
 if ! command -v codex &>/dev/null; then
@@ -777,8 +840,6 @@ EOF
     exit 0
 fi
 
-echo "Running Codex review for round $CURRENT_ROUND..." >&2
-
 # Debug log files go to XDG_CACHE_HOME/humanize/<project-path>/<timestamp>/ to avoid polluting project dir
 # Respects XDG_CACHE_HOME for testability in restricted environments (falls back to $HOME/.cache)
 # This prevents Claude and Codex from reading these debug files during their work
@@ -791,37 +852,370 @@ CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
 CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 mkdir -p "$CACHE_DIR"
 
+# Note: portable-timeout.sh already sourced at line 52
+
+# Build Codex command arguments for codex exec
+# codex exec uses: -m MODEL, --full-auto, -C DIR, -c key=value
+CODEX_EXEC_ARGS=("-m" "$CODEX_MODEL")
+if [[ -n "$CODEX_EFFORT" ]]; then
+    CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
+fi
+CODEX_EXEC_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+
+# Build Codex command arguments for codex review
+# codex review uses different format: -c model=xxx -c review_model=xxx -c model_reasoning_effort=xxx
+# No -m, no --full-auto, no -C
+CODEX_REVIEW_ARGS=("-c" "model=${CODEX_MODEL}" "-c" "review_model=${CODEX_MODEL}")
+if [[ -n "$CODEX_EFFORT" ]]; then
+    CODEX_REVIEW_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
+fi
+
+# ========================================
+# Helper Functions for Code Review Phase
+# ========================================
+
+# Run codex review and save debug files
+# Arguments: $1=round_number
+# Sets: CODEX_REVIEW_EXIT_CODE, CODEX_REVIEW_LOG_FILE
+# Returns: exit code from codex review
+# Note: codex review --base cannot be used with PROMPT, so we only use --base and -c args
+run_codex_code_review() {
+    local round="$1"
+    local timestamp
+    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    # Determine review base: prefer BASE_COMMIT (captured at loop start) over BASE_BRANCH
+    # Using the fixed commit SHA prevents comparing a branch to itself when working on main,
+    # as the branch ref advances with each commit but the captured SHA stays fixed
+    local review_base="${BASE_COMMIT:-$BASE_BRANCH}"
+    local review_base_type="branch"
+    if [[ -n "$BASE_COMMIT" ]]; then
+        review_base_type="commit"
+    fi
+
+    CODEX_REVIEW_CMD_FILE="$CACHE_DIR/round-${round}-codex-review.cmd"
+    # Note: codex review outputs everything to stderr, so we capture both stdout and stderr to the log file
+    CODEX_REVIEW_LOG_FILE="$CACHE_DIR/round-${round}-codex-review.log"
+    local prompt_file="$LOOP_DIR/round-${round}-review-prompt.md"
+
+    # Create audit prompt file (codex review doesn't accept prompts, but we create this for audit)
+    local prompt_fallback="# Code Review Phase - Round ${round}
+
+This file documents the code review invocation for audit purposes.
+Note: codex review does not accept prompt input; it performs automated code review based on git diff.
+
+## Review Configuration
+- Base Branch: ${BASE_BRANCH}
+- Base Commit: ${BASE_COMMIT:-N/A}
+- Review Base (${review_base_type}): ${review_base}
+- Review Round: ${round}
+- Timestamp: ${timestamp}
+"
+    load_and_render_safe "$TEMPLATE_DIR" "codex/code-review-phase.md" "$prompt_fallback" \
+        "REVIEW_ROUND=$round" \
+        "BASE_BRANCH=$BASE_BRANCH" \
+        "BASE_COMMIT=${BASE_COMMIT:-N/A}" \
+        "REVIEW_BASE=$review_base" \
+        "REVIEW_BASE_TYPE=$review_base_type" \
+        "TIMESTAMP=$timestamp" > "$prompt_file"
+
+    echo "Code review prompt (audit) saved to: $prompt_file" >&2
+
+    {
+        echo "# Codex review invocation debug info"
+        echo "# Timestamp: $timestamp"
+        echo "# Working directory: $PROJECT_ROOT"
+        echo "# Base branch: $BASE_BRANCH"
+        echo "# Base commit: ${BASE_COMMIT:-N/A}"
+        echo "# Review base ($review_base_type): $review_base"
+        echo "# Timeout: $CODEX_TIMEOUT seconds"
+        echo ""
+        echo "codex review --base $review_base ${CODEX_REVIEW_ARGS[*]}"
+    } > "$CODEX_REVIEW_CMD_FILE"
+
+    echo "Codex review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
+    echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
+
+    # Run codex review from PROJECT_ROOT to ensure correct git context
+    # (hooks may execute from plugin directory, not project root)
+    # Note: codex review outputs to stderr, so we redirect both stdout and stderr to the log file
+    CODEX_REVIEW_EXIT_CODE=0
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
+        > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
+
+    echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
+    echo "Codex review log saved to: $CODEX_REVIEW_LOG_FILE" >&2
+
+    return "$CODEX_REVIEW_EXIT_CODE"
+}
+
+# Note: detect_review_issues() is defined in loop-common.sh and sourced above
+
+# Run code review and handle the result
+# Arguments: $1=round_number, $2=success_system_message
+# This function consolidates the common pattern of:
+#   1. Running codex review (no prompt - uses --base only)
+#   2. Checking results and handling outcomes
+# On success (no issues), calls enter_finalize_phase and exits
+# On issues found, calls continue_review_loop_with_issues and exits
+# On failure, calls block_review_failure and exits
+#
+# Round numbering: After COMPLETE at round N, all review phase files use round N+1
+# The caller passes CURRENT_ROUND + 1 as the round_number parameter
+run_and_handle_code_review() {
+    local round="$1"
+    local success_msg="$2"
+
+    echo "Running codex review against base branch: $BASE_BRANCH..." >&2
+
+    # Run codex review using helper function
+    # IMPORTANT: Review failure is a blocking error - do NOT skip to finalize
+    if ! run_codex_code_review "$round"; then
+        block_review_failure "$round" "Codex review command failed" "$CODEX_REVIEW_EXIT_CODE"
+    fi
+
+    # Check both stdout and result file for [P0-9] issues (plan requirement)
+    # detect_review_issues returns: 0=issues found, 1=no issues, 2=stdout missing (hard error)
+    local merged_content=""
+    local detect_exit=0
+    merged_content=$(detect_review_issues "$round") || detect_exit=$?
+
+    if [[ "$detect_exit" -eq 2 ]]; then
+        # Stdout missing/empty is a hard error - block and require retry
+        block_review_failure "$round" "Codex review produced no stdout output" "N/A"
+    elif [[ "$detect_exit" -eq 0 ]] && [[ -n "$merged_content" ]]; then
+        # Issues found - continue review loop
+        continue_review_loop_with_issues "$round" "$merged_content"
+    else
+        # No issues found (exit code 1) - proceed to finalize
+        echo "Code review passed with no issues. Proceeding to finalize phase." >&2
+        enter_finalize_phase "" "$success_msg"
+    fi
+}
+
+# Enter finalize phase with appropriate prompt
+# Arguments: $1=skip_reason (empty if not skipped), $2=system_message
+enter_finalize_phase() {
+    local skip_reason="$1"
+    local system_msg="$2"
+
+    mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
+    echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
+
+    local finalize_summary_file="$LOOP_DIR/finalize-summary.md"
+    local finalize_prompt
+
+    if [[ -n "$skip_reason" ]]; then
+        local fallback="# Finalize Phase (Review Skipped)
+
+**Warning**: Code review was skipped due to: {{REVIEW_SKIP_REASON}}
+
+The implementation could not be fully validated. You are now in the **Finalize Phase**.
+
+## Important Notice
+Since the code review was skipped, please manually verify your changes before finalizing:
+1. Review your code changes for any obvious issues
+2. Run any available tests to verify correctness
+3. Check for common code quality issues
+
+## Simplification (Optional)
+If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-skipped-prompt.md" "$fallback" \
+            "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
+            "PLAN_FILE=$PLAN_FILE" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+            "REVIEW_SKIP_REASON=$skip_reason" \
+            "BASE_BRANCH=$BASE_BRANCH" \
+            "START_BRANCH=$START_BRANCH")
+    else
+        local fallback="# Finalize Phase
+
+Codex review has passed. The implementation is complete.
+
+You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+
+## Constraints
+- Must NOT change existing functionality
+- Must NOT fail existing tests
+- Must NOT introduce new bugs
+- Only perform functionality-equivalent code refactoring and simplification
+
+## Focus
+Focus on the code changes made during this RLCR session. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
+
+## Before Exiting
+1. Complete all todos
+2. Commit your changes
+3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
+
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$fallback" \
+            "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
+            "PLAN_FILE=$PLAN_FILE" \
+            "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+            "BASE_BRANCH=$BASE_BRANCH" \
+            "START_BRANCH=$START_BRANCH")
+    fi
+
+    jq -n \
+        --arg reason "$finalize_prompt" \
+        --arg msg "$system_msg" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# Continue review loop when issues are found
+# Arguments: $1=round_number, $2=review_content
+continue_review_loop_with_issues() {
+    local round="$1"
+    local review_content="$2"
+
+    echo "Code review found issues. Continuing review loop..." >&2
+
+    # Update round number in state file
+    local temp_file="${STATE_FILE}.tmp.$$"
+    sed "s/^current_round: .*/current_round: $round/" "$STATE_FILE" > "$temp_file"
+    mv "$temp_file" "$STATE_FILE"
+
+    # Build review-fix prompt for Claude
+    local next_prompt_file="$LOOP_DIR/round-${round}-prompt.md"
+    local next_summary_file="$LOOP_DIR/round-${round}-summary.md"
+
+    local fallback="# Code Review Findings
+
+You are in the **Review Phase** of the RLCR loop. Codex has performed a code review and found issues.
+
+## Review Results
+
+{{REVIEW_CONTENT}}
+
+## Instructions
+
+1. Address all issues marked with [P0-9] severity markers
+2. Focus on fixes only - do not add new features
+3. Commit your changes after fixing the issues
+4. Write your summary to: {{SUMMARY_FILE}}"
+
+    load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
+        "REVIEW_CONTENT=$review_content" \
+        "SUMMARY_FILE=$next_summary_file" > "$next_prompt_file"
+
+    jq -n \
+        --arg reason "$(cat "$next_prompt_file")" \
+        --arg msg "Loop: Review Phase Round $round - Fix code review issues" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# Block exit when codex review fails or produces no output
+# This is a hard error - the review phase cannot be skipped
+# Arguments: $1=round_number, $2=failure_reason, $3=exit_code (optional)
+block_review_failure() {
+    local round="$1"
+    local failure_reason="$2"
+    local exit_code="${3:-unknown}"
+
+    echo "ERROR: Codex review failed. Blocking exit and requiring retry." >&2
+
+    local stderr_content=""
+    local stderr_file="$CACHE_DIR/round-${round}-codex-review.log"
+    if [[ -f "$stderr_file" ]]; then
+        stderr_content=$(tail -50 "$stderr_file" 2>/dev/null || echo "(unable to read stderr)")
+    fi
+
+    local fallback="# Codex Review Failed
+
+The code review could not be completed. This is a blocking error that requires retry.
+
+## Error Details
+
+**Reason**: {{FAILURE_REASON}}
+**Round**: {{ROUND_NUMBER}}
+**Base Branch**: {{BASE_BRANCH}}
+**Exit Code**: {{EXIT_CODE}}
+
+## What Happened
+
+The \`codex review\` command failed to produce valid output. This can occur due to:
+- Network connectivity issues
+- Codex service timeout or unavailability
+- Invalid review configuration
+- Internal Codex errors
+
+## Required Action
+
+**You must retry the exit.** The review phase cannot be skipped - the loop must continue until code review passes with no \`[P0-9]\` issues found.
+
+Steps to retry:
+1. Ensure your changes are committed
+2. Write your summary to the expected file
+3. Attempt to exit again
+
+If this error persists, consider canceling and restarting the loop: \`/humanize:cancel-rlcr-loop\`
+
+## Debug Information
+
+Stderr (last 50 lines):
+\`\`\`
+{{STDERR_CONTENT}}
+\`\`\`"
+
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/codex-review-failed.md" "$fallback" \
+        "FAILURE_REASON=$failure_reason" \
+        "ROUND_NUMBER=$round" \
+        "BASE_BRANCH=$BASE_BRANCH" \
+        "EXIT_CODE=$exit_code" \
+        "STDERR_CONTENT=$stderr_content" \
+        "REVIEW_RESULT_FILE=$LOOP_DIR/round-${round}-review-result.md" \
+        "CODEX_CMD_FILE=$CACHE_DIR/round-${round}-codex-review.cmd" \
+        "CODEX_LOG_FILE=$CACHE_DIR/round-${round}-codex-review.log")
+
+    jq -n \
+        --arg reason "$reason" \
+        --arg msg "Loop: Blocked - Codex review failed, retry required" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# ========================================
+# Run Codex Review (Implementation Phase Only)
+# ========================================
+# Skip the summary review when in review phase - review phase uses codex review instead
+
+if [[ "$REVIEW_STARTED" == "true" ]]; then
+    echo "In review phase - skipping codex exec summary review, will run codex review instead..." >&2
+    # Jump directly to Review Phase section below (after the COMPLETE/STOP handling)
+else
+
+echo "Running Codex review for round $CURRENT_ROUND..." >&2
+
 CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.cmd"
 CODEX_STDOUT_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.out"
 CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.log"
-
-# Source portable timeout if available
-TIMEOUT_SCRIPT="$PLUGIN_ROOT/scripts/portable-timeout.sh"
-if [[ -f "$TIMEOUT_SCRIPT" ]]; then
-    source "$TIMEOUT_SCRIPT"
-else
-    # Fallback: define run_with_timeout inline
-    run_with_timeout() {
-        local timeout_secs="$1"
-        shift
-        if command -v timeout &>/dev/null; then
-            timeout "$timeout_secs" "$@"
-        elif command -v gtimeout &>/dev/null; then
-            gtimeout "$timeout_secs" "$@"
-        else
-            # No timeout command, just run directly
-            "$@"
-        fi
-    }
-fi
-
-# Build Codex command arguments
-# Note: codex exec reads prompt from stdin, writes to stdout, and we use -w to write to file
-CODEX_ARGS=("-m" "$CODEX_MODEL")
-if [[ -n "$CODEX_EFFORT" ]]; then
-    CODEX_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
-fi
-CODEX_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
 
 # Save the command for debugging
 CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
@@ -831,7 +1225,7 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    echo "codex exec ${CODEX_ARGS[*]} \"<prompt>\""
+    echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$CODEX_PROMPT_CONTENT"
@@ -841,7 +1235,7 @@ echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running codex exec with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_ARGS[@]}" - \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Codex exit code: $CODEX_EXIT_CODE" >&2
@@ -963,66 +1357,81 @@ REVIEW_CONTENT=$(cat "$REVIEW_RESULT_FILE")
 LAST_LINE=$(echo "$REVIEW_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# Handle COMPLETE - enter Finalize Phase (unless at max iterations)
+# Handle COMPLETE - enter Review Phase or Finalize Phase
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
-    # REQ-5: Max Iterations Edge Case
-    # If current round equals max_iterations, skip Finalize Phase and terminate as MAXITER
-    if [[ $CURRENT_ROUND -ge $MAX_ITERATIONS ]]; then
-        echo "Codex review passed but at max iterations ($MAX_ITERATIONS). Terminating as MAXITER." >&2
-        end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
+    # In review phase, COMPLETE signal is ignored - only absence of [P0-9] triggers finalize
+    if [[ "$REVIEW_STARTED" == "true" ]]; then
+        echo "COMPLETE signal ignored in review phase. Codex review determines exit." >&2
+        # Fall through to continue with codex review logic below
+    else
+        # Implementation phase complete - transition to review phase
+        # Max iterations check
+        if [[ $CURRENT_ROUND -ge $MAX_ITERATIONS ]]; then
+            echo "Codex review passed but at max iterations ($MAX_ITERATIONS). Terminating as MAXITER." >&2
+            end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
+            exit 0
+        fi
+
+        # Initialize skip tracking variables before any skip paths
+        REVIEW_SKIPPED=""
+        REVIEW_SKIP_REASON=""
+
+        # Check if base_branch is available for code review
+        if [[ -z "$BASE_BRANCH" ]]; then
+            echo "Warning: No base_branch configured, skipping code review phase." >&2
+            REVIEW_SKIPPED="true"
+            REVIEW_SKIP_REASON="No base_branch configured for code review"
+        else
+            echo "Implementation complete. Entering Review Phase..." >&2
+
+            # Update state to indicate review phase has started
+            TEMP_FILE="${STATE_FILE}.tmp.$$"
+            sed "s/^review_started: .*/review_started: true/" "$STATE_FILE" > "$TEMP_FILE"
+            mv "$TEMP_FILE" "$STATE_FILE"
+            REVIEW_STARTED="true"
+
+            # Create marker file to validate review phase was properly entered
+            touch "$LOOP_DIR/.review-phase-started"
+
+            # Run code review and handle results (may exit on issues/failure/success)
+            # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
+            echo "Implementation complete. Running initial code review..." >&2
+            run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Simplify and refactor code before completion"
+        fi
+    fi
+fi
+
+fi  # End of implementation phase codex exec block (skipped when review_started is true)
+
+# ========================================
+# Review Phase: Run Code Review (when review_started is true)
+# ========================================
+# When in review phase, we need to run codex review on every exit attempt
+# The loop continues until no [P0-9] patterns are found in the review output
+
+if [[ "$REVIEW_STARTED" == "true" && -n "$BASE_BRANCH" ]]; then
+    # Validate that review phase was properly entered (marker file must exist)
+    # This prevents manual toggle attacks where someone edits state.md directly
+    if [[ ! -f "$LOOP_DIR/.review-phase-started" ]]; then
+        REASON="Review phase state inconsistency detected.
+
+The state file indicates review_started=true, but no review phase marker exists.
+This can happen if the state file was manually edited.
+
+**To fix:**
+Reset the state by canceling and restarting the loop.
+
+Use \`/humanize:cancel-rlcr-loop\` to end this loop."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - invalid review phase state" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
         exit 0
     fi
 
-    # REQ-1: Enter Finalize Phase
-    # Rename state.md to finalize-state.md and block exit with Finalize prompt
-    if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
-        echo "Codex review passed. All goals achieved. Entering Finalize Phase..." >&2
-    else
-        echo "Codex review passed. Entering Finalize Phase..." >&2
-    fi
+    echo "Review Phase: Running code review..." >&2
 
-    # Rename state file to indicate Finalize Phase
-    mv "$STATE_FILE" "$LOOP_DIR/finalize-state.md"
-    echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
-
-    # Build Finalize Phase prompt
-    FINALIZE_SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
-    FINALIZE_PROMPT_FALLBACK="# Finalize Phase
-
-Codex review has passed. The implementation is complete.
-
-You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
-
-## Constraints
-- Must NOT change existing functionality
-- Must NOT fail existing tests
-- Must NOT introduce new bugs
-- Only perform functionality-equivalent code refactoring and simplification
-
-## Focus
-Focus on the code changes made during this RLCR session.
-
-## Before Exiting
-1. Complete all todos
-2. Commit your changes
-3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
-
-    FINALIZE_PROMPT=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$FINALIZE_PROMPT_FALLBACK" \
-        "FINALIZE_SUMMARY_FILE=$FINALIZE_SUMMARY_FILE" \
-        "PLAN_FILE=$PLAN_FILE" \
-        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE")
-
-    SYSTEM_MSG="Loop: Finalize Phase - Simplify and refactor code before completion"
-
-    jq -n \
-        --arg reason "$FINALIZE_PROMPT" \
-        --arg msg "$SYSTEM_MSG" \
-        '{
-            "decision": "block",
-            "reason": $reason,
-            "systemMessage": $msg
-        }'
-    exit 0
+    # Run code review and handle results (may exit on issues/failure/success)
+    # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
+    run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Code review passed"
 fi
 
 # Handle STOP - circuit breaker triggered

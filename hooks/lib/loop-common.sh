@@ -15,6 +15,8 @@
 # State file field names
 readonly FIELD_PLAN_TRACKED="plan_tracked"
 readonly FIELD_START_BRANCH="start_branch"
+readonly FIELD_BASE_BRANCH="base_branch"
+readonly FIELD_BASE_COMMIT="base_commit"
 readonly FIELD_PLAN_FILE="plan_file"
 readonly FIELD_CURRENT_ROUND="current_round"
 readonly FIELD_MAX_ITERATIONS="max_iterations"
@@ -22,6 +24,7 @@ readonly FIELD_PUSH_EVERY_ROUND="push_every_round"
 readonly FIELD_CODEX_MODEL="codex_model"
 readonly FIELD_CODEX_EFFORT="codex_effort"
 readonly FIELD_CODEX_TIMEOUT="codex_timeout"
+readonly FIELD_REVIEW_STARTED="review_started"
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -190,6 +193,7 @@ get_current_round() {
 #   STATE_FRONTMATTER - raw frontmatter content
 #   STATE_PLAN_TRACKED - "true" or "false"
 #   STATE_START_BRANCH - branch name
+#   STATE_BASE_BRANCH - base branch for code review
 #   STATE_PLAN_FILE - plan file path
 #   STATE_CURRENT_ROUND - current round number
 #   STATE_MAX_ITERATIONS - max iterations
@@ -197,6 +201,7 @@ get_current_round() {
 #   STATE_CODEX_MODEL - codex model name
 #   STATE_CODEX_EFFORT - codex effort level
 #   STATE_CODEX_TIMEOUT - codex timeout in seconds
+#   STATE_REVIEW_STARTED - "true" or "false"
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -212,6 +217,8 @@ parse_state_file() {
     # Legacy quote-stripping kept for backward compatibility with older state files
     STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
     STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_COMMIT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_COMMIT}:" | sed "s/${FIELD_BASE_COMMIT}: *//; s/^\"//; s/\"\$//" || true)
     STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
     STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
     STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
@@ -219,11 +226,15 @@ parse_state_file() {
     STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
     STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
 
-    # Apply defaults
+    # Apply defaults for non-schema-critical fields only
+    # Note: review_started is NOT defaulted here so we can detect missing schema fields
+    # and block with a proper message in the stop hook
     STATE_CURRENT_ROUND="${STATE_CURRENT_ROUND:-0}"
     STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
+    # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
 }
@@ -259,6 +270,8 @@ parse_state_file_strict() {
     # Parse fields
     STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
     STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_COMMIT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_COMMIT}:" | sed "s/${FIELD_BASE_COMMIT}: *//; s/^\"//; s/\"\$//" || true)
     STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
     STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
     STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
@@ -266,6 +279,7 @@ parse_state_file_strict() {
     STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
     STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
 
     # Validate required fields exist
     if [[ -z "$STATE_CURRENT_ROUND" ]]; then
@@ -274,6 +288,14 @@ parse_state_file_strict() {
     fi
     if [[ -z "$STATE_MAX_ITERATIONS" ]]; then
         echo "Error: Missing required field: max_iterations" >&2
+        return 3
+    fi
+    if [[ -z "$STATE_REVIEW_STARTED" ]]; then
+        echo "Error: Missing required field: review_started" >&2
+        return 3
+    fi
+    if [[ -z "$STATE_BASE_BRANCH" ]]; then
+        echo "Error: Missing required field: base_branch" >&2
         return 3
     fi
 
@@ -289,10 +311,78 @@ parse_state_file_strict() {
         return 5
     fi
 
+    # Validate review_started is boolean
+    if [[ "$STATE_REVIEW_STARTED" != "true" && "$STATE_REVIEW_STARTED" != "false" ]]; then
+        echo "Error: Invalid review_started value (must be true or false): $STATE_REVIEW_STARTED" >&2
+        return 6
+    fi
+
     # Apply defaults for optional fields only
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
 
     return 0
+}
+
+# Detect review issues from codex review log file
+# Returns:
+#   0 - issues found (caller should continue review loop)
+#   1 - no issues found (caller can proceed to finalize)
+#   2 - log file missing/empty (hard error - caller must block and require retry)
+# Outputs: extracted review content to stdout if issues found
+# Arguments: $1=round_number
+# Required globals: LOOP_DIR, CACHE_DIR
+#
+# Algorithm:
+# 1. Scan the entire log file for [P?] markers in the first 10 characters of each line
+# 2. Find the first line where [P?] (? is a digit) appears in the first 10 characters
+# 3. If found: extract from that line to the end and output it
+# 4. If not found: no issues, return 1
+#
+# Note: codex review outputs to stderr, so we analyze the combined log file
+# which contains both stdout and stderr (redirected with 2>&1).
+detect_review_issues() {
+    local round="$1"
+    local log_file="$CACHE_DIR/round-${round}-codex-review.log"
+    local result_file="$LOOP_DIR/round-${round}-review-result.md"
+
+    # Check if log file exists and is not empty
+    if [[ ! -f "$log_file" || ! -s "$log_file" ]]; then
+        echo "Error: Codex review log file not found or empty: $log_file" >&2
+        return 2
+    fi
+
+    local total_lines
+    total_lines=$(wc -l < "$log_file")
+    echo "Analyzing log file: $log_file ($total_lines lines)" >&2
+
+    # Use awk to find the first line where [P?] appears in the first 10 characters
+    # This is more efficient than a shell while loop with sed per line
+    local found_line
+    found_line=$(awk '
+        substr($0, 1, 10) ~ /\[P[0-9]\]/ {
+            print NR
+            exit
+        }
+    ' "$log_file")
+
+    if [[ -n "$found_line" && "$found_line" -gt 0 ]]; then
+        echo "Found [P?] issue at line $found_line" >&2
+
+        # Extract from found_line to end
+        local extracted_content
+        extracted_content=$(sed -n "${found_line},\$p" "$log_file")
+
+        # Save to result file for audit purposes
+        printf '%s\n' "$extracted_content" > "$result_file"
+        echo "Review issues extracted to: $result_file" >&2
+
+        # Output the content for the caller
+        printf '## Codex Review Issues\n\n%s\n' "$extracted_content"
+        return 0
+    fi
+
+    echo "No [P?] issues found in log file" >&2
+    return 1
 }
 
 # Convert a string to lowercase

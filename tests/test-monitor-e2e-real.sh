@@ -67,12 +67,18 @@ mkdir -p "$TEST_PROJECT/.humanize/rlcr/2026-01-16_10-00-00"
 
 # Create valid state.md file
 cat > "$TEST_PROJECT/.humanize/rlcr/2026-01-16_10-00-00/state.md" << 'STATE'
+---
 current_round: 1
 max_iterations: 5
 codex_model: o3
 codex_effort: high
 started_at: 2026-01-16T10:00:00Z
 plan_file: temp/plan.md
+plan_tracked: false
+start_branch: main
+base_branch: main
+review_started: false
+---
 STATE
 
 # Create goal-tracker.md (required by monitor)
@@ -240,12 +246,18 @@ else
 
     # Create valid state.md file
     cat > "$TEST_PROJECT_ZSH/.humanize/rlcr/2026-01-16_11-00-00/state.md" << 'STATE'
+---
 current_round: 1
 max_iterations: 5
 codex_model: o3
 codex_effort: high
 started_at: 2026-01-16T11:00:00Z
 plan_file: temp/plan.md
+plan_tracked: false
+start_branch: main
+base_branch: main
+review_started: false
+---
 STATE
 
     # Create goal-tracker.md
@@ -373,12 +385,18 @@ mkdir -p "$TEST_PROJECT_SIGINT/.humanize/rlcr/2026-01-16_12-00-00"
 
 # Create valid state.md file
 cat > "$TEST_PROJECT_SIGINT/.humanize/rlcr/2026-01-16_12-00-00/state.md" << 'STATE'
+---
 current_round: 1
 max_iterations: 5
 codex_model: o3
 codex_effort: high
 started_at: 2026-01-16T12:00:00Z
 plan_file: temp/plan.md
+plan_tracked: false
+start_branch: main
+base_branch: main
+review_started: false
+---
 STATE
 
 # Create goal-tracker.md
@@ -546,12 +564,18 @@ else
 
     # Create state.md
     cat > "$TEST_PROJECT_ZSH_SIGINT/.humanize/rlcr/2026-01-16_13-00-00/state.md" << 'STATE'
+---
 current_round: 1
 max_iterations: 5
 codex_model: o3
 codex_effort: high
 started_at: 2026-01-16T13:00:00Z
 plan_file: temp/plan.md
+plan_tracked: false
+start_branch: main
+base_branch: main
+review_started: false
+---
 STATE
 
     # Create goal-tracker.md

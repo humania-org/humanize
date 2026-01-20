@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.4.1**
+**Current Version: 1.5.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -60,10 +60,16 @@ claude --plugin-dir /path/to/humanize
 ```mermaid
 flowchart LR
     Plan["Your Plan<br/>(plan.md)"] --> Claude["Claude Implements<br/>& Summarizes"]
-    Claude --> Codex["Codex Reviews<br/>& Critiques"]
+    Claude --> Codex["Codex Reviews<br/>Summary"]
     Codex -->|Feedback Loop| Claude
-    Codex -->|COMPLETE or max iterations| Done((Done))
+    Codex -->|COMPLETE| Review["Code Review<br/>(codex review)"]
+    Review -->|Issues Found| Claude
+    Review -->|No Issues| Done((Done))
 ```
+
+The loop has two phases:
+1. **Implementation Phase**: Claude works, Codex reviews summaries until COMPLETE
+2. **Review Phase**: `codex review --base <branch>` checks code quality with `[P0-9]` severity markers
 
 ### Quick Start
 
@@ -104,6 +110,8 @@ OPTIONS:
                          Timeout for each Codex review in seconds (default: 5400)
   --track-plan-file      Indicate plan file should be tracked in git (must be clean)
   --push-every-round     Require git push after each round (default: commits stay local)
+  --base-branch <BRANCH> Base branch for code review phase (default: auto-detect)
+                         Auto-detection priority: remote default > main > master
   -h, --help             Show help message
 ```
 

@@ -43,6 +43,7 @@ TEST_SUITES=(
     "test-ansi-parsing.sh"
     "test-allowlist-validators.sh"
     "test-finalize-phase.sh"
+    "test-codex-review-merge.sh"
     "test-cancel-signal-file.sh"
     "test-humanize-escape.sh"
     "test-zsh-monitor-safety.sh"

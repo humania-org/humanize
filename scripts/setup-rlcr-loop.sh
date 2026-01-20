@@ -39,6 +39,7 @@ CODEX_MODEL="$DEFAULT_CODEX_MODEL"
 CODEX_EFFORT="$DEFAULT_CODEX_EFFORT"
 CODEX_TIMEOUT="$DEFAULT_CODEX_TIMEOUT"
 PUSH_EVERY_ROUND="false"
+BASE_BRANCH=""
 
 show_help() {
     cat << 'HELP_EOF'
@@ -60,6 +61,9 @@ OPTIONS:
   --codex-timeout <SECONDS>
                        Timeout for each Codex review in seconds (default: 5400)
   --push-every-round   Require git push after each round (default: commits stay local)
+  --base-branch <BRANCH>
+                       Base branch for code review phase (default: auto-detect)
+                       Priority: user input > remote default > main > master
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -68,14 +72,17 @@ DESCRIPTION:
 
   1. Takes a markdown plan file as input (not a prompt string)
   2. Uses Codex to independently review Claude's work each iteration
-  3. Continues until Codex confirms completion with "COMPLETE" or max iterations
+  3. Has two phases: Implementation Phase and Review Phase
 
   The flow:
-  1. Claude works on the plan
+  1. Claude works on the plan (Implementation Phase)
   2. Claude writes a summary to round-N-summary.md
   3. On exit attempt, Codex reviews the summary
   4. If Codex finds issues, it blocks exit and sends feedback
-  5. If Codex outputs "COMPLETE", the loop ends
+  5. If Codex outputs "COMPLETE", enters Review Phase
+  6. In Review Phase, codex review checks code quality with [P0-9] markers
+  7. If code review finds issues, Claude fixes them
+  8. When no issues found, enters Finalize Phase and loop ends
 
 EXAMPLES:
   /humanize:start-rlcr-loop docs/feature-plan.md
@@ -86,7 +93,7 @@ EXAMPLES:
 STOPPING:
   - /humanize:cancel-rlcr-loop   Cancel the active loop
   - Reach --max iterations
-  - Codex outputs "COMPLETE" as final line of review
+  - Pass code review (no [P0-9] issues) after COMPLETE
 
 MONITORING:
   # View current state:
@@ -160,6 +167,14 @@ while [[ $# -gt 0 ]]; do
         --track-plan-file)
             TRACK_PLAN_FILE="true"
             shift
+            ;;
+        --base-branch)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --base-branch requires a branch name argument" >&2
+                exit 1
+            fi
+            BASE_BRANCH="$2"
+            shift 2
             ;;
         -*)
             echo "Unknown option: $1" >&2
@@ -515,6 +530,80 @@ if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
 fi
 
 # ========================================
+# Determine Base Branch for Code Review
+# ========================================
+# Priority: user input > remote default > local main > local master
+
+if [[ -n "$BASE_BRANCH" ]]; then
+    # User specified base branch - validate it exists LOCALLY
+    # codex review --base requires a local ref, so remote-only branches won't work
+    if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet "refs/heads/$BASE_BRANCH" 2>/dev/null; then
+        : # Branch exists locally, good
+    else
+        # Check if it exists on remote but not locally
+        if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-remote --heads origin "$BASE_BRANCH" 2>/dev/null | grep -q .; then
+            echo "Error: Base branch '$BASE_BRANCH' exists on remote but not locally" >&2
+            echo "  codex review requires a local branch reference" >&2
+            echo "  Run: git fetch origin $BASE_BRANCH:$BASE_BRANCH" >&2
+            exit 1
+        else
+            echo "Error: Specified base branch does not exist: $BASE_BRANCH" >&2
+            echo "  Not found locally or on any remote" >&2
+            exit 1
+        fi
+    fi
+else
+    # Auto-detect base branch
+    # Note: codex review --base requires a LOCAL branch, so we must verify local existence
+    # Priority 1: Remote default branch (if it exists locally)
+    # Guard with || true to prevent pipefail from terminating script when origin is missing
+    REMOTE_DEFAULT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//' || true)
+    if [[ -n "$REMOTE_DEFAULT" && "$REMOTE_DEFAULT" != "(unknown)" ]]; then
+        # Verify the remote default branch exists locally
+        if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet "refs/heads/$REMOTE_DEFAULT" 2>/dev/null; then
+            BASE_BRANCH="$REMOTE_DEFAULT"
+        fi
+    fi
+    # Priority 2: Local main branch (if not already set)
+    if [[ -z "$BASE_BRANCH" ]] && run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+        BASE_BRANCH="main"
+    fi
+    # Priority 3: Local master branch (if not already set)
+    if [[ -z "$BASE_BRANCH" ]] && run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+        BASE_BRANCH="master"
+    fi
+    # Error if no base branch found
+    if [[ -z "$BASE_BRANCH" ]]; then
+        echo "Error: Cannot determine base branch for code review" >&2
+        echo "  No local main or master branch found" >&2
+        if [[ -n "$REMOTE_DEFAULT" && "$REMOTE_DEFAULT" != "(unknown)" ]]; then
+            echo "  Remote default '$REMOTE_DEFAULT' exists but not locally" >&2
+            echo "  Run: git fetch origin $REMOTE_DEFAULT:$REMOTE_DEFAULT" >&2
+        fi
+        echo "  Use --base-branch to specify explicitly" >&2
+        exit 1
+    fi
+fi
+
+# Validate base branch name for YAML safety
+if [[ "$BASE_BRANCH" == *[:\#\"\'\`]* ]] || [[ "$BASE_BRANCH" =~ $'\n' ]]; then
+    echo "Error: Base branch name contains YAML-unsafe characters" >&2
+    echo "  Branch: $BASE_BRANCH" >&2
+    echo "  Characters not allowed: : # \" ' \` newline" >&2
+    exit 1
+fi
+
+# Capture the base commit SHA at loop start time
+# This prevents issues when working on the base branch itself (e.g., main)
+# where the branch ref advances with commits, making diff against itself empty
+BASE_COMMIT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" rev-parse "$BASE_BRANCH" 2>/dev/null)
+if [[ -z "$BASE_COMMIT" ]]; then
+    echo "Error: Failed to get commit SHA for base branch: $BASE_BRANCH" >&2
+    exit 1
+fi
+echo "Base commit SHA captured: $BASE_COMMIT" >&2
+
+# ========================================
 # Setup State Directory
 # ========================================
 
@@ -547,6 +636,9 @@ push_every_round: $PUSH_EVERY_ROUND
 plan_file: $PLAN_FILE
 plan_tracked: $TRACK_PLAN_FILE
 start_branch: $START_BRANCH
+base_branch: $BASE_BRANCH
+base_commit: $BASE_COMMIT
+review_started: false
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
@@ -736,6 +828,7 @@ cat << EOF
 Plan File: $PLAN_FILE ($LINE_COUNT lines)
 Plan Tracked: $TRACK_PLAN_FILE
 Start Branch: $START_BRANCH
+Base Branch: $BASE_BRANCH
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
@@ -745,7 +838,9 @@ Loop Directory: $LOOP_DIR
 The loop is now active. When you try to exit:
 1. Codex will review your work summary
 2. If issues are found, you'll receive feedback and continue
-3. If Codex outputs "COMPLETE", the loop ends
+3. If Codex outputs "COMPLETE", enters Review Phase (code review)
+4. Code review checks for [P0-9] issues; if found, you fix them
+5. When no issues found, enters Finalize Phase and loop ends
 
 To cancel: /humanize:cancel-rlcr-loop
 

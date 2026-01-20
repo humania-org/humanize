@@ -242,6 +242,7 @@ _humanize_monitor_codex() {
     # Function to find the latest codex log file
     # Log files are now in $HOME/.cache/humanize/<sanitized-project-path>/<timestamp>/ to avoid context pollution
     # Respects XDG_CACHE_HOME for testability in restricted environments
+    # Searches for both implementation phase logs (codex-run.log) and review phase logs (codex-review.log)
     _find_latest_codex_log() {
         local latest=""
         local latest_session=""
@@ -260,6 +261,22 @@ _humanize_monitor_codex() {
             return
         fi
 
+        # Helper to extract round number from log filename
+        # Handles both codex-run.log and codex-review.log patterns
+        _extract_round_num() {
+            local basename="$1"
+            local round="${basename#round-}"
+            # Remove either -codex-run.log or -codex-review.log suffix
+            round="${round%%-codex-run.log}"
+            round="${round%%-codex-review.log}"
+            echo "$round"
+        }
+
+        # Helper to detect log file type
+        _is_review_log() {
+            [[ "$1" == *-codex-review.log ]]
+        }
+
         # Use find instead of glob to avoid zsh "no matches found" errors
         # find is safe even when directory is empty or has no matching files
         while IFS= read -r session_dir; do
@@ -277,15 +294,29 @@ _humanize_monitor_codex() {
                 continue
             fi
 
-            # Use find instead of glob to avoid zsh "no matches found" errors
-            # find is safe even when directory is empty or has no matching files
+            # Track max round numbers for each log type (for consistency check)
+            local max_run_round=-1
+            local min_review_round=-1
+
+            # Search for both implementation phase (codex-run) and review phase (codex-review) logs
+            # Use find with -o (OR) to match both patterns
             while IFS= read -r log_file; do
                 [[ -z "$log_file" ]] && continue
                 [[ ! -f "$log_file" ]] && continue
 
                 local log_basename=$(basename "$log_file")
-                local round_num="${log_basename#round-}"
-                round_num="${round_num%%-codex-run.log}"
+                local round_num=$(_extract_round_num "$log_basename")
+
+                # Track round numbers by type for consistency check
+                if _is_review_log "$log_basename"; then
+                    if [[ "$min_review_round" -eq -1 ]] || [[ "$round_num" -lt "$min_review_round" ]]; then
+                        min_review_round="$round_num"
+                    fi
+                else
+                    if [[ "$round_num" -gt "$max_run_round" ]]; then
+                        max_run_round="$round_num"
+                    fi
+                fi
 
                 if [[ -z "$latest" ]] || \
                    [[ "$session_name" > "$latest_session" ]] || \
@@ -294,7 +325,17 @@ _humanize_monitor_codex() {
                     latest_session="$session_name"
                     latest_round="$round_num"
                 fi
-            done < <(find "$cache_dir" -maxdepth 1 -name 'round-*-codex-run.log' -type f 2>/dev/null)
+            done < <(find "$cache_dir" -maxdepth 1 \( -name 'round-*-codex-run.log' -o -name 'round-*-codex-review.log' \) -type f 2>/dev/null)
+
+            # Defensive check: codex-run round must be strictly less than codex-review round
+            # If review phase exists, all review rounds must be > all run rounds
+            if [[ "$max_run_round" -ge 0 ]] && [[ "$min_review_round" -ge 0 ]]; then
+                if [[ "$max_run_round" -ge "$min_review_round" ]]; then
+                    echo "ERROR: Inconsistent log state in session $session_name: codex-run round ($max_run_round) >= codex-review round ($min_review_round)" >&2
+                    echo ""
+                    return 1
+                fi
+            fi
         done < <(find "$loop_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
         echo "$latest"

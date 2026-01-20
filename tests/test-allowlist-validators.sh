@@ -57,6 +57,8 @@ max_iterations: 42
 plan_file: "plans/test-plan.md"
 plan_tracked: false
 start_branch: $current_branch
+base_branch: main
+review_started: false
 ---
 EOF
 }
