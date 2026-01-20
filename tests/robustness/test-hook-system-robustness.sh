@@ -589,8 +589,19 @@ git add init.txt
 git commit -q -m "initial"
 cd - > /dev/null
 
+# Create mock codex to avoid real API calls (review_started: false triggers codex exec)
+mkdir -p "$TEST_DIR/mock-bin"
+cat > "$TEST_DIR/mock-bin/codex" << 'MOCKEOF'
+#!/bin/bash
+# Mock codex that returns review output indicating work continues
+echo "Review: Code looks good but more testing needed."
+echo "No COMPLETE or STOP markers - work should continue."
+exit 0
+MOCKEOF
+chmod +x "$TEST_DIR/mock-bin/codex"
+
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/active-loop" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+OUTPUT=$(PATH="$TEST_DIR/mock-bin:$PATH" CLAUDE_PROJECT_DIR="$TEST_DIR/active-loop" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Active loop with valid state MUST block exit with decision: block
