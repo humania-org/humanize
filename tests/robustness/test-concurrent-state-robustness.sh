@@ -312,11 +312,11 @@ done
 kill $WRITER_PID 2>/dev/null || true
 wait $WRITER_PID 2>/dev/null || true
 
-# With atomic writes via mv, reads should always succeed
-if [[ $VALID_READS -ge 18 ]]; then
-    pass "Atomic writes ensure consistent reads ($VALID_READS/20 valid)"
+# With atomic writes via mv, reads should always succeed (require 20/20)
+if [[ $VALID_READS -eq 20 ]]; then
+    pass "Atomic writes ensure consistent reads (20/20 valid)"
 else
-    fail "Atomic write consistency" ">= 18 valid reads" "$VALID_READS valid, $INVALID_READS invalid"
+    fail "Atomic write consistency" "20/20 valid reads" "$VALID_READS valid, $INVALID_READS invalid"
 fi
 
 # ========================================
@@ -372,18 +372,10 @@ fi
 echo ""
 echo "Test 15: State file with actual unicode content"
 mkdir -p "$TEST_DIR/unicode"
-# Create state file with actual unicode characters (CJK, emoji-like symbols)
-cat > "$TEST_DIR/unicode/state.md" << 'EOF'
----
-current_round: 2
-max_iterations: 42
-plan_file: "plan-\u4e2d\u6587.md"
----
-
-## Content with Unicode
-This state has unicode: Chinese characters, Japanese hiragana, etc.
-Variable assignments work with unicode values.
-EOF
+# Create state file with actual unicode characters using printf to avoid heredoc quoting issues
+printf '%s\n' '---' 'current_round: 2' 'max_iterations: 42' 'plan_file: "plan-test.md"' '---' '' '## Content with Unicode' > "$TEST_DIR/unicode/state.md"
+# Append actual unicode characters (CJK) using printf with octal/hex escapes
+printf 'This state has unicode: \xe4\xb8\xad\xe6\x96\x87 (Chinese for "Chinese").\n' >> "$TEST_DIR/unicode/state.md"
 
 ROUND=$(get_current_round "$TEST_DIR/unicode/state.md")
 if [[ "$ROUND" == "2" ]]; then

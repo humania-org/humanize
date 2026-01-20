@@ -20,6 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+source "$PROJECT_ROOT/scripts/portable-timeout.sh"
 source "$SCRIPT_DIR/../test-helpers.sh"
 
 setup_test_dir
@@ -130,10 +131,21 @@ echo ""
 
 # Test 6: Valid plan file edit allowed
 echo "Test 6: Valid plan file edit allowed"
-# Create separate test directory for plan file tests
+# Create separate test directory with proper git repo
 mkdir -p "$TEST_DIR/plan-test"
+cd "$TEST_DIR/plan-test"
+git init -q
+git config user.email "test@test.com"
+git config user.name "Test User"
+git config commit.gpgsign false
+git checkout -q -b main 2>/dev/null || git checkout -q main
+echo "initial" > file.txt
+git add file.txt
+git commit -q -m "Initial commit"
+cd - > /dev/null
+
 echo "# Plan" > "$TEST_DIR/plan-test/plan.md"
-# Create loop state with all required fields (including review_started)
+# Create loop state with all required fields (including review_started and plan_tracked)
 mkdir -p "$TEST_DIR/plan-test/.humanize/rlcr/2026-01-19_12-00-00"
 cat > "$TEST_DIR/plan-test/.humanize/rlcr/2026-01-19_12-00-00/state.md" << 'EOF'
 ---
@@ -147,6 +159,7 @@ codex_model: o3-mini
 codex_effort: medium
 codex_timeout: 1200
 review_started: false
+plan_tracked: false
 ---
 EOF
 
@@ -155,8 +168,15 @@ set +e
 RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR/plan-test" bash "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
+# Plan file validator outputs JSON with decision: allow/block
+# Check both exit code and JSON output for decision
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Plan file edit allowed"
+    # Check if JSON contains "decision": "block" - if so, it's blocked despite exit 0
+    if echo "$RESULT" | grep -q '"decision".*:.*"block"'; then
+        fail "Plan file edit" "allowed (no block decision)" "got decision: block"
+    else
+        pass "Plan file edit allowed (exit 0, no block decision)"
+    fi
 else
     fail "Plan file edit" "exit 0" "exit $EXIT_CODE: $RESULT"
 fi
@@ -169,10 +189,11 @@ set +e
 RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR/plan-test" bash "$PROJECT_ROOT/hooks/loop-plan-file-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Non-plan file passes through"
+# Non-plan file should pass through without block decision
+if [[ $EXIT_CODE -eq 0 ]] && ! echo "$RESULT" | grep -q '"decision".*:.*"block"'; then
+    pass "Non-plan file passes through (no block decision)"
 else
-    fail "Non-plan file" "exit 0" "exit $EXIT_CODE: $RESULT"
+    fail "Non-plan file" "pass through" "exit $EXIT_CODE, result: $RESULT"
 fi
 
 # Test 8: Plan file validator with empty JSON
@@ -415,7 +436,7 @@ echo "Test 19: Large JSON payload handled"
 LARGE_CONTENT=$(head -c 100000 /dev/zero | tr '\0' 'a')
 JSON='{"tool_name":"Write","tool_input":{"file_path":"/tmp/large.txt","content":"'"$LARGE_CONTENT"'"}}'
 set +e
-RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" timeout 5 bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" run_with_timeout 5 bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -lt 128 ]]; then

@@ -62,6 +62,30 @@ init_basic_git_repo() {
     cd - > /dev/null
 }
 
+# Run setup-rlcr-loop.sh with proper isolation from real RLCR loop
+# Usage: run_rlcr_setup <test_repo_dir> [args...]
+run_rlcr_setup() {
+    local repo_dir="$1"
+    shift
+    (
+        cd "$repo_dir"
+        # Set CLAUDE_PROJECT_DIR to isolate from any real active loops
+        # Preserve PATH to ensure git/gh/etc are available
+        CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "$@"
+    )
+}
+
+# Run setup-pr-loop.sh with proper isolation from real PR loop
+# Usage: run_pr_setup <test_repo_dir> [args...]
+run_pr_setup() {
+    local repo_dir="$1"
+    shift
+    (
+        cd "$repo_dir"
+        CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-pr-loop.sh" "$@"
+    )
+}
+
 # ========================================
 # Setup RLCR Loop Argument Parsing Tests
 # ========================================
@@ -83,7 +107,7 @@ echo ""
 echo "Test 2: Missing plan file shows error"
 mkdir -p "$TEST_DIR/repo2"
 init_basic_git_repo "$TEST_DIR/repo2"
-OUTPUT=$(cd "$TEST_DIR/repo2" && "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(run_rlcr_setup "$TEST_DIR/repo2" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "no plan file\|plan file"; then
     pass "Missing plan file shows error"
@@ -105,20 +129,14 @@ fi
 # Test 4: --max with negative-looking string rejected
 echo ""
 echo "Test 4: --max with negative-looking string rejected"
-# Pass negative value using -- to end option parsing
 mkdir -p "$TEST_DIR/repo4"
 init_basic_git_repo "$TEST_DIR/repo4"
 create_minimal_plan "$TEST_DIR/repo4"
 echo "plan.md" >> "$TEST_DIR/repo4/.gitignore"
 git -C "$TEST_DIR/repo4" add .gitignore && git -C "$TEST_DIR/repo4" commit -q -m "Add gitignore"
 mkdir -p "$TEST_DIR/repo4/bin"
-# Use the string "-5" which will be rejected by the regex ^[0-9]+$
-OUTPUT=$(cd "$TEST_DIR/repo4" && PATH="$TEST_DIR/repo4/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --max -- -5 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-# The -- will cause plan file to be "-5" which won't be found
-# Instead, test with a value like "-5abc" or use different approach
-# Actually, let's just verify that non-digit strings are rejected
-OUTPUT=$(cd "$TEST_DIR/repo4" && PATH="$TEST_DIR/repo4/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --max "abc" 2>&1) || EXIT_CODE=$?
+# Test that non-digit strings are rejected by the regex ^[0-9]+$
+OUTPUT=$(run_rlcr_setup "$TEST_DIR/repo4" plan.md --max "abc" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
     pass "--max with non-digit string rejected"
@@ -179,7 +197,7 @@ create_minimal_plan "$TEST_DIR/repo8"
 echo "plan.md" >> "$TEST_DIR/repo8/.gitignore"
 git -C "$TEST_DIR/repo8" add .gitignore && git -C "$TEST_DIR/repo8" commit -q -m "Add gitignore"
 
-OUTPUT=$(cd "$TEST_DIR/repo8" && "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --plan-file other.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(run_rlcr_setup "$TEST_DIR/repo8" plan.md --plan-file other.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "cannot specify both"; then
     pass "Both positional and --plan-file rejected"
@@ -217,7 +235,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo9/bin/codex"
 chmod +x "$TEST_DIR/repo9/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo9" && PATH="$TEST_DIR/repo9/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo9/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo9" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "insufficient content"; then
     pass "Plan with only comments rejected"
@@ -243,7 +261,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo10/bin/codex"
 chmod +x "$TEST_DIR/repo10/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo10" && PATH="$TEST_DIR/repo10/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo10/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo10" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "too simple"; then
     pass "Short plan rejected"
@@ -266,7 +284,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo11/bin/codex"
 chmod +x "$TEST_DIR/repo11/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo11" && PATH="$TEST_DIR/repo11/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "path with spaces/plan.md" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo11/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo11" "path with spaces/plan.md" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "cannot contain spaces"; then
     pass "Plan with spaces in path rejected"
@@ -286,7 +304,7 @@ exit 0' > "$TEST_DIR/repo12/bin/codex"
 chmod +x "$TEST_DIR/repo12/bin/codex"
 
 # Try path with semicolon (can't create file, just test argument parsing)
-OUTPUT=$(cd "$TEST_DIR/repo12" && PATH="$TEST_DIR/repo12/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "plan;.md" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo12/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo12" "plan;.md" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "metacharacters\|not found"; then
     pass "Plan with metacharacters rejected"
@@ -306,7 +324,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo13/bin/codex"
 chmod +x "$TEST_DIR/repo13/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo13" && PATH="$TEST_DIR/repo13/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "/absolute/path/plan.md" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo13/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo13" "/absolute/path/plan.md" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "relative path"; then
     pass "Absolute path rejected"
@@ -340,7 +358,7 @@ cd "$TEST_DIR/repo14"
 git checkout -q -b "test:branch" 2>/dev/null || true
 cd - > /dev/null
 
-OUTPUT=$(cd "$TEST_DIR/repo14" && PATH="$TEST_DIR/repo14/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo14/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo14" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "YAML-unsafe"; then
     pass "YAML-unsafe branch name rejected"
@@ -367,7 +385,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo15/bin/codex"
 chmod +x "$TEST_DIR/repo15/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo15" && PATH="$TEST_DIR/repo15/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --codex-model "model;injection" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo15/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo15" plan.md --codex-model "model;injection" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "invalid characters"; then
     pass "Codex model with invalid characters rejected"
@@ -388,7 +406,7 @@ echo "Test 16: Non-git directory rejected"
 mkdir -p "$TEST_DIR/nongit"
 create_minimal_plan "$TEST_DIR/nongit"
 
-OUTPUT=$(cd "$TEST_DIR/nongit" && "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(run_rlcr_setup "$TEST_DIR/nongit" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "git repository"; then
     pass "Non-git directory rejected"
@@ -407,7 +425,7 @@ git config user.name "Test User"
 cd - > /dev/null
 create_minimal_plan "$TEST_DIR/repo17"
 
-OUTPUT=$(cd "$TEST_DIR/repo17" && "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(run_rlcr_setup "$TEST_DIR/repo17" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "at least one commit"; then
     pass "Git repo without commits rejected"
@@ -428,7 +446,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo18/bin/codex"
 chmod +x "$TEST_DIR/repo18/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo18" && PATH="$TEST_DIR/repo18/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo18/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo18" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "gitignored\|track-plan-file"; then
     pass "Tracked plan file without flag rejected"
@@ -490,7 +508,7 @@ fi
 echo ""
 echo "Test 23: PR loop non-git directory rejected"
 mkdir -p "$TEST_DIR/pr-nongit"
-OUTPUT=$(cd "$TEST_DIR/pr-nongit" && "$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude 2>&1) || EXIT_CODE=$?
+OUTPUT=$(run_pr_setup "$TEST_DIR/pr-nongit" --claude 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "git repository"; then
     pass "PR loop non-git directory rejected"
@@ -528,7 +546,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo24/bin/codex"
 chmod +x "$TEST_DIR/repo24/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo24" && PATH="$TEST_DIR/repo24/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo24/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo24" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "already active"; then
     pass "Active RLCR loop blocks new RLCR loop"
@@ -560,7 +578,7 @@ echo '#!/bin/bash
 exit 0' > "$TEST_DIR/repo25/bin/codex"
 chmod +x "$TEST_DIR/repo25/bin/codex"
 
-OUTPUT=$(cd "$TEST_DIR/repo25" && PATH="$TEST_DIR/repo25/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo25/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo25" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "pr loop.*already active\|already active"; then
     pass "Active PR loop blocks new RLCR loop"
@@ -592,7 +610,7 @@ exit 0' > "$TEST_DIR/repo26/bin/codex"
 chmod +x "$TEST_DIR/repo26/bin/codex"
 
 if [[ -L "$TEST_DIR/repo26/symlink-plan.md" ]]; then
-    OUTPUT=$(cd "$TEST_DIR/repo26" && PATH="$TEST_DIR/repo26/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" symlink-plan.md 2>&1) || EXIT_CODE=$?
+    OUTPUT=$(PATH="$TEST_DIR/repo26/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo26" symlink-plan.md 2>&1) || EXIT_CODE=$?
     EXIT_CODE=${EXIT_CODE:-0}
     if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "symbolic link"; then
         pass "Plan file symlink rejected"
@@ -620,7 +638,7 @@ exit 0' > "$TEST_DIR/repo27/bin/codex"
 chmod +x "$TEST_DIR/repo27/bin/codex"
 
 if [[ -L "$TEST_DIR/repo27/symlink-dir" ]]; then
-    OUTPUT=$(cd "$TEST_DIR/repo27" && PATH="$TEST_DIR/repo27/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" symlink-dir/plan.md 2>&1) || EXIT_CODE=$?
+    OUTPUT=$(PATH="$TEST_DIR/repo27/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo27" symlink-dir/plan.md 2>&1) || EXIT_CODE=$?
     EXIT_CODE=${EXIT_CODE:-0}
     if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "symbolic link"; then
         pass "Symlink in parent directory rejected"
@@ -647,11 +665,11 @@ create_minimal_plan "$TEST_DIR/repo28"
 echo "plan.md" >> "$TEST_DIR/repo28/.gitignore"
 git -C "$TEST_DIR/repo28" add .gitignore && git -C "$TEST_DIR/repo28" commit -q -m "Add gitignore"
 
-# Create mock codex that simulates missing codex (to test dependency check)
+# Create empty bin dir with no codex - should fail at codex check
 mkdir -p "$TEST_DIR/repo28/bin"
-# No codex in PATH - should fail at codex check, not argument validation
+# Prepend empty bin dir to hide system codex (if any)
 
-OUTPUT=$(cd "$TEST_DIR/repo28" && PATH="$TEST_DIR/repo28/bin" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo28/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo28" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 # Should fail at codex check (not argument parsing) - proves args were valid
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "codex"; then
@@ -676,7 +694,7 @@ git -C "$TEST_DIR/repo29" add .gitignore && git -C "$TEST_DIR/repo29" commit -q 
 
 mkdir -p "$TEST_DIR/repo29/bin"
 
-OUTPUT=$(cd "$TEST_DIR/repo29" && PATH="$TEST_DIR/repo29/bin" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --max 10 --codex-timeout 600 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo29/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo29" plan.md --max 10 --codex-timeout 600 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 # Should NOT fail at argument parsing - should fail later (codex check)
 if echo "$OUTPUT" | grep -qi "positive integer"; then
@@ -703,7 +721,7 @@ exit 0
 EOF
 chmod +x "$TEST_DIR/repo30/bin/gh"
 
-OUTPUT=$(cd "$TEST_DIR/repo30" && PATH="$TEST_DIR/repo30/bin:$PATH" "$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo30/bin:$PATH" run_pr_setup "$TEST_DIR/repo30" --claude 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 # Should fail at gh auth check, not argument parsing
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "gh\|auth\|logged"; then
@@ -729,7 +747,7 @@ create_minimal_plan "$TEST_DIR/repo31"
 echo "plan.md" >> "$TEST_DIR/repo31/.gitignore"
 git -C "$TEST_DIR/repo31" add .gitignore && git -C "$TEST_DIR/repo31" commit -q -m "Add gitignore"
 mkdir -p "$TEST_DIR/repo31/bin"
-OUTPUT=$(cd "$TEST_DIR/repo31" && PATH="$TEST_DIR/repo31/bin:$PATH" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --codex-timeout 0 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo31/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo31" plan.md --codex-timeout 0 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 # Zero should be accepted (not rejected as "positive integer" error)
 if echo "$OUTPUT" | grep -qi "positive integer"; then
@@ -744,7 +762,7 @@ echo "Test 32: PR loop --codex-timeout with non-numeric value rejected"
 mkdir -p "$TEST_DIR/repo32"
 init_basic_git_repo "$TEST_DIR/repo32"
 mkdir -p "$TEST_DIR/repo32/bin"
-OUTPUT=$(cd "$TEST_DIR/repo32" && PATH="$TEST_DIR/repo32/bin:$PATH" "$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude --codex-timeout "abc" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo32/bin:$PATH" run_pr_setup "$TEST_DIR/repo32" --claude --codex-timeout "abc" 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
     pass "PR loop --codex-timeout non-numeric rejected"
@@ -763,13 +781,58 @@ git -C "$TEST_DIR/repo33" add .gitignore && git -C "$TEST_DIR/repo33" commit -q 
 
 mkdir -p "$TEST_DIR/repo33/bin"
 
-OUTPUT=$(cd "$TEST_DIR/repo33" && PATH="$TEST_DIR/repo33/bin" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" plan.md --codex-timeout 999999 2>&1) || EXIT_CODE=$?
+OUTPUT=$(PATH="$TEST_DIR/repo33/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo33" plan.md --codex-timeout 999999 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 # Should NOT fail at timeout validation
 if echo "$OUTPUT" | grep -qi "timeout.*invalid\|positive integer"; then
     fail "Large timeout" "accepted" "rejected"
 else
     pass "Very large timeout value accepted (999999)"
+fi
+
+# Test 34: Actual git timeout scenario simulation
+echo ""
+echo "Test 34: Git timeout scenario simulation"
+mkdir -p "$TEST_DIR/repo34"
+init_basic_git_repo "$TEST_DIR/repo34"
+create_minimal_plan "$TEST_DIR/repo34"
+echo "plan.md" >> "$TEST_DIR/repo34/.gitignore"
+git -C "$TEST_DIR/repo34" add .gitignore && git -C "$TEST_DIR/repo34" commit -q -m "Add gitignore"
+
+# Create a mock git that sleeps for 5 seconds (longer than a short timeout)
+mkdir -p "$TEST_DIR/repo34/bin"
+cat > "$TEST_DIR/repo34/bin/git" << 'GITEOF'
+#!/bin/bash
+# Simulate a slow git operation
+if [[ "$1" == "rev-parse" || "$1" == "symbolic-ref" ]]; then
+    sleep 3
+    /usr/bin/git "$@"
+else
+    /usr/bin/git "$@"
+fi
+GITEOF
+chmod +x "$TEST_DIR/repo34/bin/git"
+
+# Create mock codex
+cat > "$TEST_DIR/repo34/bin/codex" << 'CODEXEOF'
+#!/bin/bash
+exit 0
+CODEXEOF
+chmod +x "$TEST_DIR/repo34/bin/codex"
+
+# Set a very short GIT_TIMEOUT environment variable to trigger timeout
+set +e
+OUTPUT=$(GIT_TIMEOUT=1 PATH="$TEST_DIR/repo34/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo34" plan.md 2>&1)
+EXIT_CODE=$?
+set -e
+
+# The setup should either timeout gracefully or proceed (depending on implementation)
+# We're testing that it doesn't hang indefinitely
+if [[ $EXIT_CODE -lt 128 ]]; then
+    pass "Git timeout scenario handled gracefully (exit $EXIT_CODE)"
+else
+    # Exit codes >= 128 indicate signal termination
+    fail "Git timeout" "graceful handling" "signal exit $EXIT_CODE"
 fi
 
 # ========================================

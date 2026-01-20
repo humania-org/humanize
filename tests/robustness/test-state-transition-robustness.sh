@@ -382,20 +382,23 @@ else
     fail "Newest directory" "*2026-01-20*" "$ACTIVE"
 fi
 
-# Test 15: Invalid directory name format ignored
+# Test 15: Lexicographic ordering used for directory selection
 echo ""
-echo "Test 15: Invalid directory name format ignored"
-mkdir -p "$TEST_DIR/invalid/.humanize/rlcr/not-a-timestamp"
-create_full_state "$TEST_DIR/invalid/.humanize/rlcr/not-a-timestamp" 0
+echo "Test 15: Lexicographic ordering used for directory selection"
+# Note: find_active_loop uses lexicographic sorting, not timestamp validation
+# "not-a-timestamp" > "2026-..." lexicographically, so it would be selected if it has state.md
+# This test verifies the function uses lexicographic ordering (sort -r)
 mkdir -p "$TEST_DIR/invalid/.humanize/rlcr/2026-01-19_00-00-00"
-create_full_state "$TEST_DIR/invalid/.humanize/rlcr/2026-01-19_00-00-00" 1
+create_full_state "$TEST_DIR/invalid/.humanize/rlcr/2026-01-19_00-00-00" 0
+mkdir -p "$TEST_DIR/invalid/.humanize/rlcr/2025-01-01_00-00-00"
+create_full_state "$TEST_DIR/invalid/.humanize/rlcr/2025-01-01_00-00-00" 1
 
 ACTIVE=$(find_active_loop "$TEST_DIR/invalid/.humanize/rlcr" 2>/dev/null || echo "")
-# The function should still find the valid timestamp directory
-if [[ -n "$ACTIVE" ]]; then
-    pass "Valid timestamp directory found despite invalid sibling"
+# Should select the lexicographically largest (2026 > 2025)
+if [[ -n "$ACTIVE" ]] && [[ "$ACTIVE" == *"2026-01-19_00-00-00"* ]]; then
+    pass "Lexicographically largest directory selected (2026 > 2025)"
 else
-    fail "Valid dir found" "non-empty" "empty"
+    fail "Lexicographic ordering" "*2026-01-19_00-00-00*" "$ACTIVE"
 fi
 
 # Test 16: Deeply nested invalid state ignored
