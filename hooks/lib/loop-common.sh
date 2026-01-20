@@ -320,6 +320,83 @@ parse_state_file_strict() {
     return 0
 }
 
+# Detect review issues from both stdout and result file
+# Returns: 0 if issues found, 1 if no issues
+# Outputs: merged content to stdout if issues found
+# Arguments: $1=round_number
+# Required globals: LOOP_DIR, CACHE_DIR
+#
+# When issues are found in either file, both files are included in the output
+# (if they exist and are non-empty) to provide complete context for fixes.
+detect_review_issues() {
+    local round="$1"
+    local result_file="$LOOP_DIR/round-${round}-review-result.md"
+    local stdout_file="$CACHE_DIR/round-${round}-codex-review.out"
+
+    local stdout_has_issues=false
+    local result_has_issues=false
+    local stdout_content=""
+    local result_content=""
+
+    # Check stdout file for [P0-9] patterns
+    if [[ -f "$stdout_file" && -s "$stdout_file" ]]; then
+        stdout_content=$(cat "$stdout_file")
+        if grep -qE '\[P[0-9]\]' "$stdout_file"; then
+            stdout_has_issues=true
+            echo "Found [P0-9] issues in codex review stdout" >&2
+        fi
+    else
+        echo "Error: Codex review stdout file not found or empty: $stdout_file" >&2
+    fi
+
+    # Check result file for [P0-9] patterns
+    if [[ -f "$result_file" && -s "$result_file" ]]; then
+        result_content=$(cat "$result_file")
+        if grep -qE '\[P[0-9]\]' "$result_file"; then
+            result_has_issues=true
+            echo "Found [P0-9] issues in review result file" >&2
+        fi
+    else
+        echo "Warning: Review result file not found or empty: $result_file" >&2
+    fi
+
+    # If any file has issues, include both files in output (when available)
+    if [[ "$stdout_has_issues" == true || "$result_has_issues" == true ]]; then
+        local merged_content=""
+
+        # Add stdout content if available
+        if [[ -n "$stdout_content" ]]; then
+            merged_content+="## Codex Review Output (stdout)
+
+$stdout_content
+
+"
+        fi
+
+        # Add result file content if different from stdout and available
+        if [[ -n "$result_content" ]]; then
+            # Only add if we don't have stdout OR if content is different
+            if [[ -z "$stdout_content" ]]; then
+                merged_content+="## Code Review Results
+
+$result_content
+"
+            elif [[ "$stdout_content" != "$result_content" ]]; then
+                merged_content+="## Code Review Results (from file)
+
+$result_content
+"
+            fi
+            # Skip if identical to stdout (avoid duplication)
+        fi
+
+        printf '%s' "$merged_content"
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Convert a string to lowercase
 to_lower() {
     echo "$1" | tr '[:upper:]' '[:lower:]'

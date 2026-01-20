@@ -87,9 +87,11 @@ fi
 
 # Use tolerant parsing first to extract values, then validate schema
 # This allows us to provide proper block messages for missing fields instead of silent exit
+# Note: parse_state_file is designed to never fail (returns 0 after extracting what it can)
+# but we capture any theoretical failure and proceed to schema validation anyway
 if ! parse_state_file "$STATE_FILE" 2>/dev/null; then
-    echo "Error: Failed to read state file, allowing exit for safety" >&2
-    exit 0
+    echo "Warning: parse_state_file returned non-zero, proceeding to schema validation" >&2
+    # Don't exit early - let schema validation below provide proper block messages
 fi
 
 # Map STATE_* variables to local names for backward compatibility
@@ -893,64 +895,7 @@ run_codex_code_review() {
     return "$CODEX_REVIEW_EXIT_CODE"
 }
 
-# Detect review issues from both stdout and result file
-# Returns: 0 if issues found, 1 if no issues
-# Outputs: merged content to stdout if issues found
-# Arguments: $1=round_number
-detect_review_issues() {
-    local round="$1"
-    local result_file="$LOOP_DIR/round-${round}-review-result.md"
-    local stdout_file="$CACHE_DIR/round-${round}-codex-review.out"
-
-    local has_issues=false
-    local merged_content=""
-
-    # Check stdout file for [P0-9] patterns
-    if [[ -f "$stdout_file" && -s "$stdout_file" ]]; then
-        if grep -qE '\[P[0-9]\]' "$stdout_file"; then
-            has_issues=true
-            merged_content+="## Codex Review Output (stdout)
-
-$(cat "$stdout_file")
-
-"
-            echo "Found [P0-9] issues in codex review stdout" >&2
-        fi
-    else
-        echo "Warning: Codex review stdout file not found or empty: $stdout_file" >&2
-    fi
-
-    # Check result file for [P0-9] patterns
-    if [[ -f "$result_file" && -s "$result_file" ]]; then
-        if grep -qE '\[P[0-9]\]' "$result_file"; then
-            has_issues=true
-            # Only add result file content if it's different from stdout
-            # or if stdout wasn't already added
-            if [[ -z "$merged_content" ]]; then
-                merged_content+="## Code Review Results
-
-$(cat "$result_file")
-"
-            elif [[ -f "$stdout_file" ]] && ! diff -q "$stdout_file" "$result_file" >/dev/null 2>&1; then
-                # Files are different, include both
-                merged_content+="## Code Review Results (from file)
-
-$(cat "$result_file")
-"
-            fi
-            echo "Found [P0-9] issues in review result file" >&2
-        fi
-    else
-        echo "Warning: Review result file not found or empty: $result_file" >&2
-    fi
-
-    if [[ "$has_issues" == true ]]; then
-        printf '%s' "$merged_content"
-        return 0
-    else
-        return 1
-    fi
-}
+# Note: detect_review_issues() is defined in loop-common.sh and sourced above
 
 # Enter finalize phase with appropriate prompt
 # Arguments: $1=skip_reason (empty if not skipped), $2=system_message
