@@ -43,6 +43,7 @@ Execute the validation script with the provided arguments:
 - Exit code 4: Report "Output file already exists - please choose another path" and stop
 - Exit code 5: Report "No write permission to output directory" and stop
 - Exit code 6: Report "Invalid arguments" and show usage, then stop
+- Exit code 7: Report "Plan template file not found - plugin configuration error" and stop
 
 ---
 
@@ -140,7 +141,7 @@ Document the user's answer for each metric, as this distinction significantly af
 
 ## Phase 5: Plan Generation
 
-Generate the plan.md following these rules:
+Deeply think and generate the plan.md following these rules:
 
 ### Plan Structure
 
@@ -249,10 +250,46 @@ Example: "The implementation includes core feature X with basic validation"
 
 ## Phase 6: Write and Complete
 
-Write the generated plan to the output file path, then report:
+The output file already contains the plan template structure and the original draft content (combined during IO validation). Now complete the plan through the following steps:
+
+### Step 1: Update Plan Content
+
+Use the **Edit tool** (not Write) to update the plan file with the generated content:
+- Replace template placeholders with actual plan content
+- Keep the original draft section intact at the bottom of the file
+- The final file should contain both the structured plan AND the original draft for reference
+
+### Step 2: Comprehensive Review
+
+After updating, **read the complete plan file** and verify:
+- The plan is complete and comprehensive
+- All sections are consistent with each other
+- The structured plan aligns with the original draft content
+- No contradictions exist between different parts of the document
+
+If inconsistencies are found, fix them using the Edit tool.
+
+### Step 3: Language Unification
+
+Check if the updated plan file contains multiple languages (e.g., mixed English and Chinese content).
+
+If multiple languages are detected:
+1. Use **AskUserQuestion** to ask the user:
+   - Whether they want to unify the language
+   - Which language to use for unification
+2. If the user chooses to unify:
+   - Translate all content to the chosen language
+   - Ensure the meaning and intent remain unchanged
+   - Use the Edit tool to apply the translations
+3. If the user declines, leave the document as-is
+
+### Step 4: Report Results
+
+Report to the user:
 - Path to the generated plan
 - Summary of what was included
 - Number of acceptance criteria defined
+- Whether language was unified (if applicable)
 
 ---
 

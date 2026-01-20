@@ -9,6 +9,7 @@
 #   4 - Output file already exists
 #   5 - No write permission to output directory
 #   6 - Invalid arguments
+#   7 - Plan template file not found (plugin configuration error)
 
 set -e
 
@@ -127,5 +128,34 @@ INPUT_LINE_COUNT=$(wc -l < "$INPUT_FILE" | tr -d ' ')
 echo "VALIDATION_SUCCESS"
 echo "Input file: $INPUT_FILE ($INPUT_LINE_COUNT lines)"
 echo "Output target: $OUTPUT_FILE"
-echo "IO validation passed. Proceeding with draft analysis..."
+echo "IO validation passed."
+
+# Locate template file using CLAUDE_PLUGIN_ROOT (set by Claude Code plugin system)
+# Fallback to script-relative path if environment variable not set
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    TEMPLATE_FILE="$CLAUDE_PLUGIN_ROOT/prompt-template/plan/gen-plan-template.md"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+    TEMPLATE_FILE="$SCRIPT_DIR/../prompt-template/plan/gen-plan-template.md"
+fi
+
+if [[ ! -f "$TEMPLATE_FILE" ]]; then
+    echo "ERROR: Plan template file not found: $TEMPLATE_FILE"
+    echo "This is a plugin configuration error. Please reinstall the plugin."
+    exit 7
+fi
+
+# Copy template to output location
+cp "$TEMPLATE_FILE" "$OUTPUT_FILE"
+
+# Append separator and original draft content
+echo "" >> "$OUTPUT_FILE"
+echo "--- Original Design Draft Start ---" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+cat "$INPUT_FILE" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+echo "--- Original Design Draft End ---" >> "$OUTPUT_FILE"
+
+echo "Template and draft combined at: $OUTPUT_FILE"
+echo "Proceeding with draft analysis..."
 exit 0
