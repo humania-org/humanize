@@ -814,12 +814,21 @@ mkdir -p "$CACHE_DIR"
 
 # Note: portable-timeout.sh already sourced at line 52
 
-# Build Codex command arguments (shared between codex exec and codex review)
-CODEX_ARGS=("-m" "$CODEX_MODEL")
+# Build Codex command arguments for codex exec
+# codex exec uses: -m MODEL, --full-auto, -C DIR, -c key=value
+CODEX_EXEC_ARGS=("-m" "$CODEX_MODEL")
 if [[ -n "$CODEX_EFFORT" ]]; then
-    CODEX_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
+    CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
 fi
-CODEX_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+CODEX_EXEC_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+
+# Build Codex command arguments for codex review
+# codex review uses different format: -c model=xxx -c review_model=xxx -c model_reasoning_effort=xxx
+# No -m, no --full-auto, no -C
+CODEX_REVIEW_ARGS=("-c" "model=${CODEX_MODEL}" "-c" "review_model=${CODEX_MODEL}")
+if [[ -n "$CODEX_EFFORT" ]]; then
+    CODEX_REVIEW_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
+fi
 
 # ========================================
 # Helper Functions for Code Review Phase
@@ -847,7 +856,7 @@ run_codex_code_review() {
         echo "# Base branch: $BASE_BRANCH"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "codex review --base $BASE_BRANCH ${CODEX_ARGS[*]} \"<prompt>\""
+        echo "codex review --base $BASE_BRANCH ${CODEX_REVIEW_ARGS[*]} \"<prompt>\""
         echo ""
         echo "# Prompt content:"
         echo "$prompt_content"
@@ -857,7 +866,7 @@ run_codex_code_review() {
     echo "Running codex review with timeout ${CODEX_TIMEOUT}s..." >&2
 
     CODEX_REVIEW_EXIT_CODE=0
-    printf '%s' "$prompt_content" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_ARGS[@]}" - \
+    printf '%s' "$prompt_content" | run_with_timeout "$CODEX_TIMEOUT" codex review --base "$BASE_BRANCH" "${CODEX_REVIEW_ARGS[@]}" - \
         > "$CODEX_REVIEW_STDOUT_FILE" 2> "$CODEX_REVIEW_STDERR_FILE" || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Codex review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
@@ -1027,7 +1036,7 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    echo "codex exec ${CODEX_ARGS[*]} \"<prompt>\""
+    echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$CODEX_PROMPT_CONTENT"
@@ -1037,7 +1046,7 @@ echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running codex exec with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_ARGS[@]}" - \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Codex exit code: $CODEX_EXIT_CODE" >&2
