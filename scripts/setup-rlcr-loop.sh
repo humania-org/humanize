@@ -535,36 +535,51 @@ fi
 # Priority: user input > remote default > local main > local master
 
 if [[ -n "$BASE_BRANCH" ]]; then
-    # User specified base branch - validate it exists
-    # Check local branches first
+    # User specified base branch - validate it exists LOCALLY
+    # codex review --base requires a local ref, so remote-only branches won't work
     if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet "refs/heads/$BASE_BRANCH" 2>/dev/null; then
         : # Branch exists locally, good
-    # Check remote branches (try origin first, then any remote)
-    elif run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-remote --heads origin "$BASE_BRANCH" 2>/dev/null | grep -q .; then
-        : # Branch exists on origin remote, good
-    elif run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-remote --heads 2>/dev/null | grep -q "refs/heads/$BASE_BRANCH"; then
-        : # Branch exists on some remote, good
     else
-        echo "Error: Specified base branch does not exist: $BASE_BRANCH" >&2
-        echo "  Not found locally or on any remote" >&2
-        exit 1
+        # Check if it exists on remote but not locally
+        if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" ls-remote --heads origin "$BASE_BRANCH" 2>/dev/null | grep -q .; then
+            echo "Error: Base branch '$BASE_BRANCH' exists on remote but not locally" >&2
+            echo "  codex review requires a local branch reference" >&2
+            echo "  Run: git fetch origin $BASE_BRANCH:$BASE_BRANCH" >&2
+            exit 1
+        else
+            echo "Error: Specified base branch does not exist: $BASE_BRANCH" >&2
+            echo "  Not found locally or on any remote" >&2
+            exit 1
+        fi
     fi
 else
     # Auto-detect base branch
-    # Priority 1: Remote default branch (typically main or master)
+    # Note: codex review --base requires a LOCAL branch, so we must verify local existence
+    # Priority 1: Remote default branch (if it exists locally)
     # Guard with || true to prevent pipefail from terminating script when origin is missing
     REMOTE_DEFAULT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" remote show origin 2>/dev/null | grep "HEAD branch:" | sed 's/.*HEAD branch:[[:space:]]*//' || true)
     if [[ -n "$REMOTE_DEFAULT" && "$REMOTE_DEFAULT" != "(unknown)" ]]; then
-        BASE_BRANCH="$REMOTE_DEFAULT"
-    # Priority 2: Local main branch
-    elif run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+        # Verify the remote default branch exists locally
+        if run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet "refs/heads/$REMOTE_DEFAULT" 2>/dev/null; then
+            BASE_BRANCH="$REMOTE_DEFAULT"
+        fi
+    fi
+    # Priority 2: Local main branch (if not already set)
+    if [[ -z "$BASE_BRANCH" ]] && run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
         BASE_BRANCH="main"
-    # Priority 3: Local master branch
-    elif run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+    fi
+    # Priority 3: Local master branch (if not already set)
+    if [[ -z "$BASE_BRANCH" ]] && run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
         BASE_BRANCH="master"
-    else
+    fi
+    # Error if no base branch found
+    if [[ -z "$BASE_BRANCH" ]]; then
         echo "Error: Cannot determine base branch for code review" >&2
-        echo "  No remote default, no local main, no local master found" >&2
+        echo "  No local main or master branch found" >&2
+        if [[ -n "$REMOTE_DEFAULT" && "$REMOTE_DEFAULT" != "(unknown)" ]]; then
+            echo "  Remote default '$REMOTE_DEFAULT' exists but not locally" >&2
+            echo "  Run: git fetch origin $REMOTE_DEFAULT:$REMOTE_DEFAULT" >&2
+        fi
         echo "  Use --base-branch to specify explicitly" >&2
         exit 1
     fi

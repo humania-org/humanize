@@ -85,13 +85,18 @@ fi
 # Parse State File (using shared function)
 # ========================================
 
-# Use tolerant parsing first to extract values, then validate schema
-# This allows us to provide proper block messages for missing fields instead of silent exit
-# Note: parse_state_file is designed to never fail (returns 0 after extracting what it can)
-# but we capture any theoretical failure and proceed to schema validation anyway
+# First extract raw frontmatter to check which fields are actually present
+# This prevents silently using defaults for missing critical fields
+RAW_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE" 2>/dev/null || echo "")
+
+# Check if critical fields are present before parsing (which applies defaults)
+RAW_CURRENT_ROUND=$(echo "$RAW_FRONTMATTER" | grep "^current_round:" || true)
+RAW_MAX_ITERATIONS=$(echo "$RAW_FRONTMATTER" | grep "^max_iterations:" || true)
+
+# Use tolerant parsing to extract values
+# Note: parse_state_file applies defaults for missing current_round/max_iterations
 if ! parse_state_file "$STATE_FILE" 2>/dev/null; then
     echo "Warning: parse_state_file returned non-zero, proceeding to schema validation" >&2
-    # Don't exit early - let schema validation below provide proper block messages
 fi
 
 # Map STATE_* variables to local names for backward compatibility
@@ -120,14 +125,30 @@ if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     exit 0
 fi
 
-# Validate numeric fields early
+# Validate critical fields were actually present (not just defaulted)
+# This prevents silently treating a truncated state file as round 0
+if [[ -z "$RAW_CURRENT_ROUND" ]]; then
+    echo "Error: State file missing required field: current_round" >&2
+    echo "  State file may be truncated or corrupted" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
+    exit 0
+fi
+if [[ -z "$RAW_MAX_ITERATIONS" ]]; then
+    echo "Error: State file missing required field: max_iterations" >&2
+    echo "  State file may be truncated or corrupted" >&2
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
+    exit 0
+fi
+
+# Validate numeric fields
 if [[ ! "$CURRENT_ROUND" =~ ^[0-9]+$ ]]; then
-    echo "Warning: State file corrupted (current_round), stopping loop" >&2
+    echo "Warning: State file corrupted (current_round not numeric), stopping loop" >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
 
 if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+    echo "Warning: State file corrupted (max_iterations not numeric), using default" >&2
     MAX_ITERATIONS=42
 fi
 
