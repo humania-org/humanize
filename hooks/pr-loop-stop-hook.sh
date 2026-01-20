@@ -435,79 +435,10 @@ if [[ $NEXT_ROUND -gt $PR_MAX_ITERATIONS ]]; then
 fi
 
 # ========================================
-# Step 8: Check for Codex +1 Reaction (Any Round)
-# ========================================
-
-# Check if Codex has given a +1 reaction on the PR. This indicates approval.
-# Codex may give +1 instead of commenting when there are no issues to report.
-# This check runs in ANY round where codex is an active bot.
-
-# Check for codex bot in active bots
-CODEX_IN_ACTIVE=false
-for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-    if [[ "$bot" == "codex" ]]; then
-        CODEX_IN_ACTIVE=true
-        break
-    fi
-done
-
-if [[ "$CODEX_IN_ACTIVE" == "true" ]]; then
-    echo "Round $PR_CURRENT_ROUND: Checking for Codex +1 reaction on PR..." >&2
-
-    # Determine the timestamp for filtering +1 reactions
-    # Use trigger timestamp if available (for rounds where trigger is required)
-    # Otherwise fall back to loop start time
-    CODEX_REACTION_AFTER="${PR_LAST_TRIGGER_AT:-$PR_STARTED_AT}"
-    echo "  (Checking for +1 after: $CODEX_REACTION_AFTER)" >&2
-
-    # Check for +1 reaction from Codex
-    CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$CODEX_REACTION_AFTER" 2>/dev/null) || CODEX_REACTION=""
-
-    if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
-        REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
-        echo "Codex +1 detected at $REACTION_AT - removing codex from active_bots" >&2
-
-        # Remove only codex from active_bots, keep other bots
-        declare -a NEW_ACTIVE_BOTS_AFTER_THUMBSUP=()
-        for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
-            if [[ "$bot" != "codex" ]]; then
-                NEW_ACTIVE_BOTS_AFTER_THUMBSUP+=("$bot")
-            fi
-        done
-
-        # If no other bots remain, loop is complete
-        if [[ ${#NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]} -eq 0 ]]; then
-            echo "Codex was the only active bot - PR loop approved!" >&2
-            mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
-            exit 0
-        fi
-
-        # Update active_bots in state file and continue with other bots
-        echo "Continuing with remaining bots: ${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[*]}" >&2
-        PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
-
-        # Update state file
-        NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
-
-        TEMP_FILE="${STATE_FILE}.thumbsup.$$"
-        # Replace active_bots section in state file
-        awk -v new_bots="$NEW_ACTIVE_BOTS_YAML" '
-            /^active_bots:/ {
-                print "active_bots:" new_bots
-                in_bots=1
-                next
-            }
-            in_bots && /^[[:space:]]+-/ { next }
-            in_bots && /^[a-zA-Z]/ { in_bots=0 }
-            { print }
-        ' "$STATE_FILE" > "$TEMP_FILE"
-        mv "$TEMP_FILE" "$STATE_FILE"
-    fi
-fi
-
-# ========================================
 # Check if Active Bots Remain
 # ========================================
+# NOTE: Step 8 (Codex +1 check) has been moved to after trigger detection
+# to ensure it uses the correct timestamp that accounts for new commits.
 
 if [[ ${#PR_ACTIVE_BOTS_ARRAY[@]} -eq 0 ]]; then
     echo "All bots have approved. PR loop complete!" >&2
@@ -709,6 +640,81 @@ elif [[ "$PR_CURRENT_ROUND" -eq 0 ]]; then
             REQUIRE_TRIGGER=false
             ;;
     esac
+fi
+
+# ========================================
+# Step 8: Check for Codex +1 Reaction (After Trigger Detection)
+# ========================================
+# IMPORTANT: This check runs AFTER trigger detection to ensure:
+# 1. We use the correct timestamp that accounts for new commits
+# 2. If trigger is required but missing, we don't approve based on old +1
+
+# Check for codex bot in active bots
+CODEX_IN_ACTIVE=false
+for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+    if [[ "$bot" == "codex" ]]; then
+        CODEX_IN_ACTIVE=true
+        break
+    fi
+done
+
+if [[ "$CODEX_IN_ACTIVE" == "true" ]]; then
+    # Skip +1 check if trigger is required but not yet posted
+    # (User needs to post @codex comment first)
+    if [[ "$REQUIRE_TRIGGER" == "true" && -z "$PR_LAST_TRIGGER_AT" ]]; then
+        echo "Skipping Codex +1 check: trigger required but not yet posted" >&2
+    else
+        echo "Round $PR_CURRENT_ROUND: Checking for Codex +1 reaction on PR..." >&2
+
+        # Determine the timestamp for filtering +1 reactions
+        # Use trigger timestamp if available, otherwise fall back to loop start time
+        CODEX_REACTION_AFTER="${PR_LAST_TRIGGER_AT:-$PR_STARTED_AT}"
+        echo "  (Checking for +1 after: $CODEX_REACTION_AFTER)" >&2
+
+        # Check for +1 reaction from Codex
+        CODEX_REACTION=$("$PLUGIN_ROOT/scripts/check-bot-reactions.sh" codex-thumbsup "$PR_NUMBER" --after "$CODEX_REACTION_AFTER" 2>/dev/null) || CODEX_REACTION=""
+
+        if [[ -n "$CODEX_REACTION" && "$CODEX_REACTION" != "null" ]]; then
+            REACTION_AT=$(echo "$CODEX_REACTION" | jq -r '.created_at')
+            echo "Codex +1 detected at $REACTION_AT - removing codex from active_bots" >&2
+
+            # Remove only codex from active_bots, keep other bots
+            declare -a NEW_ACTIVE_BOTS_AFTER_THUMBSUP=()
+            for bot in "${PR_ACTIVE_BOTS_ARRAY[@]}"; do
+                if [[ "$bot" != "codex" ]]; then
+                    NEW_ACTIVE_BOTS_AFTER_THUMBSUP+=("$bot")
+                fi
+            done
+
+            # If no other bots remain, loop is complete
+            if [[ ${#NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]} -eq 0 ]]; then
+                echo "Codex was the only active bot - PR loop approved!" >&2
+                mv "$STATE_FILE" "$LOOP_DIR/approve-state.md"
+                exit 0
+            fi
+
+            # Update active_bots in state file and continue with other bots
+            echo "Continuing with remaining bots: ${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[*]}" >&2
+            PR_ACTIVE_BOTS_ARRAY=("${NEW_ACTIVE_BOTS_AFTER_THUMBSUP[@]}")
+
+            # Update state file
+            NEW_ACTIVE_BOTS_YAML=$(build_yaml_list "${PR_ACTIVE_BOTS_ARRAY[@]}")
+
+            TEMP_FILE="${STATE_FILE}.thumbsup.$$"
+            # Replace active_bots section in state file
+            awk -v new_bots="$NEW_ACTIVE_BOTS_YAML" '
+                /^active_bots:/ {
+                    print "active_bots:" new_bots
+                    in_bots=1
+                    next
+                }
+                in_bots && /^[[:space:]]+-/ { next }
+                in_bots && /^[a-zA-Z]/ { in_bots=0 }
+                { print }
+            ' "$STATE_FILE" > "$TEMP_FILE"
+            mv "$TEMP_FILE" "$STATE_FILE"
+        fi
+    fi
 fi
 
 # ========================================
