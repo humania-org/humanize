@@ -804,9 +804,11 @@ OUTPUT=$(PATH="$TEST_DIR/poll3/bin:$PATH" "$PROJECT_ROOT/scripts/poll-pr-reviews
 EXIT_CODE=$?
 set -e
 
-# On API failure, poll-pr-reviews should still exit 0 with has_new_comments:false
+# On API failure, poll-pr-reviews MUST exit 0 with valid JSON containing has_new_comments:false
 # Output may contain warnings before JSON, so extract just the JSON part
-if [[ $EXIT_CODE -eq 0 ]]; then
+if [[ $EXIT_CODE -ne 0 ]]; then
+    fail "poll-pr-reviews API failure" "exit 0 with JSON" "exit=$EXIT_CODE, output: $OUTPUT"
+else
     # Extract JSON from output (last { ... } block)
     JSON_OUTPUT=$(echo "$OUTPUT" | grep -E '^\{' | tail -1 || echo "")
     if [[ -z "$JSON_OUTPUT" ]]; then
@@ -815,20 +817,18 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     fi
     HAS_NEW=$(echo "$JSON_OUTPUT" | jq -r '.has_new_comments // empty' 2>/dev/null || echo "")
     if [[ "$HAS_NEW" == "false" ]]; then
-        pass "poll-pr-reviews returns has_new_comments:false on API failure"
+        pass "poll-pr-reviews returns exit 0 with has_new_comments:false on API failure"
     elif [[ -n "$HAS_NEW" ]]; then
-        pass "poll-pr-reviews handles API failure (has_new_comments=$HAS_NEW)"
+        # has_new_comments exists but not false - still valid JSON but unexpected
+        pass "poll-pr-reviews returns exit 0 with JSON (has_new_comments=$HAS_NEW)"
     else
         # Check if output contains the has_new_comments field anywhere
         if echo "$OUTPUT" | grep -q '"has_new_comments".*false'; then
-            pass "poll-pr-reviews returns has_new_comments:false on API failure"
+            pass "poll-pr-reviews returns exit 0 with has_new_comments:false on API failure"
         else
-            fail "poll-pr-reviews API failure" "JSON with has_new_comments" "output: $OUTPUT"
+            fail "poll-pr-reviews API failure" "JSON with has_new_comments:false" "output: $OUTPUT"
         fi
     fi
-else
-    # Non-zero exit is also acceptable for API failures
-    pass "poll-pr-reviews reports API failure (exit=$EXIT_CODE)"
 fi
 
 # ========================================

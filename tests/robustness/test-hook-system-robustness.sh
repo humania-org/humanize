@@ -594,16 +594,12 @@ set +e
 OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/active-loop" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
-# Active loop with valid state should block exit (decision: block)
-if echo "$OUTPUT" | grep -q '"decision".*:.*"block"'; then
-    pass "Stop hook blocks exit during active loop (decision: block)"
+# Active loop with valid state MUST block exit with decision: block
+# This is the expected behavior - no fallback accepted
+if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q '"decision".*:.*"block"'; then
+    pass "Stop hook blocks exit during active loop (exit 0, decision: block)"
 else
-    # May fail due to missing dependencies, check for non-crash
-    if [[ $EXIT_CODE -lt 128 ]]; then
-        pass "Stop hook processes active loop (exit=$EXIT_CODE)"
-    else
-        fail "Active loop handling" "exit < 128" "exit=$EXIT_CODE"
-    fi
+    fail "Active loop blocking" "exit 0 with decision:block" "exit=$EXIT_CODE, output: $OUTPUT"
 fi
 
 # ========================================

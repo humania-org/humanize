@@ -63,6 +63,7 @@ setup_test_env() {
         git init -q
         git config user.email "test@example.com"
         git config user.name "Test User"
+        git config commit.gpgsign false
         echo "# Test" > README.md
         git add README.md
         git commit -q -m "Initial commit"
