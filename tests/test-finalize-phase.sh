@@ -606,6 +606,18 @@ else
     fail "Review failure message" "message mentioning review failure/retry" "output does not indicate failure"
 fi
 
+# T-NEG-8c: Verify state.md still exists and has review_started: true
+echo "T-NEG-8c: state.md preserved with review_started: true after failure"
+if [[ -f "$LOOP_DIR/state.md" ]]; then
+    if grep -q "review_started: true" "$LOOP_DIR/state.md"; then
+        pass "state.md preserved with review_started: true"
+    else
+        fail "State preservation" "state.md with review_started: true" "state.md exists but review_started is not true: $(grep review_started "$LOOP_DIR/state.md" 2>/dev/null || echo 'field not found')"
+    fi
+else
+    fail "State preservation" "state.md exists" "state.md not found, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+fi
+
 echo ""
 echo "=== T-NEG-9: Review Phase Blocks on Empty Codex Review Output ==="
 echo ""
@@ -644,14 +656,23 @@ else
     fail "Empty review blocks" "block decision" "exit $EXIT_CODE, decision not block, output: $(echo "$RESULT" | head -5)"
 fi
 
-# T-NEG-9b: Verify the stdout file exists and is empty (or missing)
-echo "T-NEG-9b: Codex review stdout file is empty or missing"
-# The cache dir for codex review output
-REVIEW_STDOUT="$XDG_CACHE_HOME/humanize/codex-review/round-5-codex-review.out"
-if [[ ! -f "$REVIEW_STDOUT" ]] || [[ ! -s "$REVIEW_STDOUT" ]]; then
-    pass "Codex review stdout file is empty or missing as expected"
+# T-NEG-9b: Verify the stdout file exists and is empty
+echo "T-NEG-9b: Codex review stdout file exists and is empty"
+# Compute the real cache dir using same logic as loop-codex-stop-hook.sh
+# Cache path: $XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP/round-N-codex-review.out
+LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
+SANITIZED_PROJECT_PATH=$(echo "$TEST_DIR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+REVIEW_CACHE_DIR="$XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
+# Round 5 because we started at round 4 and incremented for review
+REVIEW_STDOUT="$REVIEW_CACHE_DIR/round-5-codex-review.out"
+if [[ -f "$REVIEW_STDOUT" ]] && [[ ! -s "$REVIEW_STDOUT" ]]; then
+    pass "Codex review stdout file exists and is empty"
 else
-    fail "Empty stdout verification" "stdout file empty/missing" "stdout file has content: $(cat "$REVIEW_STDOUT" | head -3)"
+    if [[ ! -f "$REVIEW_STDOUT" ]]; then
+        fail "Empty stdout verification" "stdout file exists (at $REVIEW_STDOUT)" "file does not exist"
+    else
+        fail "Empty stdout verification" "stdout file is empty" "stdout file has content: $(cat "$REVIEW_STDOUT" | head -3)"
+    fi
 fi
 
 # T-NEG-9c: Verify block message mentions empty output or retry
@@ -660,6 +681,18 @@ if echo "$RESULT" | grep -qi "empty\|no.*output\|retry\|fail"; then
     pass "Block message indicates empty output or retry needed"
 else
     fail "Empty output message" "message mentioning empty output/retry" "output does not indicate empty/retry"
+fi
+
+# T-NEG-9d: Verify state.md still exists and has review_started: true
+echo "T-NEG-9d: state.md preserved with review_started: true after empty output"
+if [[ -f "$LOOP_DIR/state.md" ]]; then
+    if grep -q "review_started: true" "$LOOP_DIR/state.md"; then
+        pass "state.md preserved with review_started: true"
+    else
+        fail "State preservation" "state.md with review_started: true" "state.md exists but review_started is not true: $(grep review_started "$LOOP_DIR/state.md" 2>/dev/null || echo 'field not found')"
+    fi
+else
+    fail "State preservation" "state.md exists" "state.md not found, files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
 fi
 
 echo ""
