@@ -97,6 +97,50 @@ EOF
     rm -f "$TEST_DIR/codex_called.marker"
 }
 
+# Create a mock codex that fails on review (non-zero exit)
+# Args: $1=exec_output, $2=review_exit_code (default 1)
+setup_mock_codex_review_failure() {
+    local exec_output="$1"
+    local review_exit_code="${2:-1}"
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << EOF
+#!/bin/bash
+# Mock codex - fails on review command
+if [[ "\$1" == "exec" ]]; then
+    cat << 'REVIEW'
+$exec_output
+REVIEW
+elif [[ "\$1" == "review" ]]; then
+    # Simulate failure with non-zero exit
+    echo "Error: Codex review failed" >&2
+    exit $review_exit_code
+fi
+EOF
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
+}
+
+# Create a mock codex that produces empty stdout on review
+# Args: $1=exec_output
+setup_mock_codex_review_empty_stdout() {
+    local exec_output="$1"
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << EOF
+#!/bin/bash
+# Mock codex - produces empty stdout on review
+if [[ "\$1" == "exec" ]]; then
+    cat << 'REVIEW'
+$exec_output
+REVIEW
+elif [[ "\$1" == "review" ]]; then
+    # Exit successfully but produce no output
+    exit 0
+fi
+EOF
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
+}
+
 setup_test_repo() {
     cd "$TEST_DIR"
 
@@ -513,6 +557,109 @@ if [[ -f "$LOOP_DIR/maxiter-state.md" ]] && [[ ! -f "$LOOP_DIR/finalize-state.md
     pass "Max iterations skips Finalize Phase (creates maxiter-state.md)"
 else
     fail "Max iterations skip Finalize" "maxiter-state.md (no finalize-state.md)" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+fi
+
+echo ""
+echo "=== T-NEG-8: Review Phase Blocks on Codex Review Failure ==="
+echo ""
+
+# T-NEG-8a: COMPLETE triggers review, but codex review fails (non-zero exit)
+# Should block instead of skipping to finalize
+echo "T-NEG-8a: COMPLETE with codex review failure blocks exit (non-zero exit)"
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 3 10  # current_round: 3, max_iterations: 10
+setup_mock_codex_review_failure "All requirements met.
+
+COMPLETE" 1
+
+# Create summary for current round
+cat > "$LOOP_DIR/round-3-summary.md" << 'EOF'
+# Round 3 Summary
+Implemented all features.
+EOF
+
+HOOK_INPUT='{"stop_hook_active": false, "transcript": []}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Should block (not allow exit) and NOT create finalize-state.md or complete-state.md
+# state.md should still exist (or review_started should be true)
+if echo "$RESULT" | grep -q '"decision".*block'; then
+    # Check that we did NOT transition to finalize
+    if [[ ! -f "$LOOP_DIR/finalize-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
+        pass "COMPLETE with codex review failure blocks exit"
+    else
+        fail "Review failure blocks" "no finalize-state.md or complete-state.md" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+    fi
+else
+    fail "Review failure blocks" "block decision" "exit $EXIT_CODE, decision not block, output: $(echo "$RESULT" | head -5)"
+fi
+
+# T-NEG-8b: Verify block message mentions review failure
+echo "T-NEG-8b: Block message indicates review failure"
+if echo "$RESULT" | grep -qi "review.*fail\|codex.*fail\|retry"; then
+    pass "Block message indicates review failure"
+else
+    fail "Review failure message" "message mentioning review failure/retry" "output does not indicate failure"
+fi
+
+echo ""
+echo "=== T-NEG-9: Review Phase Blocks on Empty Codex Review Output ==="
+echo ""
+
+# T-NEG-9a: COMPLETE triggers review, but codex review produces empty stdout
+# Should block instead of skipping to finalize
+echo "T-NEG-9a: COMPLETE with empty codex review output blocks exit"
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 4 10  # current_round: 4, max_iterations: 10
+setup_mock_codex_review_empty_stdout "All requirements met.
+
+COMPLETE"
+
+# Create summary for current round
+cat > "$LOOP_DIR/round-4-summary.md" << 'EOF'
+# Round 4 Summary
+Implemented all features.
+EOF
+
+HOOK_INPUT='{"stop_hook_active": false, "transcript": []}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+# Should block (not allow exit) and NOT create finalize-state.md or complete-state.md
+if echo "$RESULT" | grep -q '"decision".*block'; then
+    # Check that we did NOT transition to finalize
+    if [[ ! -f "$LOOP_DIR/finalize-state.md" ]] && [[ ! -f "$LOOP_DIR/complete-state.md" ]]; then
+        pass "COMPLETE with empty codex review output blocks exit"
+    else
+        fail "Empty review blocks" "no finalize-state.md or complete-state.md" "files: $(ls $LOOP_DIR/*state*.md 2>/dev/null || echo 'none')"
+    fi
+else
+    fail "Empty review blocks" "block decision" "exit $EXIT_CODE, decision not block, output: $(echo "$RESULT" | head -5)"
+fi
+
+# T-NEG-9b: Verify the stdout file exists and is empty (or missing)
+echo "T-NEG-9b: Codex review stdout file is empty or missing"
+# The cache dir for codex review output
+REVIEW_STDOUT="$XDG_CACHE_HOME/humanize/codex-review/round-5-codex-review.out"
+if [[ ! -f "$REVIEW_STDOUT" ]] || [[ ! -s "$REVIEW_STDOUT" ]]; then
+    pass "Codex review stdout file is empty or missing as expected"
+else
+    fail "Empty stdout verification" "stdout file empty/missing" "stdout file has content: $(cat "$REVIEW_STDOUT" | head -3)"
+fi
+
+# T-NEG-9c: Verify block message mentions empty output or retry
+echo "T-NEG-9c: Block message indicates empty output or need for retry"
+if echo "$RESULT" | grep -qi "empty\|no.*output\|retry\|fail"; then
+    pass "Block message indicates empty output or retry needed"
+else
+    fail "Empty output message" "message mentioning empty output/retry" "output does not indicate empty/retry"
 fi
 
 echo ""
