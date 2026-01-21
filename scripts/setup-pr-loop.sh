@@ -474,11 +474,14 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
 
     # Fetch comments after latest commit and check for @mention of any active bot
     # IMPORTANT: Use PR_BASE_REPO for fork PR support
+    # IMPORTANT: --paginate emits separate JSON arrays per page, so use jq -s to
+    # slurp all pages together before filtering. Otherwise we would only find the
+    # latest match per page, not the latest match overall.
     if [[ -n "$LATEST_COMMIT_AT" && "$LATEST_COMMIT_AT" != "null" ]]; then
         EXISTING_TRIGGER=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
             --paginate 2>/dev/null \
-            | jq --arg since "$LATEST_COMMIT_AT" --arg pattern "$MENTION_PATTERN" '
-                [.[] | select(.created_at > $since and (.body | test($pattern)))]
+            | jq -s --arg since "$LATEST_COMMIT_AT" --arg pattern "$MENTION_PATTERN" '
+                [.[][] | select(.created_at > $since and (.body | test($pattern)))]
                 | sort_by(.created_at)
                 | last
                 | {id: .id, created_at: .created_at}
