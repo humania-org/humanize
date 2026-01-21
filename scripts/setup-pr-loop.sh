@@ -480,13 +480,26 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     # IMPORTANT: Reuse only when ALL active bots are mentioned. If only a subset
     # is mentioned (e.g., @claude but not @codex), we must post a new trigger
     # to ensure all bots receive the notification.
+    # IMPORTANT: Mentions inside code blocks, inline code, or quoted text do NOT
+    # trigger GitHub notifications. We must strip these before checking mentions.
     if [[ -n "$LATEST_COMMIT_AT" && "$LATEST_COMMIT_AT" != "null" ]]; then
         EXISTING_TRIGGER=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
             --paginate 2>/dev/null \
             | jq -s --arg since "$LATEST_COMMIT_AT" --argjson patterns "$MENTION_PATTERNS_JSON" '
+                # Helper: strip code blocks, inline code, and quoted lines from text
+                # GitHub does not send mention notifications for these contexts
+                def strip_non_mention_contexts:
+                    # Remove fenced code blocks (```...```)
+                    gsub("```[^`]*```"; " ")
+                    # Remove inline code (`...`)
+                    | gsub("`[^`]*`"; " ")
+                    # Remove quoted lines (lines starting with >)
+                    | gsub("(^|\\n)>[^\\n]*"; " ");
+
                 [.[][] | select(.created_at > $since and (
-                    # Check that ALL patterns are present in the body
-                    . as $comment | $patterns | all(. as $p | $comment.body | test($p))
+                    # Check that ALL patterns are present in the stripped body
+                    (.body | strip_non_mention_contexts) as $clean_body
+                    | $patterns | all(. as $p | $clean_body | test($p))
                 ))]
                 | sort_by(.created_at)
                 | last
