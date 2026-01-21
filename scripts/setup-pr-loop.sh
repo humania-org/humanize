@@ -489,8 +489,10 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
                 # Helper: strip code blocks, inline code, and quoted lines from text
                 # GitHub does not send mention notifications for these contexts
                 def strip_non_mention_contexts:
-                    # Remove fenced code blocks (```...```)
-                    gsub("```[^`]*```"; " ")
+                    # Remove fenced code blocks (```...```) using split/join
+                    # The regex approach fails when code blocks contain backticks
+                    # Split by ```, keep even-indexed parts (outside blocks), rejoin
+                    ([splits("```")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
                     # Remove inline code (`...`)
                     | gsub("`[^`]*`"; " ")
                     # Remove quoted lines (lines starting with >)
