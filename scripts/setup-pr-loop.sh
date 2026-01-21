@@ -492,8 +492,12 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
                     # The regex approach fails when code blocks contain backticks
                     # Split by ```, keep even-indexed parts (outside blocks), rejoin
                     ([splits("```")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
+                    # Remove tilde fenced code blocks (~~~...~~~)
+                    | ([splits("~~~")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
                     # Remove inline code (`...`)
                     | gsub("`[^`]*`"; " ")
+                    # Remove indented code blocks (lines starting with 4+ spaces or tab)
+                    | gsub("(^|\\n)(    |\\t)[^\\n]*"; " ")
                     # Remove quoted lines (lines starting with >, possibly indented)
                     | gsub("(^|\\n)\\s*>[^\\n]*"; " ");
 
