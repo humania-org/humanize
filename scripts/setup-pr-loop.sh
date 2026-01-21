@@ -511,8 +511,14 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     fi
 
     # Extract fields once to avoid repeated jq calls
-    TRIGGER_COMMENT_ID=$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty' 2>/dev/null)
-    LAST_TRIGGER_AT=$(echo "$EXISTING_TRIGGER" | jq -r '.created_at // empty' 2>/dev/null)
+    # Skip jq parsing if EXISTING_TRIGGER is empty (API failure fallback)
+    if [[ -n "$EXISTING_TRIGGER" ]]; then
+        TRIGGER_COMMENT_ID=$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty' 2>/dev/null) || TRIGGER_COMMENT_ID=""
+        LAST_TRIGGER_AT=$(echo "$EXISTING_TRIGGER" | jq -r '.created_at // empty' 2>/dev/null) || LAST_TRIGGER_AT=""
+    else
+        TRIGGER_COMMENT_ID=""
+        LAST_TRIGGER_AT=""
+    fi
 
     if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
         # Found existing @mention - reuse it instead of posting new one
