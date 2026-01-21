@@ -465,23 +465,26 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     # This avoids duplicate @mention spam when user has already requested re-review
     echo "Case $STARTUP_CASE: Checking for existing trigger comment after latest commit..." >&2
 
-    # Build regex pattern for bot mentions (e.g., "@claude|@codex")
-    # Need to match any of the active bots being mentioned
-    MENTION_PATTERN="@${ACTIVE_BOTS_ARRAY[0]}"
-    for bot in "${ACTIVE_BOTS_ARRAY[@]:1}"; do
-        MENTION_PATTERN="${MENTION_PATTERN}|@${bot}"
-    done
+    # Build JSON array of bot mention patterns for jq (e.g., ["@claude", "@codex"])
+    # We need to check that ALL active bots are mentioned, not just any one
+    MENTION_PATTERNS_JSON=$(printf '%s\n' "${ACTIVE_BOTS_ARRAY[@]}" | jq -R '"@" + .' | jq -s '.')
 
-    # Fetch comments after latest commit and check for @mention of any active bot
+    # Fetch comments after latest commit and check for @mention of ALL active bots
     # IMPORTANT: Use PR_BASE_REPO for fork PR support
     # IMPORTANT: --paginate emits separate JSON arrays per page, so use jq -s to
     # slurp all pages together before filtering. Otherwise we would only find the
     # latest match per page, not the latest match overall.
+    # IMPORTANT: Reuse only when ALL active bots are mentioned. If only a subset
+    # is mentioned (e.g., @claude but not @codex), we must post a new trigger
+    # to ensure all bots receive the notification.
     if [[ -n "$LATEST_COMMIT_AT" && "$LATEST_COMMIT_AT" != "null" ]]; then
         EXISTING_TRIGGER=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
             --paginate 2>/dev/null \
-            | jq -s --arg since "$LATEST_COMMIT_AT" --arg pattern "$MENTION_PATTERN" '
-                [.[][] | select(.created_at > $since and (.body | test($pattern)))]
+            | jq -s --arg since "$LATEST_COMMIT_AT" --argjson patterns "$MENTION_PATTERNS_JSON" '
+                [.[][] | select(.created_at > $since and (
+                    # Check that ALL patterns are present in the body
+                    . as $comment | $patterns | all(. as $p | $comment.body | test($p))
+                ))]
                 | sort_by(.created_at)
                 | last
                 | {id: .id, created_at: .created_at}
