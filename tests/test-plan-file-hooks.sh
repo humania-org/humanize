@@ -31,6 +31,32 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $1 - $2"; TESTS_SKIPPED=$((TESTS_SKIPPED +
 TEST_DIR=$(mktemp -d)
 trap "rm -rf $TEST_DIR" EXIT
 
+# Set up isolated cache directory to avoid permission issues in sandboxed environments
+export XDG_CACHE_HOME="$TEST_DIR/.cache"
+mkdir -p "$XDG_CACHE_HOME"
+
+# Create mock codex to prevent calling real codex (which is slow)
+# This mock outputs COMPLETE by default
+setup_mock_codex() {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
+#!/bin/bash
+# Mock codex for test-plan-file-hooks.sh
+if [[ "$1" == "exec" ]]; then
+    echo "Mock review output"
+    echo "COMPLETE"
+elif [[ "$1" == "review" ]]; then
+    echo "Mock code review: No issues found."
+fi
+exit 0
+MOCKEOF
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
+}
+
+# Initialize mock codex for all tests
+setup_mock_codex
+
 # Default branch name (set after first git init)
 DEFAULT_BRANCH=""
 

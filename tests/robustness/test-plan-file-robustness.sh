@@ -15,6 +15,30 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Create a temporary test directory
+TEST_DIR=$(mktemp -d)
+trap "rm -rf $TEST_DIR" EXIT
+
+# Set up isolated cache directory to avoid permission issues
+export XDG_CACHE_HOME="$TEST_DIR/.cache"
+mkdir -p "$XDG_CACHE_HOME"
+
+# Create mock codex to prevent calling real codex (which is slow)
+setup_mock_codex() {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
+#!/bin/bash
+# Mock codex for test-plan-file-robustness.sh
+echo "Mock codex output"
+exit 0
+MOCKEOF
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
+}
+
+# Initialize mock codex
+setup_mock_codex
+
 # ========================================
 # Production Function Under Test
 # ========================================

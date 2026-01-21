@@ -464,7 +464,7 @@ mkdir -p "$TEST_DIR/no-state"
 # No .humanize directory - should allow exit (no block decision)
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/no-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/no-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Should exit 0 (pass through) when no loop is active, with no block decision
@@ -480,7 +480,7 @@ echo "Test 17: PR stop hook allows exit when no state directory"
 mkdir -p "$TEST_DIR/no-pr-state"
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/no-pr-state" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/no-pr-state" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Should exit 0, no block decision
@@ -497,7 +497,7 @@ mkdir -p "$TEST_DIR/corrupt-state/.humanize/rlcr/2026-01-19_00-00-00"
 echo "not yaml at all [[[" > "$TEST_DIR/corrupt-state/.humanize/rlcr/2026-01-19_00-00-00/state.md"
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/corrupt-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/corrupt-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Should handle gracefully - either block with reason or allow (exit 0 without block)
@@ -534,7 +534,7 @@ plan_tracked: false
 EOF
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/incomplete-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/incomplete-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Missing critical fields causes loop to end as "unexpected" (exit 0, no block)
@@ -601,7 +601,7 @@ MOCKEOF
 chmod +x "$TEST_DIR/mock-bin/codex"
 
 set +e
-OUTPUT=$(PATH="$TEST_DIR/mock-bin:$PATH" CLAUDE_PROJECT_DIR="$TEST_DIR/active-loop" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | PATH="$TEST_DIR/mock-bin:$PATH" CLAUDE_PROJECT_DIR="$TEST_DIR/active-loop" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 # Active loop with valid state MUST block exit with decision: block

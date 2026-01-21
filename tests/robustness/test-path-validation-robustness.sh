@@ -15,6 +15,25 @@ source "$SCRIPT_DIR/../test-helpers.sh"
 
 setup_test_dir
 
+# Create mock codex to prevent calling real codex (which is slow)
+# This mock exits 0 so setup-rlcr-loop.sh would proceed, but we check for
+# validation errors first. If path validation passes, the script will reach
+# codex check and this mock will be used.
+setup_mock_codex() {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
+#!/bin/bash
+# Mock codex for test-path-validation-robustness.sh
+echo "Mock codex output"
+exit 0
+MOCKEOF
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
+}
+
+# Initialize mock codex
+setup_mock_codex
+
 # Create a mock git repo in the test directory
 cd "$TEST_DIR"
 git init --quiet

@@ -70,17 +70,16 @@ EOF
     fi
 }
 
-# Mock codex command if not available
+# Mock codex command - always use mock to avoid calling real codex (slow)
 mock_codex() {
-    if ! command -v codex &>/dev/null; then
-        mkdir -p "$TEST_DIR/bin"
-        cat > "$TEST_DIR/bin/codex" << 'EOF'
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/codex" << 'EOF'
 #!/bin/bash
+# Mock codex for test-plan-file-validation.sh
 echo "mock codex"
 EOF
-        chmod +x "$TEST_DIR/bin/codex"
-        export PATH="$TEST_DIR/bin:$PATH"
-    fi
+    chmod +x "$TEST_DIR/bin/codex"
+    export PATH="$TEST_DIR/bin:$PATH"
 }
 
 echo "=== Test: Plan File Path Validation ==="

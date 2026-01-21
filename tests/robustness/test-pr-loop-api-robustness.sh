@@ -563,7 +563,7 @@ mkdir -p "$TEST_DIR/stop1"
 init_basic_git_repo "$TEST_DIR/stop1"
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/stop1" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/stop1" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 
@@ -581,7 +581,7 @@ echo "not valid yaml [[[" > "$TEST_DIR/stop2/.humanize/pr-loop/2026-01-19_00-00-
 init_basic_git_repo "$TEST_DIR/stop2"
 
 set +e
-OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/stop2" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
+OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/stop2" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
 EXIT_CODE=$?
 set -e
 
