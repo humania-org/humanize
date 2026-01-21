@@ -458,7 +458,6 @@ echo "Latest Commit: $LATEST_COMMIT_SHA" >&2
 # Need to trigger re-review by posting @bot comment
 LAST_TRIGGER_AT=""
 TRIGGER_COMMENT_ID=""
-REUSED_EXISTING_TRIGGER="false"
 
 if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     # First, check if there's already a pending @mention after the latest commit
@@ -511,11 +510,12 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
         EXISTING_TRIGGER=""
     fi
 
-    if [[ -n "$EXISTING_TRIGGER" && "$EXISTING_TRIGGER" != "null" && "$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty')" != "" ]]; then
+    # Extract fields once to avoid repeated jq calls
+    TRIGGER_COMMENT_ID=$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty' 2>/dev/null)
+    LAST_TRIGGER_AT=$(echo "$EXISTING_TRIGGER" | jq -r '.created_at // empty' 2>/dev/null)
+
+    if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
         # Found existing @mention - reuse it instead of posting new one
-        TRIGGER_COMMENT_ID=$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty')
-        LAST_TRIGGER_AT=$(echo "$EXISTING_TRIGGER" | jq -r '.created_at // empty')
-        REUSED_EXISTING_TRIGGER="true"
         echo "Found existing trigger comment (ID: $TRIGGER_COMMENT_ID), skipping duplicate @mention" >&2
     else
         # No existing @mention - post new trigger

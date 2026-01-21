@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.6.6**
+**Current Version: 1.6.7**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
