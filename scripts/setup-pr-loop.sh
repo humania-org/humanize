@@ -460,45 +460,106 @@ LAST_TRIGGER_AT=""
 TRIGGER_COMMENT_ID=""
 
 if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
-    echo "Case $STARTUP_CASE: Posting trigger comment for re-review..." >&2
+    # First, check if there's already a pending @mention after the latest commit
+    # This avoids duplicate @mention spam when user has already requested re-review
+    echo "Case $STARTUP_CASE: Checking for existing trigger comment after latest commit..." >&2
 
-    # Post trigger comment (abort on failure to prevent orphaned state)
-    # NOTE: Uses --repo for fork PR support (comments go to base repo, not fork)
-    TRIGGER_BODY="$BOT_MENTION_STRING please review the latest changes (new commits since last review)"
-    TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --repo "$PR_BASE_REPO" --body "$TRIGGER_BODY" 2>&1) || {
-        echo "Error: Failed to post trigger comment: $TRIGGER_RESULT" >&2
-        echo "" >&2
-        echo "Cannot proceed without a trigger comment - bots would not be notified." >&2
-        echo "Please check:" >&2
-        echo "  - GitHub API rate limits" >&2
-        echo "  - Network connectivity" >&2
-        echo "  - Repository permissions" >&2
-        rm -rf "$LOOP_DIR"
-        exit 1
-    }
+    # Build regex patterns for bot mentions with word boundary anchoring
+    # Pattern: (start|non-username-char) + @botname + (end|non-username-char)
+    # Prevents false matches like @claude-dev or support@codex.io
+    MENTION_PATTERNS_JSON=$(printf '%s\n' "${ACTIVE_BOTS_ARRAY[@]}" | jq -R '"(^|[^a-zA-Z0-9_-])@" + . + "($|[^a-zA-Z0-9_-])"' | jq -s '.')
 
-    # Get the comment ID and use GitHub's timestamp to avoid clock skew
-    # Fetch the latest comment from current user
-    CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
-    if [[ -n "$CURRENT_USER" ]]; then
-        # Fetch both ID and created_at from the comment we just posted
-        # IMPORTANT: --jq with --paginate runs per-page, so aggregate first then filter
-        # IMPORTANT: Use PR_BASE_REPO for fork PR support
-        COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
-            --paginate --jq ".[] | select(.user.login == \"$CURRENT_USER\") | {id: .id, created_at: .created_at}" 2>/dev/null \
-            | jq -s 'sort_by(.created_at) | reverse | .[0]') || COMMENT_DATA=""
+    # Find existing trigger comment that mentions ALL active bots after latest commit
+    # Notes:
+    # - Uses PR_BASE_REPO for fork PR support
+    # - Uses jq -s to aggregate paginated results before filtering
+    # - Reuse only when ALL bots are mentioned (partial mentions need new trigger)
+    # - Strips code blocks/inline code/quotes since GitHub ignores mentions there
+    if [[ -n "$LATEST_COMMIT_AT" && "$LATEST_COMMIT_AT" != "null" ]]; then
+        EXISTING_TRIGGER=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
+            --paginate 2>/dev/null \
+            | jq -s --arg since "$LATEST_COMMIT_AT" --argjson patterns "$MENTION_PATTERNS_JSON" '
+                # Strip content between delimiters, keeping even-indexed parts (outside delimiters)
+                # Used for fenced code blocks where regex fails on nested backticks
+                def strip_between(delim): [splits(delim)] | to_entries | map(select(.key % 2 == 0) | .value) | join(" ");
 
-        if [[ -n "$COMMENT_DATA" && "$COMMENT_DATA" != "null" ]]; then
-            TRIGGER_COMMENT_ID=$(echo "$COMMENT_DATA" | jq -r '.id // empty')
-            # Use GitHub's timestamp instead of local time to avoid clock skew
-            LAST_TRIGGER_AT=$(echo "$COMMENT_DATA" | jq -r '.created_at // empty')
-        fi
+                # Strip code blocks, inline code, and quoted lines (GitHub ignores mentions in these)
+                def strip_non_mention_contexts:
+                    strip_between("```")                      # fenced code blocks
+                    | strip_between("~~~")                    # tilde fenced code blocks
+                    | gsub("`[^`]*`"; " ")                    # inline code
+                    | gsub("(^|\\n)(    |\\t)[^\\n]*"; " ")   # indented code blocks (4+ spaces or tab)
+                    | gsub("(^|\\n)\\s*>[^\\n]*"; " ");       # quoted lines (> prefix)
+
+                [.[][] | select(.created_at > $since and (
+                    # Check that ALL patterns are present in the stripped body
+                    # Use case-insensitive matching since GitHub mentions are case-insensitive
+                    (.body | strip_non_mention_contexts) as $clean_body
+                    | $patterns | all(. as $p | $clean_body | test($p; "i"))
+                ))]
+                | sort_by(.created_at)
+                | last
+                | {id: .id, created_at: .created_at}
+            ') || EXISTING_TRIGGER=""
+    else
+        EXISTING_TRIGGER=""
     fi
 
-    # NOTE: Do NOT fall back to local time if GitHub timestamp fetch failed.
-    # Local clock skew could set a future timestamp, causing stop hook to filter
-    # out all comments. The stop hook has its own trigger detection logic that
-    # will find the trigger comment if LAST_TRIGGER_AT is empty.
+    # Extract fields once to avoid repeated jq calls
+    # Skip jq parsing if EXISTING_TRIGGER is empty (API failure fallback)
+    if [[ -n "$EXISTING_TRIGGER" ]]; then
+        TRIGGER_COMMENT_ID=$(echo "$EXISTING_TRIGGER" | jq -r '.id // empty' 2>/dev/null) || TRIGGER_COMMENT_ID=""
+        LAST_TRIGGER_AT=$(echo "$EXISTING_TRIGGER" | jq -r '.created_at // empty' 2>/dev/null) || LAST_TRIGGER_AT=""
+    else
+        TRIGGER_COMMENT_ID=""
+        LAST_TRIGGER_AT=""
+    fi
+
+    if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
+        # Found existing @mention - reuse it instead of posting new one
+        echo "Found existing trigger comment (ID: $TRIGGER_COMMENT_ID), skipping duplicate @mention" >&2
+    else
+        # No existing @mention - post new trigger
+        echo "No existing trigger found, posting trigger comment for re-review..." >&2
+
+        # Post trigger comment (abort on failure to prevent orphaned state)
+        # NOTE: Uses --repo for fork PR support (comments go to base repo, not fork)
+        TRIGGER_BODY="$BOT_MENTION_STRING please review the latest changes (new commits since last review)"
+        TRIGGER_RESULT=$(run_with_timeout "$GH_TIMEOUT" gh pr comment "$PR_NUMBER" --repo "$PR_BASE_REPO" --body "$TRIGGER_BODY" 2>&1) || {
+            echo "Error: Failed to post trigger comment: $TRIGGER_RESULT" >&2
+            echo "" >&2
+            echo "Cannot proceed without a trigger comment - bots would not be notified." >&2
+            echo "Please check:" >&2
+            echo "  - GitHub API rate limits" >&2
+            echo "  - Network connectivity" >&2
+            echo "  - Repository permissions" >&2
+            rm -rf "$LOOP_DIR"
+            exit 1
+        }
+
+        # Get the comment ID and use GitHub's timestamp to avoid clock skew
+        # Fetch the latest comment from current user
+        CURRENT_USER=$(run_with_timeout "$GH_TIMEOUT" gh api user --jq '.login' 2>/dev/null) || CURRENT_USER=""
+        if [[ -n "$CURRENT_USER" ]]; then
+            # Fetch both ID and created_at from the comment we just posted
+            # IMPORTANT: --jq with --paginate runs per-page, so aggregate first then filter
+            # IMPORTANT: Use PR_BASE_REPO for fork PR support
+            COMMENT_DATA=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
+                --paginate --jq ".[] | select(.user.login == \"$CURRENT_USER\") | {id: .id, created_at: .created_at}" 2>/dev/null \
+                | jq -s 'sort_by(.created_at) | reverse | .[0]') || COMMENT_DATA=""
+
+            if [[ -n "$COMMENT_DATA" && "$COMMENT_DATA" != "null" ]]; then
+                TRIGGER_COMMENT_ID=$(echo "$COMMENT_DATA" | jq -r '.id // empty')
+                # Use GitHub's timestamp instead of local time to avoid clock skew
+                LAST_TRIGGER_AT=$(echo "$COMMENT_DATA" | jq -r '.created_at // empty')
+            fi
+        fi
+
+        # NOTE: Do NOT fall back to local time if GitHub timestamp fetch failed.
+        # Local clock skew could set a future timestamp, causing stop hook to filter
+        # out all comments. The stop hook has its own trigger detection logic that
+        # will find the trigger comment if LAST_TRIGGER_AT is empty.
+    fi
 
     # If --claude is specified, verify eyes reaction (MANDATORY per plan)
     if [[ "$BOT_CLAUDE" == "true" ]]; then
