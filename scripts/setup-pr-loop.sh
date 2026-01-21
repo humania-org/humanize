@@ -494,8 +494,8 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
                     ([splits("```")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
                     # Remove inline code (`...`)
                     | gsub("`[^`]*`"; " ")
-                    # Remove quoted lines (lines starting with >)
-                    | gsub("(^|\\n)>[^\\n]*"; " ");
+                    # Remove quoted lines (lines starting with >, possibly indented)
+                    | gsub("(^|\\n)\\s*>[^\\n]*"; " ");
 
                 [.[][] | select(.created_at > $since and (
                     # Check that ALL patterns are present in the stripped body
