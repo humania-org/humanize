@@ -465,11 +465,12 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     echo "Case $STARTUP_CASE: Checking for existing trigger comment after latest commit..." >&2
 
     # Build JSON array of bot mention patterns for jq with word boundary anchoring
-    # Pattern: (start OR whitespace) + @botname + (end OR non-username char)
-    # GitHub usernames contain alphanumeric, hyphens; mentions start after whitespace
+    # Pattern: (start OR non-username char) + @botname + (end OR non-username char)
+    # GitHub usernames contain alphanumeric, hyphens; mentions are case-insensitive
+    # and can follow punctuation like "(@Claude)" or ",@codex"
     # This prevents false matches like @claude-dev, @codex-team, or support@codex.io
     # We need to check that ALL active bots are mentioned, not just any one
-    MENTION_PATTERNS_JSON=$(printf '%s\n' "${ACTIVE_BOTS_ARRAY[@]}" | jq -R '"(^|\\s)@" + . + "($|[^a-zA-Z0-9_-])"' | jq -s '.')
+    MENTION_PATTERNS_JSON=$(printf '%s\n' "${ACTIVE_BOTS_ARRAY[@]}" | jq -R '"(^|[^a-zA-Z0-9_-])@" + . + "($|[^a-zA-Z0-9_-])"' | jq -s '.')
 
     # Fetch comments after latest commit and check for @mention of ALL active bots
     # IMPORTANT: Use PR_BASE_REPO for fork PR support
@@ -503,8 +504,9 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
 
                 [.[][] | select(.created_at > $since and (
                     # Check that ALL patterns are present in the stripped body
+                    # Use case-insensitive matching since GitHub mentions are case-insensitive
                     (.body | strip_non_mention_contexts) as $clean_body
-                    | $patterns | all(. as $p | $clean_body | test($p))
+                    | $patterns | all(. as $p | $clean_body | test($p; "i"))
                 ))]
                 | sort_by(.created_at)
                 | last
