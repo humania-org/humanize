@@ -81,7 +81,11 @@ The loop has two phases:
    ```bash
    /humanize:start-rlcr-loop <docs/my-feature-plan.md>
    ```
-4. **Monitor progress** in `.humanize/rlcr/<timestamp>/`
+4. **Monitor progress** in `.humanize/rlcr/<timestamp>/` or you can use the monitor script:
+   ```bash
+   source ~/.claude/plugins/cache/humania/humanize/<LATEST.VERSION>/scripts/humanize.sh // Add this to your .bashrc or .zshrc
+   humanize monitor [rlcr|pr] // Launch this from where you start claude to monitor RLCR loop or PR loop
+   ```
 5. **Cancel if needed**: `/humanize:cancel-rlcr-loop`
 
 ### Commands
