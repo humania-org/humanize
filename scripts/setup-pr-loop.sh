@@ -464,43 +464,32 @@ if [[ "$STARTUP_CASE" -eq 4 ]] || [[ "$STARTUP_CASE" -eq 5 ]]; then
     # This avoids duplicate @mention spam when user has already requested re-review
     echo "Case $STARTUP_CASE: Checking for existing trigger comment after latest commit..." >&2
 
-    # Build JSON array of bot mention patterns for jq with word boundary anchoring
-    # Pattern: (start OR non-username char) + @botname + (end OR non-username char)
-    # GitHub usernames contain alphanumeric, hyphens; mentions are case-insensitive
-    # and can follow punctuation like "(@Claude)" or ",@codex"
-    # This prevents false matches like @claude-dev, @codex-team, or support@codex.io
-    # We need to check that ALL active bots are mentioned, not just any one
+    # Build regex patterns for bot mentions with word boundary anchoring
+    # Pattern: (start|non-username-char) + @botname + (end|non-username-char)
+    # Prevents false matches like @claude-dev or support@codex.io
     MENTION_PATTERNS_JSON=$(printf '%s\n' "${ACTIVE_BOTS_ARRAY[@]}" | jq -R '"(^|[^a-zA-Z0-9_-])@" + . + "($|[^a-zA-Z0-9_-])"' | jq -s '.')
 
-    # Fetch comments after latest commit and check for @mention of ALL active bots
-    # IMPORTANT: Use PR_BASE_REPO for fork PR support
-    # IMPORTANT: --paginate emits separate JSON arrays per page, so use jq -s to
-    # slurp all pages together before filtering. Otherwise we would only find the
-    # latest match per page, not the latest match overall.
-    # IMPORTANT: Reuse only when ALL active bots are mentioned. If only a subset
-    # is mentioned (e.g., @claude but not @codex), we must post a new trigger
-    # to ensure all bots receive the notification.
-    # IMPORTANT: Mentions inside code blocks, inline code, or quoted text do NOT
-    # trigger GitHub notifications. We must strip these before checking mentions.
+    # Find existing trigger comment that mentions ALL active bots after latest commit
+    # Notes:
+    # - Uses PR_BASE_REPO for fork PR support
+    # - Uses jq -s to aggregate paginated results before filtering
+    # - Reuse only when ALL bots are mentioned (partial mentions need new trigger)
+    # - Strips code blocks/inline code/quotes since GitHub ignores mentions there
     if [[ -n "$LATEST_COMMIT_AT" && "$LATEST_COMMIT_AT" != "null" ]]; then
         EXISTING_TRIGGER=$(run_with_timeout "$GH_TIMEOUT" gh api "repos/$PR_BASE_REPO/issues/$PR_NUMBER/comments" \
             --paginate 2>/dev/null \
             | jq -s --arg since "$LATEST_COMMIT_AT" --argjson patterns "$MENTION_PATTERNS_JSON" '
-                # Helper: strip code blocks, inline code, and quoted lines from text
-                # GitHub does not send mention notifications for these contexts
+                # Strip content between delimiters, keeping even-indexed parts (outside delimiters)
+                # Used for fenced code blocks where regex fails on nested backticks
+                def strip_between(delim): [splits(delim)] | to_entries | map(select(.key % 2 == 0) | .value) | join(" ");
+
+                # Strip code blocks, inline code, and quoted lines (GitHub ignores mentions in these)
                 def strip_non_mention_contexts:
-                    # Remove fenced code blocks (```...```) using split/join
-                    # The regex approach fails when code blocks contain backticks
-                    # Split by ```, keep even-indexed parts (outside blocks), rejoin
-                    ([splits("```")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
-                    # Remove tilde fenced code blocks (~~~...~~~)
-                    | ([splits("~~~")] | to_entries | map(select(.key % 2 == 0) | .value) | join(" "))
-                    # Remove inline code (`...`)
-                    | gsub("`[^`]*`"; " ")
-                    # Remove indented code blocks (lines starting with 4+ spaces or tab)
-                    | gsub("(^|\\n)(    |\\t)[^\\n]*"; " ")
-                    # Remove quoted lines (lines starting with >, possibly indented)
-                    | gsub("(^|\\n)\\s*>[^\\n]*"; " ");
+                    strip_between("```")                      # fenced code blocks
+                    | strip_between("~~~")                    # tilde fenced code blocks
+                    | gsub("`[^`]*`"; " ")                    # inline code
+                    | gsub("(^|\\n)(    |\\t)[^\\n]*"; " ")   # indented code blocks (4+ spaces or tab)
+                    | gsub("(^|\\n)\\s*>[^\\n]*"; " ");       # quoted lines (> prefix)
 
                 [.[][] | select(.created_at > $since and (
                     # Check that ALL patterns are present in the stripped body
