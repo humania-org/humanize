@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Helper script to check for incomplete todos from Claude Code transcript.
+Helper script to check for incomplete tasks from Claude Code transcript.
 
-Reads the transcript JSONL file and finds the most recent TodoWrite tool call.
+Supports both the legacy TodoWrite tool and the new Task system (TaskCreate/TaskUpdate).
 
 Exit codes:
-  0 - All todos are completed (or no todos exist)
-  1 - There are incomplete todos (details on stdout)
+  0 - All tasks are completed (or no tasks exist)
+  1 - There are incomplete tasks (details on stdout)
   2 - Parse error reading hook input JSON
 
 Usage:
@@ -15,17 +15,70 @@ Usage:
 import json
 import sys
 from pathlib import Path
+from typing import Dict, List, Tuple
 
 
-def find_latest_todos(transcript_path: Path) -> list:
+def extract_tool_calls_from_entry(entry: dict) -> List[Tuple[str, dict]]:
     """
-    Parse transcript JSONL and find the most recent TodoWrite tool result.
-    Returns the list of todos from the most recent TodoWrite call.
+    Extract tool calls from a transcript entry.
+    Returns list of (tool_name, tool_input) tuples.
+    """
+    tool_calls = []
+
+    # Pattern 1: Claude Code transcript format (type: assistant)
+    if entry.get("type") == "assistant":
+        message = entry.get("message", {})
+        content = message.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_name = block.get("name", "")
+                    tool_input = block.get("input", {})
+                    if tool_name:
+                        tool_calls.append((tool_name, tool_input))
+
+    # Pattern 2: Alternative format (type: message)
+    if entry.get("type") == "message":
+        content = entry.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_name = block.get("name", "")
+                    tool_input = block.get("input", {})
+                    if tool_name:
+                        tool_calls.append((tool_name, tool_input))
+
+    # Pattern 3: Direct tool_use entry
+    if entry.get("type") == "tool_use":
+        tool_name = entry.get("name", "") or entry.get("tool_name", "")
+        tool_input = entry.get("input", {}) or entry.get("tool_input", {})
+        if tool_name:
+            tool_calls.append((tool_name, tool_input))
+
+    return tool_calls
+
+
+def find_incomplete_items(transcript_path: Path) -> List[dict]:
+    """
+    Parse transcript JSONL and find incomplete tasks/todos.
+
+    Supports:
+    - Legacy TodoWrite: Returns todos from the most recent TodoWrite call
+    - New Task system: Tracks TaskCreate/TaskUpdate to build current task state
+
+    Returns list of incomplete items with 'status' and 'content' keys.
     """
     if not transcript_path.exists():
         return []
 
+    # Legacy: track the most recent TodoWrite todos
     latest_todos = []
+
+    # New Task system: track tasks by ID
+    # Key: taskId, Value: {subject, description, status}
+    tasks: Dict[str, dict] = {}
+    # Auto-increment ID for TaskCreate when no explicit ID
+    next_task_id = 1
 
     with open(transcript_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -38,53 +91,77 @@ def find_latest_todos(transcript_path: Path) -> list:
             except json.JSONDecodeError:
                 continue
 
-            # The actual Claude Code transcript format:
-            # {
-            #   "type": "assistant",
-            #   "message": {
-            #     "content": [
-            #       {"type": "tool_use", "name": "TodoWrite", "input": {"todos": [...]}}
-            #     ]
-            #   }
-            # }
+            # Extract all tool calls from this entry
+            for tool_name, tool_input in extract_tool_calls_from_entry(entry):
 
-            # Pattern 1: Claude Code transcript format (type: assistant)
-            if entry.get("type") == "assistant":
-                message = entry.get("message", {})
-                content = message.get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_use":
-                            tool_name = block.get("name", "")
-                            if tool_name == "TodoWrite":
-                                tool_input = block.get("input", {})
-                                todos = tool_input.get("todos", [])
-                                if todos:
-                                    latest_todos = todos
-
-            # Pattern 2: Alternative format (type: message)
-            if entry.get("type") == "message":
-                content = entry.get("content", [])
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_use":
-                            tool_name = block.get("name", "")
-                            if tool_name == "TodoWrite":
-                                tool_input = block.get("input", {})
-                                todos = tool_input.get("todos", [])
-                                if todos:
-                                    latest_todos = todos
-
-            # Pattern 3: Direct tool_use entry
-            if entry.get("type") == "tool_use":
-                tool_name = entry.get("name", "") or entry.get("tool_name", "")
+                # Legacy: TodoWrite
                 if tool_name == "TodoWrite":
-                    tool_input = entry.get("input", {}) or entry.get("tool_input", {})
                     todos = tool_input.get("todos", [])
                     if todos:
                         latest_todos = todos
 
-    return latest_todos
+                # New Task system: TaskCreate
+                elif tool_name == "TaskCreate":
+                    subject = tool_input.get("subject", "")
+                    description = tool_input.get("description", "")
+                    # TaskCreate always creates with pending status
+                    # The taskId is assigned by the system, but we track by order
+                    task_id = str(next_task_id)
+                    next_task_id += 1
+                    tasks[task_id] = {
+                        "subject": subject,
+                        "description": description,
+                        "status": "pending",
+                    }
+
+                # New Task system: TaskUpdate
+                elif tool_name == "TaskUpdate":
+                    task_id = tool_input.get("taskId", "")
+                    if task_id:
+                        # Update existing task or create placeholder
+                        if task_id not in tasks:
+                            # Task was created before transcript started
+                            tasks[task_id] = {
+                                "subject": tool_input.get("subject", f"Task {task_id}"),
+                                "description": tool_input.get("description", ""),
+                                "status": "pending",
+                            }
+                        # Apply updates
+                        if "status" in tool_input:
+                            tasks[task_id]["status"] = tool_input["status"]
+                        if "subject" in tool_input:
+                            tasks[task_id]["subject"] = tool_input["subject"]
+                        if "description" in tool_input:
+                            tasks[task_id]["description"] = tool_input["description"]
+
+    # Build list of incomplete items
+    incomplete = []
+
+    # Check legacy todos (from most recent TodoWrite)
+    for todo in latest_todos:
+        status = todo.get("status", "")
+        content = todo.get("content", "")
+        if status != "completed":
+            incomplete.append({
+                "status": status,
+                "content": content,
+                "source": "todo",
+            })
+
+    # Check new Task system
+    for task_id, task in tasks.items():
+        status = task.get("status", "pending")
+        if status != "completed":
+            # Use subject as content, fall back to description
+            content = task.get("subject", "") or task.get("description", f"Task {task_id}")
+            incomplete.append({
+                "status": status,
+                "content": content,
+                "source": "task",
+                "task_id": task_id,
+            })
+
+    return incomplete
 
 
 def main():
@@ -108,30 +185,30 @@ def main():
     # Expand ~ to home directory
     transcript_path = Path(transcript_path).expanduser()
 
-    # Find the latest todos
-    todos = find_latest_todos(transcript_path)
+    # Find incomplete items (both legacy todos and new tasks)
+    incomplete_items = find_incomplete_items(transcript_path)
 
-    if not todos:
-        # No todos found, allow proceeding
+    if not incomplete_items:
+        # No incomplete items, allow proceeding
         sys.exit(0)
 
-    # Check for incomplete todos
-    incomplete = []
-    for todo in todos:
-        status = todo.get("status", "")
-        content = todo.get("content", "")
-        if status != "completed":
-            incomplete.append(f"  - [{status}] {content}")
+    # Format output
+    output_lines = []
+    for item in incomplete_items:
+        status = item.get("status", "unknown")
+        content = item.get("content", "")
+        source = item.get("source", "unknown")
+        if source == "task":
+            task_id = item.get("task_id", "?")
+            output_lines.append(f"  - [{status}] (Task #{task_id}) {content}")
+        else:
+            output_lines.append(f"  - [{status}] {content}")
 
-    if incomplete:
-        # Output marker and incomplete todos both to stdout
-        # (Using mixed stdout/stderr causes ordering issues due to buffering)
-        print("INCOMPLETE_TODOS")
-        print("\n".join(incomplete))
-        sys.exit(1)
-
-    # All todos completed
-    sys.exit(0)
+    # Output marker and incomplete items both to stdout
+    # (Using mixed stdout/stderr causes ordering issues due to buffering)
+    print("INCOMPLETE_TODOS")
+    print("\n".join(output_lines))
+    sys.exit(1)
 
 
 if __name__ == "__main__":

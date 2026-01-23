@@ -446,7 +446,7 @@ todos_blocked_message() {
     local action="$1"
     local fallback="# Todos File Access Blocked
 
-Do NOT create or access round-*-todos.md files. Use the native TodoWrite tool instead."
+Do NOT create or access round-*-todos.md files. Use the native Task tools instead (TaskCreate, TaskUpdate, TaskList)."
 
     load_and_render_safe "$TEMPLATE_DIR" "block/todos-file-access.md" "$fallback"
 }

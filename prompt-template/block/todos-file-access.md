@@ -2,7 +2,7 @@
 
 Do NOT create or access `round-*-todos.md` files.
 
-**Use the native TodoWrite tool instead.**
+**Use the native Task tools instead (TaskCreate, TaskUpdate, TaskList).**
 
-The native todo tools provide proper state tracking visible in the UI and
+The native task tools provide proper state tracking visible in the UI and
 integration with Claude Code's task management system.

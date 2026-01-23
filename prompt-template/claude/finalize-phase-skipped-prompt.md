@@ -39,7 +39,7 @@ These constraints are **non-negotiable**:
 
 ## Before Exiting
 
-1. Complete all todos (mark them as completed using TodoWrite)
+1. Complete all tasks (mark them as completed using TaskUpdate with status "completed")
 2. Commit your changes with a descriptive message
 3. Write your finalize summary to: **{{FINALIZE_SUMMARY_FILE}}**
 

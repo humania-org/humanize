@@ -6,7 +6,7 @@
 # - Wrong round's prompt/summary files (outdated information)
 # - Round files from wrong locations (not in .humanize/rlcr/)
 # - Round files from old session directories
-# - Todos files (should use native TodoWrite instead)
+# - Todos files (should use native Task tools instead)
 #
 # PR loop files (.humanize/pr-loop/) are generally allowed to read
 # to give Claude access to comments, prompts, and feedback.

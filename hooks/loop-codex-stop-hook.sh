@@ -337,21 +337,22 @@ fi
 fi  # End of REVIEW_STARTED != true check for plan file integrity
 
 # ========================================
-# Quick Check: Are All Todos Completed?
+# Quick Check: Are All Tasks Completed?
 # ========================================
 # Before running expensive Codex review, check if Claude still has
-# incomplete todos. If yes, block immediately and tell Claude to finish.
+# incomplete tasks. If yes, block immediately and tell Claude to finish.
+# Supports both legacy TodoWrite and new Task system (TaskCreate/TaskUpdate).
 
 TODO_CHECKER="$SCRIPT_DIR/check-todos-from-transcript.py"
 
 if [[ -f "$TODO_CHECKER" ]]; then
-    # Pass hook input to the todo checker
+    # Pass hook input to the task checker
     TODO_RESULT=$(echo "$HOOK_INPUT" | python3 "$TODO_CHECKER" 2>&1) || TODO_EXIT=$?
     TODO_EXIT=${TODO_EXIT:-0}
 
     if [[ "$TODO_EXIT" -eq 2 ]]; then
         # Parse error - block and surface the error
-        REASON="Todo checker encountered a parse error.
+        REASON="Task checker encountered a parse error.
 
 Error: $TODO_RESULT
 
@@ -359,7 +360,7 @@ This may indicate an issue with the hook input or transcript format.
 Please try again or cancel the loop if this persists."
         jq -n \
             --arg reason "$REASON" \
-            --arg msg "Loop: Blocked - todo checker parse error" \
+            --arg msg "Loop: Blocked - task checker parse error" \
             '{
                 "decision": "block",
                 "reason": $reason,
@@ -369,11 +370,11 @@ Please try again or cancel the loop if this persists."
     fi
 
     if [[ "$TODO_EXIT" -eq 1 ]]; then
-        # Incomplete todos found - block immediately without Codex review
-        # Extract the incomplete todo list from the result
+        # Incomplete tasks found - block immediately without Codex review
+        # Extract the incomplete task list from the result
         INCOMPLETE_LIST=$(echo "$TODO_RESULT" | tail -n +2)
 
-        FALLBACK="# Incomplete Todos
+        FALLBACK="# Incomplete Tasks
 
 Complete these tasks before exiting:
 
@@ -383,7 +384,7 @@ Complete these tasks before exiting:
 
         jq -n \
             --arg reason "$REASON" \
-            --arg msg "Loop: Blocked - incomplete todos detected, please finish all tasks first" \
+            --arg msg "Loop: Blocked - incomplete tasks detected, please finish all tasks first" \
             '{
                 "decision": "block",
                 "reason": $reason,
