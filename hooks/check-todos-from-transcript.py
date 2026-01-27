@@ -106,16 +106,23 @@ def find_incomplete_todos_from_transcript(transcript_path: Path) -> List[dict]:
     return incomplete
 
 
-def find_incomplete_tasks_from_directory(session_id: str) -> List[dict]:
+def find_incomplete_tasks_from_directory(session_id: str, tasks_base_dir: str = "") -> List[dict]:
     """
     Read task files directly from ~/.claude/tasks/<session_id>/ directory.
 
     This is the authoritative source for task state, as it reflects
     the actual in-memory task list that Claude Code maintains.
 
+    Args:
+        session_id: The Claude Code session ID
+        tasks_base_dir: Optional override for tasks base directory (for testing)
+
     Returns list of incomplete items with 'status' and 'content' keys.
     """
-    tasks_dir = Path.home() / ".claude" / "tasks" / session_id
+    if tasks_base_dir:
+        tasks_dir = Path(tasks_base_dir) / session_id
+    else:
+        tasks_dir = Path.home() / ".claude" / "tasks" / session_id
     if not tasks_dir.exists() or not tasks_dir.is_dir():
         return []
 
@@ -162,8 +169,9 @@ def main():
 
     # Check new Task system using external task directory (authoritative source)
     session_id = hook_input.get("session_id", "")
+    tasks_base_dir = hook_input.get("tasks_base_dir", "")  # For testing
     if session_id:
-        incomplete_items.extend(find_incomplete_tasks_from_directory(session_id))
+        incomplete_items.extend(find_incomplete_tasks_from_directory(session_id, tasks_base_dir))
 
     # Check legacy TodoWrite from transcript
     transcript_path = hook_input.get("transcript_path", "")

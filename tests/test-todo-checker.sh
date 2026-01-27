@@ -294,68 +294,81 @@ else
 fi
 
 # ========================================
-# Test Group 5: New Task System (TaskCreate/TaskUpdate)
+# Test Group 5: New Task System (File-based)
 # ========================================
+# The new Task system reads task state from ~/.claude/tasks/<session_id>/ directory
+# (the authoritative source), NOT from transcript parsing (which causes ghost tasks).
 echo ""
-echo "Test Group 5: New Task System (TaskCreate/TaskUpdate)"
+echo "Test Group 5: New Task System (File-based)"
 echo ""
 
-# Test 17: TaskCreate with no TaskUpdate (pending by default)
-echo "Test 17: TaskCreate without completion"
-cat > "$TEST_DIR/transcript-task-create.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Implement feature X", "description": "Full description here"}}]}}
+# Create mock tasks base directory
+MOCK_TASKS_BASE="$TEST_DIR/mock-tasks"
+mkdir -p "$MOCK_TASKS_BASE"
+
+# Test 17: Single pending task (no status field defaults to pending)
+echo "Test 17: Single pending task"
+MOCK_SESSION_17="session-17"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_17"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_17/task-1.json" << 'EOF'
+{"subject": "Implement feature X", "description": "Full description here"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-task-create.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_17\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 1 ]]; then
-    pass "TaskCreate without completion exits 1"
+    pass "Single pending task exits 1"
 else
-    fail "TaskCreate without completion" "exit 1" "exit $EXIT_CODE, output: $RESULT"
+    fail "Single pending task" "exit 1" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 18: TaskCreate followed by TaskUpdate to completed
-echo "Test 18: TaskCreate then TaskUpdate completed"
-cat > "$TEST_DIR/transcript-task-complete.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Implement feature X", "description": "Full description here"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "1", "status": "completed"}}]}}
+# Test 18: Single completed task
+echo "Test 18: Single completed task"
+MOCK_SESSION_18="session-18"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_18"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_18/task-1.json" << 'EOF'
+{"subject": "Implement feature X", "description": "Full description here", "status": "completed"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-task-complete.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_18\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "TaskCreate + TaskUpdate completed exits 0"
+    pass "Single completed task exits 0"
 else
-    fail "TaskCreate + TaskUpdate completed" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+    fail "Single completed task" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 19: TaskUpdate to in_progress still counts as incomplete
-echo "Test 19: TaskUpdate to in_progress"
-cat > "$TEST_DIR/transcript-task-in-progress.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Implement feature X"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "1", "status": "in_progress"}}]}}
+# Test 19: Task with in_progress status (still incomplete)
+echo "Test 19: Task with in_progress status"
+MOCK_SESSION_19="session-19"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_19"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_19/task-1.json" << 'EOF'
+{"subject": "Implement feature X", "status": "in_progress"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-task-in-progress.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_19\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 1 ]]; then
-    pass "TaskUpdate to in_progress exits 1"
+    pass "Task with in_progress status exits 1"
 else
-    fail "TaskUpdate to in_progress" "exit 1" "exit $EXIT_CODE, output: $RESULT"
+    fail "Task with in_progress status" "exit 1" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 20: Multiple tasks, one incomplete
 echo "Test 20: Multiple tasks, one incomplete"
-cat > "$TEST_DIR/transcript-multi-task.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Task A"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Task B"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "1", "status": "completed"}}]}}
+MOCK_SESSION_20="session-20"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_20"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_20/task-1.json" << 'EOF'
+{"subject": "Task A", "status": "completed"}
+EOF
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_20/task-2.json" << 'EOF'
+{"subject": "Task B", "status": "pending"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-multi-task.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_20\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 1 ]]; then
@@ -366,14 +379,16 @@ fi
 
 # Test 21: Multiple tasks, all completed
 echo "Test 21: Multiple tasks, all completed"
-cat > "$TEST_DIR/transcript-multi-task-complete.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Task A"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Task B"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "1", "status": "completed"}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "2", "status": "completed"}}]}}
+MOCK_SESSION_21="session-21"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_21"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_21/task-1.json" << 'EOF'
+{"subject": "Task A", "status": "completed"}
+EOF
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_21/task-2.json" << 'EOF'
+{"subject": "Task B", "status": "completed"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-multi-task-complete.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_21\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
@@ -382,35 +397,41 @@ else
     fail "Multiple tasks all completed" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 22: TaskUpdate without prior TaskCreate (task created before transcript)
-echo "Test 22: TaskUpdate without prior TaskCreate"
-cat > "$TEST_DIR/transcript-orphan-update.jsonl" << 'EOF'
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "5", "status": "completed"}}]}}
+# Test 22: Deleted task is ignored (not incomplete)
+echo "Test 22: Deleted task is ignored"
+MOCK_SESSION_22="session-22"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_22"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_22/task-1.json" << 'EOF'
+{"subject": "Deleted task", "status": "deleted"}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-orphan-update.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_22\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Orphan TaskUpdate with completed status exits 0"
+    pass "Deleted task is ignored (exits 0)"
 else
-    fail "Orphan TaskUpdate" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+    fail "Deleted task is ignored" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 23: Mix of legacy TodoWrite and new Task system
-echo "Test 23: Mix of TodoWrite and TaskCreate"
+echo "Test 23: Mix of TodoWrite (transcript) and Task (file)"
+MOCK_SESSION_23="session-23"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_23"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_23/task-1.json" << 'EOF'
+{"subject": "New task", "status": "pending"}
+EOF
 cat > "$TEST_DIR/transcript-mixed.jsonl" << 'EOF'
 {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "Legacy task", "status": "completed"}]}}]}}
-{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "New task"}}]}}
 EOF
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-mixed.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_23\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\", \"transcript_path\": \"$TEST_DIR/transcript-mixed.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 1 ]]; then
-    pass "Mixed TodoWrite and TaskCreate - incomplete Task detected"
+    pass "Mixed TodoWrite and Task - incomplete Task detected"
 else
-    fail "Mixed TodoWrite and TaskCreate" "exit 1 (Task incomplete)" "exit $EXIT_CODE, output: $RESULT"
+    fail "Mixed TodoWrite and Task" "exit 1 (Task incomplete)" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 24: Output includes Task ID for new Task system
@@ -421,20 +442,16 @@ else
     fail "Output includes Task ID" "Task # in output" "$RESULT"
 fi
 
-# Test 25: Direct tool_use entry format for TaskCreate
-echo "Test 25: Direct tool_use format for TaskCreate"
-cat > "$TEST_DIR/transcript-task-direct.jsonl" << 'EOF'
-{"type": "tool_use", "name": "TaskCreate", "input": {"subject": "Direct task"}}
-{"type": "tool_use", "name": "TaskUpdate", "input": {"taskId": "1", "status": "completed"}}
-EOF
+# Test 25: Non-existent session directory (no tasks)
+echo "Test 25: Non-existent session directory"
 set +e
-RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-task-direct.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+RESULT=$(echo "{\"session_id\": \"nonexistent-session\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "Direct tool_use format for Task system handled"
+    pass "Non-existent session directory exits 0"
 else
-    fail "Direct tool_use format for Task" "exit 0" "exit $EXIT_CODE"
+    fail "Non-existent session directory" "exit 0" "exit $EXIT_CODE"
 fi
 
 # ========================================
