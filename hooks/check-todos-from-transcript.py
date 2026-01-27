@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Helper script to check for incomplete tasks from Claude Code transcript.
+Helper script to check for incomplete tasks from Claude Code.
 
-Supports both the legacy TodoWrite tool and the new Task system (TaskCreate/TaskUpdate).
+Supports both:
+- Legacy TodoWrite tool (parsed from transcript)
+- New Task system (read directly from ~/.claude/tasks/<session_id>/)
 
 Exit codes:
   0 - All tasks are completed (or no tasks exist)
@@ -10,7 +12,7 @@ Exit codes:
   2 - Parse error reading hook input JSON
 
 Usage:
-    echo '{"transcript_path": "/path/to/transcript.jsonl"}' | python3 check-todos-from-transcript.py
+    echo '{"session_id": "...", "transcript_path": "/path/to/transcript.jsonl"}' | python3 check-todos-from-transcript.py
 """
 import json
 import sys
@@ -58,13 +60,9 @@ def extract_tool_calls_from_entry(entry: dict) -> List[Tuple[str, dict]]:
     return tool_calls
 
 
-def find_incomplete_items(transcript_path: Path) -> List[dict]:
+def find_incomplete_todos_from_transcript(transcript_path: Path) -> List[dict]:
     """
-    Parse transcript JSONL and find incomplete tasks/todos.
-
-    Supports:
-    - Legacy TodoWrite: Returns todos from the most recent TodoWrite call
-    - New Task system: Tracks TaskCreate/TaskUpdate to build current task state
+    Parse transcript JSONL and find incomplete legacy todos (TodoWrite only).
 
     Returns list of incomplete items with 'status' and 'content' keys.
     """
@@ -73,12 +71,6 @@ def find_incomplete_items(transcript_path: Path) -> List[dict]:
 
     # Legacy: track the most recent TodoWrite todos
     latest_todos = []
-
-    # New Task system: track tasks by ID
-    # Key: taskId, Value: {subject, description, status}
-    tasks: Dict[str, dict] = {}
-    # Auto-increment ID for TaskCreate when no explicit ID
-    next_task_id = 1
 
     with open(transcript_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -93,51 +85,14 @@ def find_incomplete_items(transcript_path: Path) -> List[dict]:
 
             # Extract all tool calls from this entry
             for tool_name, tool_input in extract_tool_calls_from_entry(entry):
-
                 # Legacy: TodoWrite
                 if tool_name == "TodoWrite":
                     todos = tool_input.get("todos", [])
                     if todos:
                         latest_todos = todos
 
-                # New Task system: TaskCreate
-                elif tool_name == "TaskCreate":
-                    subject = tool_input.get("subject", "")
-                    description = tool_input.get("description", "")
-                    # TaskCreate always creates with pending status
-                    # The taskId is assigned by the system, but we track by order
-                    task_id = str(next_task_id)
-                    next_task_id += 1
-                    tasks[task_id] = {
-                        "subject": subject,
-                        "description": description,
-                        "status": "pending",
-                    }
-
-                # New Task system: TaskUpdate
-                elif tool_name == "TaskUpdate":
-                    task_id = tool_input.get("taskId", "")
-                    if task_id:
-                        # Update existing task or create placeholder
-                        if task_id not in tasks:
-                            # Task was created before transcript started
-                            tasks[task_id] = {
-                                "subject": tool_input.get("subject", f"Task {task_id}"),
-                                "description": tool_input.get("description", ""),
-                                "status": "pending",
-                            }
-                        # Apply updates
-                        if "status" in tool_input:
-                            tasks[task_id]["status"] = tool_input["status"]
-                        if "subject" in tool_input:
-                            tasks[task_id]["subject"] = tool_input["subject"]
-                        if "description" in tool_input:
-                            tasks[task_id]["description"] = tool_input["description"]
-
-    # Build list of incomplete items
+    # Build list of incomplete items from legacy todos
     incomplete = []
-
-    # Check legacy todos (from most recent TodoWrite)
     for todo in latest_todos:
         status = todo.get("status", "")
         content = todo.get("content", "")
@@ -148,29 +103,54 @@ def find_incomplete_items(transcript_path: Path) -> List[dict]:
                 "source": "todo",
             })
 
-    # Check new Task system
-    for task_id, task in tasks.items():
-        status = task.get("status", "pending")
-        if status != "completed":
-            # Use subject as content, fall back to description
-            content = task.get("subject", "") or task.get("description", f"Task {task_id}")
-            incomplete.append({
-                "status": status,
-                "content": content,
-                "source": "task",
-                "task_id": task_id,
-            })
+    return incomplete
+
+
+def find_incomplete_tasks_from_directory(session_id: str) -> List[dict]:
+    """
+    Read task files directly from ~/.claude/tasks/<session_id>/ directory.
+
+    This is the authoritative source for task state, as it reflects
+    the actual in-memory task list that Claude Code maintains.
+
+    Returns list of incomplete items with 'status' and 'content' keys.
+    """
+    tasks_dir = Path.home() / ".claude" / "tasks" / session_id
+    if not tasks_dir.exists() or not tasks_dir.is_dir():
+        return []
+
+    incomplete = []
+    for task_file in tasks_dir.glob("*.json"):
+        try:
+            with open(task_file, 'r', encoding='utf-8') as f:
+                task = json.load(f)
+
+            status = task.get("status", "pending")
+            if status not in ("completed", "deleted"):
+                # Task is incomplete
+                subject = task.get("subject", "")
+                description = task.get("description", "")
+                task_id = task_file.stem  # Filename without .json
+                content = subject or description or f"Task {task_id}"
+                incomplete.append({
+                    "status": status,
+                    "content": content,
+                    "source": "task",
+                    "task_id": task_id,
+                })
+        except (json.JSONDecodeError, OSError):
+            # Skip malformed or unreadable task files
+            continue
 
     return incomplete
 
 
 def main():
     # Read hook input from stdin
-    # First read the content, then parse - this handles empty input better
     try:
         stdin_content = sys.stdin.read().strip()
         if not stdin_content:
-            # Empty input - no transcript path available, allow proceeding
+            # Empty input - no data available, allow proceeding
             sys.exit(0)
         hook_input = json.loads(stdin_content)
     except json.JSONDecodeError as e:
@@ -178,15 +158,18 @@ def main():
         print(f"PARSE_ERROR: {e}", file=sys.stderr)
         sys.exit(2)
 
+    incomplete_items = []
+
+    # Check new Task system using external task directory (authoritative source)
+    session_id = hook_input.get("session_id", "")
+    if session_id:
+        incomplete_items.extend(find_incomplete_tasks_from_directory(session_id))
+
+    # Check legacy TodoWrite from transcript
     transcript_path = hook_input.get("transcript_path", "")
-    if not transcript_path:
-        sys.exit(0)
-
-    # Expand ~ to home directory
-    transcript_path = Path(transcript_path).expanduser()
-
-    # Find incomplete items (both legacy todos and new tasks)
-    incomplete_items = find_incomplete_items(transcript_path)
+    if transcript_path:
+        transcript_path = Path(transcript_path).expanduser()
+        incomplete_items.extend(find_incomplete_todos_from_transcript(transcript_path))
 
     if not incomplete_items:
         # No incomplete items, allow proceeding
@@ -205,7 +188,6 @@ def main():
             output_lines.append(f"  - [{status}] {content}")
 
     # Output marker and incomplete items both to stdout
-    # (Using mixed stdout/stderr causes ordering issues due to buffering)
     print("INCOMPLETE_TODOS")
     print("\n".join(output_lines))
     sys.exit(1)

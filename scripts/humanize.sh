@@ -350,7 +350,7 @@ _humanize_monitor_codex() {
     _parse_state_md() {
         local state_file="$1"
         if [[ ! -f "$state_file" ]]; then
-            echo "N/A|N/A|N/A|N/A|N/A|N/A"
+            echo "N/A|N/A|N/A|N/A|N/A|N/A|false|false"
             return
         fi
 
@@ -360,8 +360,10 @@ _humanize_monitor_codex() {
         local codex_effort=$(grep -E "^codex_effort:" "$state_file" 2>/dev/null | sed 's/codex_effort: *//')
         local started_at=$(grep -E "^started_at:" "$state_file" 2>/dev/null | sed 's/started_at: *//')
         local plan_file=$(grep -E "^plan_file:" "$state_file" 2>/dev/null | sed 's/plan_file: *//')
+        local ask_codex_question=$(grep -E "^ask_codex_question:" "$state_file" 2>/dev/null | sed 's/ask_codex_question: *//' | tr -d ' ')
+        local review_started=$(grep -E "^review_started:" "$state_file" 2>/dev/null | sed 's/review_started: *//' | tr -d ' ')
 
-        echo "${current_round:-N/A}|${max_iterations:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}"
+        echo "${current_round:-N/A}|${max_iterations:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}"
     }
 
     # Internal wrappers that call top-level functions
@@ -396,6 +398,8 @@ _humanize_monitor_codex() {
         local codex_effort="${state_parts[3]}"
         local started_at="${state_parts[4]}"
         local plan_file="${state_parts[5]}"
+        local ask_codex_question="${state_parts[6]:-false}"
+        local review_started="${state_parts[7]:-false}"
 
         # Parse goal-tracker.md
         local -a goal_parts
@@ -462,15 +466,31 @@ _humanize_monitor_codex() {
 
         # Loop status line with color based on status
         local status_color="${green}"
+        local status_display="$loop_status"
         case "$loop_status" in
-            active) status_color="${green}" ;;
+            active)
+                status_color="${green}"
+                # Show phase: impl or review
+                if [[ "$review_started" == "true" ]]; then
+                    status_display="active(review)"
+                else
+                    status_display="active(impl)"
+                fi
+                ;;
             completed) status_color="${cyan}" ;;
             failed|error|timeout) status_color="${red}" ;;
             cancelled) status_color="${yellow}" ;;
             unknown) status_color="${dim}" ;;
             *) status_color="${yellow}" ;;
         esac
-        printf "${magenta}Status:${reset}   ${status_color}${loop_status}${reset}\n"
+        # Display ask_codex_question setting (On/Off)
+        local ask_q_display="Off"
+        local ask_q_color="${dim}"
+        if [[ "$ask_codex_question" == "true" ]]; then
+            ask_q_display="On"
+            ask_q_color="${green}"
+        fi
+        printf "${magenta}Status:${reset}   ${status_color}${status_display}${reset} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}\n"
 
         # Progress line (color based on completion status)
         local ac_color="${green}"
