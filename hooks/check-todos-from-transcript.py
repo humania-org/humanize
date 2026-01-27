@@ -17,7 +17,7 @@ Usage:
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 
 def extract_tool_calls_from_entry(entry: dict) -> List[Tuple[str, dict]]:
@@ -26,32 +26,27 @@ def extract_tool_calls_from_entry(entry: dict) -> List[Tuple[str, dict]]:
     Returns list of (tool_name, tool_input) tuples.
     """
     tool_calls = []
+    entry_type = entry.get("type", "")
 
-    # Pattern 1: Claude Code transcript format (type: assistant)
-    if entry.get("type") == "assistant":
-        message = entry.get("message", {})
-        content = message.get("content", [])
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tool_name = block.get("name", "")
-                    tool_input = block.get("input", {})
-                    if tool_name:
-                        tool_calls.append((tool_name, tool_input))
-
-    # Pattern 2: Alternative format (type: message)
-    if entry.get("type") == "message":
+    # Pattern 1 & 2: Extract content list from assistant or message entries
+    if entry_type == "assistant":
+        content = entry.get("message", {}).get("content", [])
+    elif entry_type == "message":
         content = entry.get("content", [])
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tool_name = block.get("name", "")
-                    tool_input = block.get("input", {})
-                    if tool_name:
-                        tool_calls.append((tool_name, tool_input))
+    else:
+        content = []
+
+    # Extract tool calls from content list
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_name = block.get("name", "")
+                tool_input = block.get("input", {})
+                if tool_name:
+                    tool_calls.append((tool_name, tool_input))
 
     # Pattern 3: Direct tool_use entry
-    if entry.get("type") == "tool_use":
+    if entry_type == "tool_use":
         tool_name = entry.get("name", "") or entry.get("tool_name", "")
         tool_input = entry.get("input", {}) or entry.get("tool_input", {})
         if tool_name:
