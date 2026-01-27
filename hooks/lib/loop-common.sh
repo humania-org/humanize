@@ -26,6 +26,7 @@ readonly FIELD_CODEX_EFFORT="codex_effort"
 readonly FIELD_CODEX_TIMEOUT="codex_timeout"
 readonly FIELD_REVIEW_STARTED="review_started"
 readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
+readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -204,6 +205,7 @@ get_current_round() {
 #   STATE_CODEX_TIMEOUT - codex timeout in seconds
 #   STATE_REVIEW_STARTED - "true" or "false"
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
+#   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -230,6 +232,7 @@ parse_state_file() {
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
     STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
     STATE_FULL_REVIEW_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_FULL_REVIEW_ROUND}:" | sed "s/${FIELD_FULL_REVIEW_ROUND}: *//" | tr -d ' ' || true)
+    STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
 
     # Apply defaults for non-schema-critical fields only
     # Note: review_started is NOT defaulted here so we can detect missing schema fields
@@ -238,6 +241,7 @@ parse_state_file() {
     STATE_MAX_ITERATIONS="${STATE_MAX_ITERATIONS:-10}"
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
+    STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -285,6 +289,7 @@ parse_state_file_strict() {
     STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
     STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
     STATE_FULL_REVIEW_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_FULL_REVIEW_ROUND}:" | sed "s/${FIELD_FULL_REVIEW_ROUND}: *//" | tr -d ' ' || true)
+    STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
 
     # Validate required fields exist
     if [[ -z "$STATE_CURRENT_ROUND" ]]; then
@@ -325,6 +330,7 @@ parse_state_file_strict() {
     # Apply defaults for optional fields only
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
+    STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 
     return 0
 }

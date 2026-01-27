@@ -114,6 +114,7 @@ REVIEW_STARTED="$STATE_REVIEW_STARTED"
 CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
+ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
@@ -1525,6 +1526,42 @@ load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_
     "PLAN_FILE=$PLAN_FILE" \
     "REVIEW_CONTENT=$REVIEW_CONTENT" \
     "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" > "$NEXT_PROMPT_FILE"
+
+# Check for Open Questions in review content and inject notice if enabled
+# Detection: line containing "Open Question" substring with total length < 40 chars
+if [[ "$ASK_CODEX_QUESTION" == "true" ]]; then
+    HAS_OPEN_QUESTION=false
+    while IFS= read -r line; do
+        if [[ ${#line} -lt 40 ]] && echo "$line" | grep -q "Open Question"; then
+            HAS_OPEN_QUESTION=true
+            break
+        fi
+    done < "$REVIEW_RESULT_FILE"
+
+    if [[ "$HAS_OPEN_QUESTION" == "true" ]]; then
+        echo "Detected Open Question(s) in Codex review - injecting AskUserQuestion notice" >&2
+        OPEN_QUESTION_NOTICE=$(load_template "$TEMPLATE_DIR" "claude/open-question-notice.md" 2>/dev/null)
+        if [[ -z "$OPEN_QUESTION_NOTICE" ]]; then
+            OPEN_QUESTION_NOTICE="**IMPORTANT**: Codex has found Open Question(s). You must use \`AskUserQuestion\` to clarify those questions with user first, before proceeding to resolve any other Codex's findings."
+        fi
+        # Insert notice between "<!-- CODEX's REVIEW RESULT  END  -->" line + "---" line and "## Goal Tracker Reference"
+        TEMP_PROMPT_FILE="${NEXT_PROMPT_FILE}.tmp.$$"
+        awk -v notice="$OPEN_QUESTION_NOTICE" '
+            /<!-- CODEX.*REVIEW RESULT.*END.*-->/ {
+                print
+                getline
+                if (/^---/) {
+                    print
+                    print ""
+                    print notice
+                    next
+                }
+            }
+            { print }
+        ' "$NEXT_PROMPT_FILE" > "$TEMP_PROMPT_FILE"
+        mv "$TEMP_PROMPT_FILE" "$NEXT_PROMPT_FILE"
+    fi
+fi
 
 # Add special instructions for post-Full Alignment Check rounds
 if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
