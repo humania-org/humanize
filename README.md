@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.6.3**
+**Current Version: 1.6.4**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -52,6 +52,45 @@ claude --plugin-dir /path/to/humanize
 ### Prerequisites
 
 - `codex` - OpenAI Codex CLI (for review). Check with `codex --version`.
+
+### Environment Variables
+
+Humanize supports the following environment variables for advanced configuration:
+
+#### HUMANIZE_CODEX_BYPASS_SANDBOX
+
+**WARNING: This is a dangerous option that disables security protections. Use only if you understand the implications.**
+
+- **Purpose**: Controls whether Codex runs with sandbox protection
+- **Default**: Not set (uses `--full-auto` with sandbox protection)
+- **Values**:
+  - `true` or `1`: Bypasses Codex sandbox and approvals (uses `--dangerously-bypass-approvals-and-sandbox`)
+  - Any other value or unset: Uses safe mode with sandbox
+
+**When to use this**:
+- Linux servers without landlock kernel support (where Codex sandbox fails)
+- Automated CI/CD pipelines in trusted environments
+- Development environments where you have full control
+
+**When NOT to use this**:
+- Public or shared development servers
+- When reviewing untrusted code or pull requests
+- Production systems
+- Any environment where unauthorized system access could cause damage
+
+**Security implications**:
+- Codex will have unrestricted access to your filesystem
+- Codex can execute arbitrary commands without approval prompts
+- Review all code changes carefully when using this mode
+
+**Usage example**:
+```bash
+# Export before starting Claude Code
+export HUMANIZE_CODEX_BYPASS_SANDBOX=true
+
+# Or set for a single session
+HUMANIZE_CODEX_BYPASS_SANDBOX=true claude --plugin-dir /path/to/humanize
+```
 
 ## Usage
 

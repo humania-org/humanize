@@ -889,12 +889,21 @@ mkdir -p "$CACHE_DIR"
 # Note: portable-timeout.sh already sourced at line 52
 
 # Build Codex command arguments for codex exec
-# codex exec uses: -m MODEL, --full-auto, -C DIR, -c key=value
+# codex exec uses: -m MODEL, --full-auto (or --dangerously-bypass-approvals-and-sandbox), -C DIR, -c key=value
 CODEX_EXEC_ARGS=("-m" "$CODEX_MODEL")
 if [[ -n "$CODEX_EFFORT" ]]; then
     CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
 fi
-CODEX_EXEC_ARGS+=("--full-auto" "-C" "$PROJECT_ROOT")
+
+# Determine automation flag based on environment variable
+# Default: Use --full-auto (safe mode with sandbox)
+# If HUMANIZE_CODEX_BYPASS_SANDBOX is "true" or "1": Use --dangerously-bypass-approvals-and-sandbox
+CODEX_AUTO_FLAG="--full-auto"
+if [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "true" ]] || [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "1" ]]; then
+    CODEX_AUTO_FLAG="--dangerously-bypass-approvals-and-sandbox"
+fi
+
+CODEX_EXEC_ARGS+=("$CODEX_AUTO_FLAG" "-C" "$PROJECT_ROOT")
 
 # Build Codex command arguments for codex review
 # codex review uses different format: -c model=xxx -c review_model=xxx -c model_reasoning_effort=xxx
