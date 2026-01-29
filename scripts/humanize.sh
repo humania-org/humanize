@@ -105,7 +105,7 @@ humanize_parse_goal_tracker() {
     local goal_summary
     goal_summary=$(sed -n '/### Ultimate Goal/,/^###/p' "$tracker_file" \
         | grep -v '^###' | grep -v '^$' | grep -v '^\[To be' \
-        | head -1 | sed 's/^[[:space:]]*//' | cut -c1-60)
+        | head -1 | sed 's/^[[:space:]]*//')
     goal_summary="${goal_summary:-No goal defined}"
 
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
@@ -451,7 +451,7 @@ _humanize_monitor_codex() {
         local green="\033[1;32m" yellow="\033[1;33m" cyan="\033[1;36m"
         local magenta="\033[1;35m" red="\033[1;31m" reset="\033[0m"
         local bg="\033[44m" bold="\033[1m" dim="\033[2m"
-        local blue="\033[1;34m"
+        local blue="\033[1;34m" orange="\033[38;5;208m"
         local clr_eol="\033[K"  # Clear to end of line (reduces flicker vs clearing entire area)
 
         # Move to top and draw directly (no pre-clearing to avoid flicker)
@@ -462,23 +462,39 @@ _humanize_monitor_codex() {
         printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Model:${reset} ${codex_model} (${codex_effort})${clr_eol}\n"
 
         # Loop status line with color based on status
-        local status_color="${green}"
-        local status_display="$loop_status"
+        # Colors: Active=yellow, Complete=green, Finalize=cyan, Stop states=red, Others=orange
+        local status_line=""
         case "$loop_status" in
             active)
-                status_color="${green}"
-                # Show phase: impl or review
+                # Show phase with build->review format using colors
+                # build phase: build=yellow, ->review=dim
+                # review phase: build->=green, review=yellow
                 if [[ "$review_started" == "true" ]]; then
-                    status_display="active(review)"
+                    status_line="${yellow}Active${reset}(${green}build->${reset}${yellow}review${reset})"
                 else
-                    status_display="active(impl)"
+                    status_line="${yellow}Active${reset}(${yellow}build${reset}${dim}->review${reset})"
                 fi
                 ;;
-            completed) status_color="${cyan}" ;;
-            failed|error|timeout) status_color="${red}" ;;
-            cancelled) status_color="${yellow}" ;;
-            unknown) status_color="${dim}" ;;
-            *) status_color="${yellow}" ;;
+            complete|completed)
+                # Success state - green
+                status_line="${green}Complete${reset}"
+                ;;
+            finalize)
+                # Transitional state before completion - cyan
+                status_line="${cyan}Finalize${reset}"
+                ;;
+            stop|cancel|cancelled|maxiter|unexpected|failed|error|timeout)
+                # Stop/termination states - red
+                local first_char=$(echo "${loop_status:0:1}" | tr '[:lower:]' '[:upper:]')
+                local rest="${loop_status:1}"
+                status_line="${red}${first_char}${rest}${reset}"
+                ;;
+            *)
+                # Others (unknown, etc.) - orange
+                local first_char=$(echo "${loop_status:0:1}" | tr '[:lower:]' '[:upper:]')
+                local rest="${loop_status:1}"
+                status_line="${orange}${first_char}${rest}${reset}"
+                ;;
         esac
         # Display ask_codex_question setting (On/Off)
         local ask_q_display="Off"
@@ -487,7 +503,7 @@ _humanize_monitor_codex() {
             ask_q_display="On"
             ask_q_color="${green}"
         fi
-        printf "${magenta}Status:${reset}   ${status_color}${status_display}${reset} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${clr_eol}\n"
+        printf "${magenta}Status:${reset}   ${status_line} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${clr_eol}\n"
 
         # Progress line (color based on completion status)
         local ac_color="${green}"
