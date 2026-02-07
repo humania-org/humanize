@@ -395,6 +395,24 @@ Complete these tasks before exiting:
 fi
 
 # ========================================
+# Helper: Clean Up Stale index.lock
+# ========================================
+# git status (and other git commands) temporarily create .git/index.lock
+# while refreshing the index. If a git process is killed mid-operation
+# (e.g., by a timeout wrapper), the lock file can be left behind,
+# causing subsequent git add/commit to fail with:
+#   fatal: Unable to create '.git/index.lock': File exists.
+# This helper removes the stale lock so Claude's commit won't fail.
+cleanup_stale_index_lock() {
+    local git_dir
+    git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 0
+    if [[ -f "$git_dir/index.lock" ]]; then
+        echo "Removing stale $git_dir/index.lock" >&2
+        rm -f "$git_dir/index.lock"
+    fi
+}
+
+# ========================================
 # Cache Git Status Output
 # ========================================
 # Cache git status output to avoid calling it multiple times.
@@ -412,6 +430,8 @@ if command -v git &>/dev/null && run_with_timeout "$GIT_TIMEOUT" git rev-parse -
 
     if [[ $GIT_STATUS_EXIT -ne 0 ]]; then
         # Git status failed or timed out - fail-closed by blocking exit
+        # The timed-out git status may have left a stale index.lock
+        cleanup_stale_index_lock
         FALLBACK="# Git Status Failed
 
 Git status operation failed or timed out (exit code {{GIT_STATUS_EXIT}}).
@@ -548,6 +568,8 @@ if [[ "$GIT_IS_REPO" == "true" ]]; then
 
     # Block if there are uncommitted changes
     if [[ -n "$GIT_ISSUES" ]]; then
+        # Clean up stale index.lock before Claude attempts git add/commit
+        cleanup_stale_index_lock
         # Git has uncommitted changes - block and remind Claude to commit
         FALLBACK="# Git Not Clean
 
