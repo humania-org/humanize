@@ -8,6 +8,10 @@
 # - loop-bash-validator.sh
 #
 
+# Source guard: prevent double-sourcing (readonly vars would fail)
+[[ -n "${_LOOP_COMMON_LOADED:-}" ]] && return 0 2>/dev/null || true
+_LOOP_COMMON_LOADED=1
+
 # ========================================
 # Constants
 # ========================================

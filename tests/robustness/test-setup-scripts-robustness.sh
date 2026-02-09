@@ -994,6 +994,10 @@ echo "Test 42: --skip-impl creates review phase marker file"
 mkdir -p "$TEST_DIR/repo42"
 init_basic_git_repo "$TEST_DIR/repo42"
 
+# Gitignore test artifacts so git working tree stays clean
+echo "bin/" >> "$TEST_DIR/repo42/.gitignore"
+git -C "$TEST_DIR/repo42" add .gitignore && git -C "$TEST_DIR/repo42" commit -q -m "Add gitignore"
+
 # Create mock codex
 mkdir -p "$TEST_DIR/repo42/bin"
 echo '#!/bin/bash
@@ -1006,7 +1010,11 @@ EXIT_CODE=${EXIT_CODE:-0}
 # Find the loop directory
 LOOP_DIR=$(find "$TEST_DIR/repo42/.humanize/rlcr" -maxdepth 1 -type d -name "20*" 2>/dev/null | head -1)
 if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/.review-phase-started" ]]; then
-    pass "--skip-impl creates .review-phase-started marker"
+    if grep -q "build_finish_round=0" "$LOOP_DIR/.review-phase-started"; then
+        pass "--skip-impl creates .review-phase-started marker with build_finish_round=0"
+    else
+        fail "--skip-impl marker content" "build_finish_round=0" "$(cat "$LOOP_DIR/.review-phase-started")"
+    fi
 else
     fail "--skip-impl marker" "marker file created" "marker not found"
 fi
@@ -1044,7 +1052,7 @@ echo "Test 45: --skip-impl with plan file still works"
 mkdir -p "$TEST_DIR/repo45"
 init_basic_git_repo "$TEST_DIR/repo45"
 create_minimal_plan "$TEST_DIR/repo45"
-echo "plan.md" >> "$TEST_DIR/repo45/.gitignore"
+printf 'plan.md\nbin/\n' >> "$TEST_DIR/repo45/.gitignore"
 git -C "$TEST_DIR/repo45" add .gitignore && git -C "$TEST_DIR/repo45" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo45/bin"

@@ -116,7 +116,9 @@ git config user.email "test@test.com"
 git config user.name "Test User"
 git config commit.gpgsign false
 echo "Initial" > README.md
-git add README.md
+# Gitignore test artifacts so git working tree stays clean for setup-rlcr-loop.sh
+printf '*\n!.gitignore\n!README.md\n' > .gitignore
+git add README.md .gitignore
 git commit -m "Initial commit" --quiet
 
 echo "========================================"

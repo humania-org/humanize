@@ -473,10 +473,21 @@ _humanize_monitor_codex() {
         case "$loop_status" in
             active)
                 # Show phase with build->review format using colors
-                # build phase: build=yellow, ->review=dim
-                # review phase: build->=green, review=yellow
+                # build phase: build=yellow, ->review=dim (no round numbers)
+                # review phase: build(N)->review(M) with round numbers if available
                 if [[ "$review_started" == "true" ]]; then
-                    status_line="${yellow}Active${reset}(${green}build->${reset}${yellow}review${reset})"
+                    # Try to read build_finish_round from marker file for round display
+                    local build_finish_round=""
+                    local marker_file="$session_dir/.review-phase-started"
+                    if [[ -f "$marker_file" ]]; then
+                        build_finish_round=$(grep -oP '(?<=^build_finish_round=)\d+' "$marker_file" 2>/dev/null || true)
+                    fi
+                    if [[ -n "$build_finish_round" ]]; then
+                        local review_rounds=$((current_round - build_finish_round))
+                        status_line="${yellow}Active${reset}(${green}build(${build_finish_round})->${reset}${yellow}review(${review_rounds})${reset})"
+                    else
+                        status_line="${yellow}Active${reset}(${green}build->${reset}${yellow}review${reset})"
+                    fi
                 else
                     status_line="${yellow}Active${reset}(${yellow}build${reset}${dim}->review${reset})"
                 fi

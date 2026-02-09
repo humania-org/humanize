@@ -317,25 +317,6 @@ if ! run_with_timeout "$GIT_TIMEOUT" git rev-parse HEAD &>/dev/null 2>&1; then
     exit 1
 fi
 
-# Check working tree is clean (no uncommitted or untracked changes)
-GIT_STATUS_OUTPUT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null) || GIT_STATUS_EXIT=$?
-GIT_STATUS_EXIT=${GIT_STATUS_EXIT:-0}
-if [[ $GIT_STATUS_EXIT -eq 124 ]]; then
-    echo "Error: Git operation timed out while checking working tree status" >&2
-    exit 1
-fi
-if [[ -n "$GIT_STATUS_OUTPUT" ]]; then
-    echo "Error: Git working tree is not clean" >&2
-    echo "" >&2
-    echo "RLCR loop can only be started on a clean git repository." >&2
-    echo "Please commit or stash your changes before starting the loop." >&2
-    echo "" >&2
-    echo "Current status:" >&2
-    echo "$GIT_STATUS_OUTPUT" >&2
-    exit 1
-fi
-
-# ========================================
 # Plan File Path Validation
 # ========================================
 
@@ -616,6 +597,28 @@ if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
 fi
 
 # ========================================
+# Git Working Tree Clean Check
+# ========================================
+# Placed after input validation so users see input errors first
+
+GIT_STATUS_OUTPUT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null) || GIT_STATUS_EXIT=$?
+GIT_STATUS_EXIT=${GIT_STATUS_EXIT:-0}
+if [[ $GIT_STATUS_EXIT -eq 124 ]]; then
+    echo "Error: Git operation timed out while checking working tree status" >&2
+    exit 1
+fi
+if [[ -n "$GIT_STATUS_OUTPUT" ]]; then
+    echo "Error: Git working tree is not clean" >&2
+    echo "" >&2
+    echo "RLCR loop can only be started on a clean git repository." >&2
+    echo "Please commit or stash your changes before starting the loop." >&2
+    echo "" >&2
+    echo "Current status:" >&2
+    echo "$GIT_STATUS_OUTPUT" >&2
+    exit 1
+fi
+
+# ========================================
 # Determine Base Branch for Code Review
 # ========================================
 # Priority: user input > remote default > local main > local master
@@ -757,7 +760,7 @@ EOF
 
 # Create review phase marker file for skip-impl mode
 if [[ "$SKIP_IMPL" == "true" ]]; then
-    touch "$LOOP_DIR/.review-phase-started"
+    echo "build_finish_round=0" > "$LOOP_DIR/.review-phase-started"
 fi
 
 # ========================================

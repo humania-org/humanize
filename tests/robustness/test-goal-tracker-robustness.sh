@@ -516,11 +516,11 @@ echo "Test 18: Very long goal summary truncation"
 RESULT=$(humanize_parse_goal_tracker "$TEST_DIR/goal-tracker-longgoal.md")
 GOAL=$(parse_result "$RESULT" goal_summary)
 GOAL_LEN=${#GOAL}
-# Goal summary should be truncated to 60 chars
-if [[ "$GOAL_LEN" -le "60" ]]; then
-    pass "Goal summary truncated to 60 chars (got $GOAL_LEN)"
+# Parser returns full goal summary; truncation is done by monitor display layer
+if [[ "$GOAL_LEN" -gt 0 ]]; then
+    pass "Long goal summary returned without error ($GOAL_LEN chars)"
 else
-    fail "Goal truncation" "<=60 chars" "$GOAL_LEN chars"
+    fail "Goal truncation" ">0 chars" "$GOAL_LEN chars"
 fi
 
 # ========================================

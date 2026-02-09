@@ -1457,7 +1457,8 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             REVIEW_STARTED="true"
 
             # Create marker file to validate review phase was properly entered
-            touch "$LOOP_DIR/.review-phase-started"
+            # Also record which round build finished for monitor display
+            echo "build_finish_round=$CURRENT_ROUND" > "$LOOP_DIR/.review-phase-started"
 
             # Run code review and handle results (may exit on issues/failure/success)
             # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
