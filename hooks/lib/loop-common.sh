@@ -214,15 +214,17 @@ resolve_any_state_file() {
 
 # Find the most recent active loop directory matching optional session_id filter
 #
-# Without session_id filter: returns the newest active loop (backward compatible).
-#   Skips directories without state.md/finalize-state.md.
+# Without session_id filter: only checks the single newest directory.
+#   If it has state.md or finalize-state.md, returns it; otherwise returns empty.
+#   This preserves zombie-loop protection: older directories are never examined,
+#   so a stale state.md in an older directory cannot be accidentally revived.
 #
 # With session_id filter: finds the newest directory belonging to that session
-#   (matching ANY *state.md file), then checks whether it is still active.
-#   If the session's newest directory is in terminal state (complete-state.md,
-#   cancel-state.md, etc.), returns empty immediately -- preventing stale older
-#   loops from being revived. This enables multiple concurrent RLCR loops with
-#   different session IDs in the same project directory.
+#   (matching ANY *state.md file including terminal states), then checks whether
+#   it is still active. If the session's newest directory is in terminal state
+#   (complete-state.md, cancel-state.md, etc.), returns empty immediately --
+#   preventing stale older loops from being revived. This enables multiple
+#   concurrent RLCR loops with different session IDs in the same project.
 #
 # Empty stored session_id matches any filter (backward compat for pre-session
 # state files).
@@ -237,43 +239,51 @@ find_active_loop() {
         return
     fi
 
+    if [[ -z "$filter_session_id" ]]; then
+        # No filter: only check the single newest directory (zombie-loop protection)
+        local newest_dir
+        newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
+
+        if [[ -n "$newest_dir" ]]; then
+            local state_file
+            state_file=$(resolve_active_state_file "${newest_dir%/}")
+            if [[ -n "$state_file" ]]; then
+                echo "${newest_dir%/}"
+                return
+            fi
+        fi
+        echo ""
+        return
+    fi
+
+    # Session filter: iterate newest-to-oldest, find the first dir belonging
+    # to this session (any state file), then check if it is still active.
     local dir
     while IFS= read -r dir; do
         [[ -z "$dir" ]] && continue
         local trimmed_dir="${dir%/}"
 
-        if [[ -z "$filter_session_id" ]]; then
-            # No filter: return the first directory with active state (backward compat)
-            local state_file
-            state_file=$(resolve_active_state_file "$trimmed_dir")
-            if [[ -n "$state_file" ]]; then
+        local any_state
+        any_state=$(resolve_any_state_file "$trimmed_dir")
+        if [[ -z "$any_state" ]]; then
+            continue
+        fi
+
+        local stored_session_id
+        stored_session_id=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/'"${FIELD_SESSION_ID}"': *//; p; } }' "$any_state" 2>/dev/null | tr -d ' ')
+
+        # Empty stored session_id matches any session (backward compat)
+        if [[ -z "$stored_session_id" ]] || [[ "$stored_session_id" == "$filter_session_id" ]]; then
+            # This is the newest dir for this session -- only return if active
+            local active_state
+            active_state=$(resolve_active_state_file "$trimmed_dir")
+            if [[ -n "$active_state" ]]; then
                 echo "$trimmed_dir"
                 return
             fi
-        else
-            # Session filter: match against ANY state file (active or terminal)
-            local any_state
-            any_state=$(resolve_any_state_file "$trimmed_dir")
-            if [[ -z "$any_state" ]]; then
-                continue
-            fi
-
-            local stored_session_id
-            stored_session_id=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/'"${FIELD_SESSION_ID}"': *//; p; } }' "$any_state" 2>/dev/null | tr -d ' ')
-
-            # Empty stored session_id matches any session (backward compat)
-            if [[ -z "$stored_session_id" ]] || [[ "$stored_session_id" == "$filter_session_id" ]]; then
-                # This is the newest dir for this session -- only return if active
-                local active_state
-                active_state=$(resolve_active_state_file "$trimmed_dir")
-                if [[ -n "$active_state" ]]; then
-                    echo "$trimmed_dir"
-                    return
-                fi
-                # Session's newest loop is in terminal state; do not fall through
-                echo ""
-                return
-            fi
+            # Session's newest loop is in terminal state; do not fall through
+            echo ""
+            return
         fi
     done < <(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r)
 

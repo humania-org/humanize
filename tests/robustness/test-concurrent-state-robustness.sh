@@ -193,11 +193,11 @@ mkdir -p "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00"
 create_state_file "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00"
 
 ACTIVE=$(find_active_loop "$TEST_DIR/loops2/rlcr" 2>/dev/null || echo "")
-# Filter-first: skips newer empty dir, finds older active one
-if [[ "$ACTIVE" == "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00" ]]; then
-    pass "Filter-first finds older active loop when newest has no state"
+# Zombie-loop protection: only checks newest dir, which has no state.md
+if [[ -z "$ACTIVE" ]]; then
+    pass "Zombie-loop protection: returns empty when newest dir has no state"
 else
-    fail "Filter-first old dirs" "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00" "$ACTIVE"
+    fail "Zombie-loop protection" "empty" "$ACTIVE"
 fi
 
 # Test 8: find_active_loop handles finalize-state.md
@@ -458,11 +458,11 @@ mkdir -p "$TEST_DIR/old-loops/rlcr/2026-01-01_00-00-00"
 # No state.md in newer directory
 
 ACTIVE=$(find_active_loop "$TEST_DIR/old-loops/rlcr" 2>/dev/null || echo "")
-# Filter-first: skips newer empty dir, finds older active one
-if [[ "$ACTIVE" == "$TEST_DIR/old-loops/rlcr/2020-01-01_00-00-00" ]]; then
-    pass "Filter-first finds old active loop when newer dir is empty"
+# Zombie-loop protection: only checks newest dir, which has no state.md
+if [[ -z "$ACTIVE" ]]; then
+    pass "Zombie-loop protection: returns empty when newer dir is empty"
 else
-    fail "Filter-first old loop" "$TEST_DIR/old-loops/rlcr/2020-01-01_00-00-00" "$ACTIVE"
+    fail "Zombie-loop protection" "empty" "$ACTIVE"
 fi
 
 # Test 19: Cancel-state.md is not considered active

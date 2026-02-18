@@ -389,7 +389,7 @@ fi
 setup_test_dir
 init_test_git_repo "$TEST_DIR/project"
 
-# Create older active loop
+# Create older active loop (stale)
 mkdir -p "$TEST_DIR/project/.humanize/rlcr/2026-01-01_00-00-00"
 cat > "$TEST_DIR/project/.humanize/rlcr/2026-01-01_00-00-00/state.md" << 'EOF'
 ---
@@ -417,20 +417,22 @@ start_branch: main
 ---
 EOF
 
+# Zombie-loop protection: cancel only checks newest dir, which is completed.
+# Stale older loop should NOT be revived and cancelled.
 cd "$TEST_DIR/project"
 CANCEL_OUTPUT=$(CLAUDE_PROJECT_DIR="$TEST_DIR/project" bash "$CANCEL_SCRIPT" 2>&1) || true
 
-if echo "$CANCEL_OUTPUT" | grep -q "CANCELLED"; then
-    pass "cancel script finds older active loop when newer is inactive"
+if echo "$CANCEL_OUTPUT" | grep -q "NO_LOOP"; then
+    pass "cancel script reports no active loop when newest dir is completed"
 else
-    fail "cancel script finds older active loop when newer is inactive" "CANCELLED in output" "$CANCEL_OUTPUT"
+    fail "cancel script reports no active loop when newest dir is completed" "NO_LOOP in output" "$CANCEL_OUTPUT"
 fi
 
-# Verify the older active loop was cancelled, not the newer inactive one
-if [[ -f "$TEST_DIR/project/.humanize/rlcr/2026-01-01_00-00-00/cancel-state.md" ]]; then
-    pass "cancel script targets the correct (older active) loop directory"
+# Verify the older stale loop was NOT touched
+if [[ -f "$TEST_DIR/project/.humanize/rlcr/2026-01-01_00-00-00/state.md" ]]; then
+    pass "cancel script does not revive stale older loop"
 else
-    fail "cancel script targets the correct (older active) loop directory" "cancel-state.md in 2026-01-01 dir" "not found"
+    fail "cancel script does not revive stale older loop" "state.md still present" "not found"
 fi
 
 # ========================================
@@ -672,12 +674,13 @@ else
     fail "find_active_loop session filter: terminal newest blocks stale revival" "empty (no active loop)" "$RESULT"
 fi
 
-# Without filter (backward compat): should still find the older active loop
+# Without filter: newest dir has terminal state, so no-filter returns empty
+# (only checks newest directory -- zombie-loop protection)
 RESULT=$(find_active_loop "$TEST_DIR/loop")
-if [[ -n "$RESULT" ]] && [[ "$RESULT" == *"2026-01-01"* ]]; then
-    pass "find_active_loop no-filter: still finds older active loop"
+if [[ -z "$RESULT" ]]; then
+    pass "find_active_loop no-filter: returns empty when newest dir is terminal"
 else
-    fail "find_active_loop no-filter: still finds older active loop" "2026-01-01 dir" "$RESULT"
+    fail "find_active_loop no-filter: returns empty when newest dir is terminal" "empty" "$RESULT"
 fi
 
 # ========================================
