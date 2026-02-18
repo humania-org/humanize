@@ -629,12 +629,15 @@ else
 fi
 
 # ========================================
-# Test: find_active_loop filter-first: skips inactive (no state.md) dirs
+# Test: find_active_loop session filter: terminal newest dir blocks stale revival
 # ========================================
+# When the newest dir for a session is in terminal state (complete-state.md),
+# find_active_loop must NOT fall through to an older active dir for the same session.
+# This prevents stale loop revival and enables concurrent loops with different sessions.
 
 setup_test_dir
 
-# Create older matching active loop
+# Create older matching active loop (state.md still present -- stale)
 mkdir -p "$TEST_DIR/loop/2026-01-01_00-00-00"
 cat > "$TEST_DIR/loop/2026-01-01_00-00-00/state.md" << 'EOF'
 ---
@@ -648,7 +651,7 @@ start_branch: main
 ---
 EOF
 
-# Create newer dir that is inactive (complete-state.md, no state.md)
+# Create newer dir that is in terminal state (complete-state.md, no state.md)
 mkdir -p "$TEST_DIR/loop/2026-02-01_00-00-00"
 cat > "$TEST_DIR/loop/2026-02-01_00-00-00/complete-state.md" << 'EOF'
 ---
@@ -663,10 +666,118 @@ start_branch: main
 EOF
 
 RESULT=$(find_active_loop "$TEST_DIR/loop" "my-session")
-if [[ -n "$RESULT" ]] && [[ "$RESULT" == *"2026-01-01"* ]]; then
-    pass "find_active_loop filter-first: skips inactive dirs, finds older active"
+if [[ -z "$RESULT" ]]; then
+    pass "find_active_loop session filter: terminal newest blocks stale revival"
 else
-    fail "find_active_loop filter-first: skips inactive dirs, finds older active" "2026-01-01 dir" "$RESULT"
+    fail "find_active_loop session filter: terminal newest blocks stale revival" "empty (no active loop)" "$RESULT"
+fi
+
+# Without filter (backward compat): should still find the older active loop
+RESULT=$(find_active_loop "$TEST_DIR/loop")
+if [[ -n "$RESULT" ]] && [[ "$RESULT" == *"2026-01-01"* ]]; then
+    pass "find_active_loop no-filter: still finds older active loop"
+else
+    fail "find_active_loop no-filter: still finds older active loop" "2026-01-01 dir" "$RESULT"
+fi
+
+# ========================================
+# Test: find_active_loop session filter: different session finds its own active loop
+# ========================================
+# Session A has terminal newest, session B has active loop -- they don't interfere
+
+setup_test_dir
+
+# Session A: older active (stale), newer completed
+mkdir -p "$TEST_DIR/loop/2026-01-01_00-00-00"
+cat > "$TEST_DIR/loop/2026-01-01_00-00-00/state.md" << 'EOF'
+---
+current_round: 2
+max_iterations: 10
+session_id: session-A
+review_started: false
+base_branch: main
+plan_tracked: false
+start_branch: main
+---
+EOF
+mkdir -p "$TEST_DIR/loop/2026-02-01_00-00-00"
+cat > "$TEST_DIR/loop/2026-02-01_00-00-00/complete-state.md" << 'EOF'
+---
+current_round: 10
+max_iterations: 10
+session_id: session-A
+review_started: true
+base_branch: main
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+# Session B: active loop in between
+mkdir -p "$TEST_DIR/loop/2026-01-15_00-00-00"
+cat > "$TEST_DIR/loop/2026-01-15_00-00-00/state.md" << 'EOF'
+---
+current_round: 3
+max_iterations: 10
+session_id: session-B
+review_started: false
+base_branch: main
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+RESULT=$(find_active_loop "$TEST_DIR/loop" "session-A")
+if [[ -z "$RESULT" ]]; then
+    pass "find_active_loop: session-A returns empty (newest is terminal)"
+else
+    fail "find_active_loop: session-A returns empty (newest is terminal)" "empty" "$RESULT"
+fi
+
+RESULT=$(find_active_loop "$TEST_DIR/loop" "session-B")
+if [[ -n "$RESULT" ]] && [[ "$RESULT" == *"2026-01-15"* ]]; then
+    pass "find_active_loop: session-B finds its own active loop"
+else
+    fail "find_active_loop: session-B finds its own active loop" "2026-01-15 dir" "$RESULT"
+fi
+
+# ========================================
+# Test: find_active_loop session filter: cancel-state.md also blocks revival
+# ========================================
+
+setup_test_dir
+
+mkdir -p "$TEST_DIR/loop/2026-01-01_00-00-00"
+cat > "$TEST_DIR/loop/2026-01-01_00-00-00/state.md" << 'EOF'
+---
+current_round: 2
+max_iterations: 10
+session_id: my-session
+review_started: false
+base_branch: main
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+mkdir -p "$TEST_DIR/loop/2026-02-01_00-00-00"
+cat > "$TEST_DIR/loop/2026-02-01_00-00-00/cancel-state.md" << 'EOF'
+---
+current_round: 5
+max_iterations: 10
+session_id: my-session
+review_started: false
+base_branch: main
+plan_tracked: false
+start_branch: main
+---
+EOF
+
+RESULT=$(find_active_loop "$TEST_DIR/loop" "my-session")
+if [[ -z "$RESULT" ]]; then
+    pass "find_active_loop: cancel-state.md in newest also blocks stale revival"
+else
+    fail "find_active_loop: cancel-state.md in newest also blocks stale revival" "empty" "$RESULT"
 fi
 
 # ========================================
