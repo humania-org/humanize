@@ -52,6 +52,9 @@ TEST_SUITES=(
     "test-gen-plan.sh"
     "test-pr-loop.sh"
     "test-pr-loop-system.sh"
+    # Session ID and Agent Teams tests
+    "test-session-id.sh"
+    "test-agent-teams.sh"
     # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"

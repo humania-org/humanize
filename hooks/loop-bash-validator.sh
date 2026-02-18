@@ -53,9 +53,12 @@ COMMAND_LOWER=$(to_lower "$COMMAND")
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# Check for active RLCR loop
+# Extract session_id from hook input for session-aware loop filtering
+HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
+
+# Check for active RLCR loop (filtered by session_id)
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
+ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
 
 # Check for active PR loop
 PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
@@ -73,10 +76,7 @@ fi
 
 if [[ -n "$ACTIVE_LOOP_DIR" ]]; then
     # Detect if we're in Finalize Phase (finalize-state.md exists)
-    STATE_FILE="$ACTIVE_LOOP_DIR/state.md"
-    if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
-        STATE_FILE="$ACTIVE_LOOP_DIR/finalize-state.md"
-    fi
+    STATE_FILE=$(resolve_active_state_file "$ACTIVE_LOOP_DIR")
 
     # Parse state file using strict validation (fail closed on malformed state)
     if ! parse_state_file_strict "$STATE_FILE" 2>/dev/null; then

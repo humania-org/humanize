@@ -55,9 +55,12 @@ GIT_TIMEOUT=30
 
 # Template directory is set by loop-common.sh via template-loader.sh
 
-LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
+# Extract session_id from hook input for session-aware loop filtering
+HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 
-# If no active loop, allow exit
+LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
+
+# If no active loop (or session_id mismatch), allow exit
 if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
@@ -68,16 +71,15 @@ fi
 # Normal loop: state.md exists
 # Finalize Phase: finalize-state.md exists (after Codex COMPLETE, before final completion)
 
-IS_FINALIZE_PHASE=false
-STATE_FILE="$LOOP_DIR/state.md"
-FINALIZE_STATE_FILE="$LOOP_DIR/finalize-state.md"
-
-if [[ -f "$FINALIZE_STATE_FILE" ]]; then
-    IS_FINALIZE_PHASE=true
-    STATE_FILE="$FINALIZE_STATE_FILE"
-elif [[ ! -f "$STATE_FILE" ]]; then
+STATE_FILE=$(resolve_active_state_file "$LOOP_DIR")
+if [[ -z "$STATE_FILE" ]]; then
     # No state file found, allow exit
     exit 0
+fi
+
+IS_FINALIZE_PHASE=false
+if [[ "$STATE_FILE" == *"/finalize-state.md" ]]; then
+    IS_FINALIZE_PHASE=true
 fi
 
 # ========================================
@@ -114,6 +116,7 @@ CODEX_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
 CODEX_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
+AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
 
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
@@ -1623,6 +1626,16 @@ if [[ -z "$GOAL_UPDATE_REQUEST" ]]; then
     GOAL_UPDATE_REQUEST="Include a Goal Tracker Update Request section in your summary if needed."
 fi
 echo "$GOAL_UPDATE_REQUEST" >> "$NEXT_PROMPT_FILE"
+
+# Add agent-teams continuation instructions (only during implementation phase, not review phase)
+if [[ "$AGENT_TEAMS" == "true" ]] && [[ "$REVIEW_STARTED" != "true" ]]; then
+    AGENT_TEAMS_CONTINUE=$(load_template "$TEMPLATE_DIR" "claude/agent-teams-continue.md" 2>/dev/null)
+    if [[ -z "$AGENT_TEAMS_CONTINUE" ]]; then
+        AGENT_TEAMS_CONTINUE="Continue using **Agent Teams mode**. You are the team leader - split remaining work among team members and coordinate their efforts. Do not do implementation work yourself."
+    fi
+    echo "" >> "$NEXT_PROMPT_FILE"
+    echo "$AGENT_TEAMS_CONTINUE" >> "$NEXT_PROMPT_FILE"
+fi
 
 # Build system message
 SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Codex found issues to address"

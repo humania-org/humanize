@@ -5,7 +5,12 @@
 # This library provides shared functionality used by:
 # - loop-read-validator.sh
 # - loop-write-validator.sh
+# - loop-edit-validator.sh
 # - loop-bash-validator.sh
+# - loop-plan-file-validator.sh
+# - loop-codex-stop-hook.sh
+# - setup-rlcr-loop.sh
+# - cancel-rlcr-loop.sh
 #
 
 # Source guard: prevent double-sourcing (readonly vars would fail)
@@ -31,6 +36,8 @@ readonly FIELD_CODEX_TIMEOUT="codex_timeout"
 readonly FIELD_REVIEW_STARTED="review_started"
 readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
+readonly FIELD_SESSION_ID="session_id"
+readonly FIELD_AGENT_TEAMS="agent_teams"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
 # Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort)
@@ -158,29 +165,80 @@ if ! validate_template_dir "$TEMPLATE_DIR" 2>/dev/null; then
     echo "Warning: Template directory validation failed. Using inline fallbacks." >&2
 fi
 
-# Find the most recent active loop directory
-# Only checks the newest directory - older directories are ignored even if they have state.md
-# This prevents "zombie" loops from being revived after abnormal exits
-# Detects both state.md (normal loop) and finalize-state.md (Finalize Phase in progress)
+# Extract session_id from hook JSON input
+# Usage: extract_session_id "$json_input"
+# Outputs the session_id to stdout, or empty string if not available
+extract_session_id() {
+    local input="$1"
+    printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null || echo ""
+}
+
+# Resolve the active state file for a loop directory
+# Checks for finalize-state.md first, then state.md
+# Usage: resolve_active_state_file "$loop_dir"
+# Outputs the state file path to stdout, or empty string if none found
+resolve_active_state_file() {
+    local loop_dir="$1"
+
+    if [[ -f "$loop_dir/finalize-state.md" ]]; then
+        echo "$loop_dir/finalize-state.md"
+    elif [[ -f "$loop_dir/state.md" ]]; then
+        echo "$loop_dir/state.md"
+    else
+        echo ""
+    fi
+}
+
+# Find the most recent active loop directory matching optional session_id filter
+# Uses filter-first semantics: iterates directories newest-to-oldest and returns
+# the first directory that is active (state.md or finalize-state.md) AND matches
+# the session_id filter.
+#
+# Without session_id filter: returns the newest active loop (backward compatible)
+# With session_id filter: returns the newest active loop whose stored session_id
+# matches the filter. Empty stored session_id matches any filter (backward compat).
+#
+# This prevents "zombie" loops from being revived after abnormal exits, and
+# ensures session isolation when multiple loops exist from different sessions.
+#
 # Outputs the directory path to stdout, or empty string if none found
 find_active_loop() {
     local loop_base_dir="$1"
+    local filter_session_id="${2:-}"
 
     if [[ ! -d "$loop_base_dir" ]]; then
         echo ""
         return
     fi
 
-    # Get the newest directory (by timestamp name, descending)
-    local newest_dir
-    newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
+    # Iterate directories newest-to-oldest (filter-first: check session match per dir)
+    local dir
+    while IFS= read -r dir; do
+        [[ -z "$dir" ]] && continue
 
-    # Check for active loop indicators: state.md (normal) or finalize-state.md (Finalize Phase)
-    if [[ -n "$newest_dir" && ( -f "${newest_dir}state.md" || -f "${newest_dir}finalize-state.md" ) ]]; then
-        echo "${newest_dir%/}"
-    else
-        echo ""
-    fi
+        local state_file
+        state_file=$(resolve_active_state_file "${dir%/}")
+        if [[ -z "$state_file" ]]; then
+            continue
+        fi
+
+        # If no session_id filter, return the first active loop found
+        if [[ -z "$filter_session_id" ]]; then
+            echo "${dir%/}"
+            return
+        fi
+
+        # Session filtering: check stored session_id in the active state file
+        local stored_session_id
+        stored_session_id=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/'"${FIELD_SESSION_ID}"': *//; p; } }' "$state_file" 2>/dev/null | tr -d ' ')
+        # Empty stored session_id matches any session (backward compat / pre-recording)
+        if [[ -z "$stored_session_id" ]] || [[ "$stored_session_id" == "$filter_session_id" ]]; then
+            echo "${dir%/}"
+            return
+        fi
+    done < <(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r)
+
+    echo ""
 }
 
 # Extract current round number from state.md
@@ -196,6 +254,31 @@ get_current_round() {
     current_round=$(echo "$frontmatter" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ')
 
     echo "${current_round:-0}"
+}
+
+# Extract state fields from frontmatter content (internal helper)
+# Usage: _parse_state_fields
+# Requires STATE_FRONTMATTER to be set before calling
+# Sets all STATE_* field variables without applying defaults
+_parse_state_fields() {
+    # Parse fields with consistent quote handling
+    # Legacy quote-stripping kept for backward compatibility with older state files
+    STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
+    STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_BASE_COMMIT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_COMMIT}:" | sed "s/${FIELD_BASE_COMMIT}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
+    STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
+    STATE_PUSH_EVERY_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PUSH_EVERY_ROUND}:" | sed "s/${FIELD_PUSH_EVERY_ROUND}: *//" | tr -d ' ' || true)
+    STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
+    STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
+    STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
+    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
+    STATE_FULL_REVIEW_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_FULL_REVIEW_ROUND}:" | sed "s/${FIELD_FULL_REVIEW_ROUND}: *//" | tr -d ' ' || true)
+    STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
+    STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
+    STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -226,22 +309,7 @@ parse_state_file() {
 
     STATE_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
 
-    # Parse fields with consistent quote handling
-    # Legacy quote-stripping kept for backward compatibility with older state files
-    STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
-    STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_BASE_COMMIT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_COMMIT}:" | sed "s/${FIELD_BASE_COMMIT}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
-    STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
-    STATE_PUSH_EVERY_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PUSH_EVERY_ROUND}:" | sed "s/${FIELD_PUSH_EVERY_ROUND}: *//" | tr -d ' ' || true)
-    STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
-    STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
-    STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
-    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
-    STATE_FULL_REVIEW_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_FULL_REVIEW_ROUND}:" | sed "s/${FIELD_FULL_REVIEW_ROUND}: *//" | tr -d ' ' || true)
-    STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
+    _parse_state_fields
 
     # Apply defaults for non-schema-critical fields only
     # Note: review_started is NOT defaulted here so we can detect missing schema fields
@@ -251,6 +319,7 @@ parse_state_file() {
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
+    STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -281,24 +350,9 @@ parse_state_file_strict() {
         return 2
     fi
 
-    # Extract frontmatter
+    # Extract frontmatter and parse all fields (reuse shared helper, no defaults applied)
     STATE_FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$state_file" 2>/dev/null || echo "")
-
-    # Parse fields
-    STATE_PLAN_TRACKED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_TRACKED}:" | sed "s/${FIELD_PLAN_TRACKED}: *//" | tr -d ' ' || true)
-    STATE_START_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_START_BRANCH}:" | sed "s/${FIELD_START_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_BASE_BRANCH=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_BRANCH}:" | sed "s/${FIELD_BASE_BRANCH}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_BASE_COMMIT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_BASE_COMMIT}:" | sed "s/${FIELD_BASE_COMMIT}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_PLAN_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PLAN_FILE}:" | sed "s/${FIELD_PLAN_FILE}: *//; s/^\"//; s/\"\$//" || true)
-    STATE_CURRENT_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CURRENT_ROUND}:" | sed "s/${FIELD_CURRENT_ROUND}: *//" | tr -d ' ' || true)
-    STATE_MAX_ITERATIONS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAX_ITERATIONS}:" | sed "s/${FIELD_MAX_ITERATIONS}: *//" | tr -d ' ' || true)
-    STATE_PUSH_EVERY_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PUSH_EVERY_ROUND}:" | sed "s/${FIELD_PUSH_EVERY_ROUND}: *//" | tr -d ' ' || true)
-    STATE_CODEX_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_MODEL}:" | sed "s/${FIELD_CODEX_MODEL}: *//" | tr -d ' ' || true)
-    STATE_CODEX_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_EFFORT}:" | sed "s/${FIELD_CODEX_EFFORT}: *//" | tr -d ' ' || true)
-    STATE_CODEX_TIMEOUT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_CODEX_TIMEOUT}:" | sed "s/${FIELD_CODEX_TIMEOUT}: *//" | tr -d ' ' || true)
-    STATE_REVIEW_STARTED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_REVIEW_STARTED}:" | sed "s/${FIELD_REVIEW_STARTED}: *//" | tr -d ' ' || true)
-    STATE_FULL_REVIEW_ROUND=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_FULL_REVIEW_ROUND}:" | sed "s/${FIELD_FULL_REVIEW_ROUND}: *//" | tr -d ' ' || true)
-    STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
+    _parse_state_fields
 
     # Validate required fields exist
     if [[ -z "$STATE_CURRENT_ROUND" ]]; then
@@ -340,6 +394,7 @@ parse_state_file_strict() {
     STATE_PUSH_EVERY_ROUND="${STATE_PUSH_EVERY_ROUND:-false}"
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
+    STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
 
     return 0
 }

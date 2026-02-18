@@ -31,6 +31,9 @@ fi
 FILE_PATH=$(echo "$HOOK_INPUT" | jq -r '.tool_input.file_path // ""')
 FILE_PATH_LOWER=$(to_lower "$FILE_PATH")
 
+# Extract session_id from hook input for session-aware loop filtering
+HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
+
 # ========================================
 # Block Todos and Prompt Files
 # ========================================
@@ -38,7 +41,7 @@ FILE_PATH_LOWER=$(to_lower "$FILE_PATH")
 if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
     PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
     LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-    LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
+    LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
     if [[ -z "$LOOP_DIR" ]] || ! is_allowlisted_file "$FILE_PATH" "$LOOP_DIR"; then
         todos_blocked_message "Edit" >&2
         exit 2
@@ -90,17 +93,14 @@ fi
 
 PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
-ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR")}"
+ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
 # Detect if we're in Finalize Phase (finalize-state.md exists)
-STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/state.md"
-if [[ -f "$ACTIVE_LOOP_DIR/finalize-state.md" ]]; then
-    STATE_FILE_TO_PARSE="$ACTIVE_LOOP_DIR/finalize-state.md"
-fi
+STATE_FILE_TO_PARSE=$(resolve_active_state_file "$ACTIVE_LOOP_DIR")
 
 # Parse state file using strict validation (fail closed on malformed state)
 if ! parse_state_file_strict "$STATE_FILE_TO_PARSE" 2>/dev/null; then

@@ -47,6 +47,7 @@ FULL_REVIEW_ROUND="$DEFAULT_FULL_REVIEW_ROUND"
 SKIP_IMPL="false"
 SKIP_IMPL_NO_PLAN="false"
 ASK_CODEX_QUESTION="true"
+AGENT_TEAMS="false"
 
 show_help() {
     cat << 'HELP_EOF'
@@ -82,6 +83,9 @@ OPTIONS:
                        NOT RECOMMENDED: Open Questions usually indicate gaps in
                        your plan that deserve human clarification. By default,
                        Claude asks user for clarification, which is preferred.
+  --agent-teams        Enable Claude Code Agent Teams mode for parallel development.
+                       Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
+                       Claude acts as team leader, splitting tasks among team members.
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -218,6 +222,10 @@ while [[ $# -gt 0 ]]; do
             ASK_CODEX_QUESTION="false"
             shift
             ;;
+        --agent-teams)
+            AGENT_TEAMS="true"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1" >&2
             echo "Use --help for usage information" >&2
@@ -269,6 +277,24 @@ if [[ -n "$PR_LOOP_DIR" ]]; then
     echo "Only one loop can be active at a time." >&2
     echo "Cancel the PR loop first with: /humanize:cancel-pr-loop" >&2
     exit 1
+fi
+
+# ========================================
+# Agent Teams Validation
+# ========================================
+
+if [[ "$AGENT_TEAMS" == "true" ]]; then
+    if [[ -z "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" ]]; then
+        echo "Error: --agent-teams requires the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS environment variable to be set." >&2
+        echo "" >&2
+        echo "Claude Code Agent Teams is an experimental feature that must be enabled before use." >&2
+        echo "To enable it, set the environment variable before starting Claude Code:" >&2
+        echo "" >&2
+        echo "  export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1" >&2
+        echo "" >&2
+        echo "Or add it to your shell profile (~/.bashrc, ~/.zshrc) for persistent access." >&2
+        exit 1
+    fi
 fi
 
 # Merge explicit and positional plan file
@@ -754,9 +780,22 @@ base_branch: $BASE_BRANCH
 base_commit: $BASE_COMMIT
 review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
+session_id:
+agent_teams: $AGENT_TEAMS
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
+
+# Create signal file for PostToolUse hook to record session_id
+# The hook will read the session_id from its JSON input and patch state.md
+# Format: line 1 = state file path, line 2 = command marker for verification
+# The PostToolUse hook will only consume this signal when the Bash command
+# that triggered it matches the setup script marker, preventing other sessions
+# from accidentally claiming the signal.
+mkdir -p "$PROJECT_ROOT/.humanize"
+# Write full resolved script path as command signature for strict verification
+SCRIPT_SELF_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]:-$0}")"
+printf '%s\n%s\n' "$LOOP_DIR/state.md" "$SCRIPT_SELF_PATH" > "$PROJECT_ROOT/.humanize/.pending-session-id"
 
 # Create review phase marker file for skip-impl mode
 if [[ "$SKIP_IMPL" == "true" ]]; then
@@ -959,6 +998,26 @@ EOF
 
 # Append plan content directly (avoids command substitution size limits for large files)
 cat "$LOOP_DIR/plan.md" >> "$LOOP_DIR/round-0-prompt.md"
+
+# Inject agent-teams instructions if enabled
+if [[ "$AGENT_TEAMS" == "true" ]]; then
+    AGENT_TEAMS_TEMPLATE="$TEMPLATE_DIR/claude/agent-teams-instructions.md"
+    if [[ -f "$AGENT_TEAMS_TEMPLATE" ]]; then
+        echo "" >> "$LOOP_DIR/round-0-prompt.md"
+        cat "$AGENT_TEAMS_TEMPLATE" >> "$LOOP_DIR/round-0-prompt.md"
+    else
+        cat >> "$LOOP_DIR/round-0-prompt.md" << 'AGENT_TEAMS_EOF'
+
+## Agent Teams Mode
+
+You are operating in **Agent Teams mode** as the **Team Leader**.
+
+Split tasks into independent units, create agent teams to execute them, and coordinate team members.
+Do NOT do implementation work yourself - delegate all coding to team members.
+Prevent overlapping changes by assigning clear file ownership boundaries.
+AGENT_TEAMS_EOF
+    fi
+fi
 
 # Write prompt footer
 cat >> "$LOOP_DIR/round-0-prompt.md" << EOF

@@ -193,12 +193,11 @@ mkdir -p "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00"
 create_state_file "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00"
 
 ACTIVE=$(find_active_loop "$TEST_DIR/loops2/rlcr" 2>/dev/null || echo "")
-# Should find nothing because newest dir doesn't have state.md
-# (per the comment in loop-common.sh: "older directories are ignored")
-if [[ -z "$ACTIVE" ]]; then
-    pass "find_active_loop ignores old directories (newest has no state)"
+# Filter-first: skips newer empty dir, finds older active one
+if [[ "$ACTIVE" == "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00" ]]; then
+    pass "Filter-first finds older active loop when newest has no state"
 else
-    fail "Ignores old dirs" "empty" "$ACTIVE"
+    fail "Filter-first old dirs" "$TEST_DIR/loops2/rlcr/2026-01-20_00-00-00" "$ACTIVE"
 fi
 
 # Test 8: find_active_loop handles finalize-state.md
@@ -459,11 +458,11 @@ mkdir -p "$TEST_DIR/old-loops/rlcr/2026-01-01_00-00-00"
 # No state.md in newer directory
 
 ACTIVE=$(find_active_loop "$TEST_DIR/old-loops/rlcr" 2>/dev/null || echo "")
-# Should be empty because newest dir doesn't have state.md
-if [[ -z "$ACTIVE" ]]; then
-    pass "Old loop directory correctly ignored"
+# Filter-first: skips newer empty dir, finds older active one
+if [[ "$ACTIVE" == "$TEST_DIR/old-loops/rlcr/2020-01-01_00-00-00" ]]; then
+    pass "Filter-first finds old active loop when newer dir is empty"
 else
-    fail "Old loop ignored" "empty" "$ACTIVE"
+    fail "Filter-first old loop" "$TEST_DIR/old-loops/rlcr/2020-01-01_00-00-00" "$ACTIVE"
 fi
 
 # Test 19: Cancel-state.md is not considered active

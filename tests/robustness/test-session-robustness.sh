@@ -96,10 +96,10 @@ touch "$TEST_DIR/rlcr/2026-01-15_10-00-00/state.md"
 # Newest directory has no state.md
 
 RESULT=$(find_active_loop "$TEST_DIR/rlcr")
-if [[ -z "$RESULT" ]]; then
-    pass "Returns empty when newest session has no state.md"
+if [[ "$RESULT" == "$TEST_DIR/rlcr/2026-01-15_10-00-00" ]]; then
+    pass "Filter-first finds older active session when newest has no state.md"
 else
-    fail "Newest-only check" "empty" "$RESULT"
+    fail "Filter-first check" "$TEST_DIR/rlcr/2026-01-15_10-00-00" "$RESULT"
 fi
 
 # Test 5: Session with both state.md and finalize-state.md
@@ -293,12 +293,12 @@ mkdir -p "$TEST_DIR/rlcr/2026-01-17_10-00-00"
 touch "$TEST_DIR/rlcr/2026-01-15_10-00-00/state.md"
 touch "$TEST_DIR/rlcr/2026-01-17_10-00-00/complete-state.md"
 
-# Newest is finished, older has state.md - should return empty (only checks newest)
+# Newest is finished, older has state.md - filter-first finds the older active one
 RESULT=$(find_active_loop "$TEST_DIR/rlcr")
-if [[ -z "$RESULT" ]]; then
-    pass "Returns empty when newest session is finished"
+if [[ "$RESULT" == "$TEST_DIR/rlcr/2026-01-15_10-00-00" ]]; then
+    pass "Filter-first finds older active session when newest is finished"
 else
-    fail "Newest finished" "empty" "$RESULT"
+    fail "Newest finished" "$TEST_DIR/rlcr/2026-01-15_10-00-00" "$RESULT"
 fi
 
 # Test 18: Unicode in session directory name

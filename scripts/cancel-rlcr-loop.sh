@@ -69,8 +69,22 @@ done
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 
-# Find newest loop directory
-LOOP_DIR=$(ls -1d "$LOOP_BASE_DIR"/*/ 2>/dev/null | sort -r | head -1) || true
+# Source shared loop library for find_active_loop
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/loop-common.sh"
+
+# PRODUCT DECISION: Cancel operates globally (no session_id filtering).
+#
+# Cancel is invoked as a standalone Bash command via /cancel-rlcr-loop slash command.
+# Unlike hooks (PreToolUse, PostToolUse, Stop) which receive JSON with session_id,
+# this script has no access to the calling session's session_id.
+#
+# This is intentional per AC-6: cancel is an explicit user action that should always
+# succeed regardless of which session invokes it. If a user types /cancel-rlcr-loop,
+# they want to cancel whatever loop is running in the current project directory.
+#
+# Find newest active loop directory (any session) using the same lookup as hooks
+LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR")
 
 if [[ -z "$LOOP_DIR" ]]; then
     echo "NO_LOOP"
@@ -133,6 +147,9 @@ fi
 
 # Create cancel signal file
 touch "$CANCEL_SIGNAL"
+
+# Clean up any pending session_id signal file (setup may not have completed)
+rm -f "$PROJECT_ROOT/.humanize/.pending-session-id"
 
 # Rename state file to cancel-state.md
 mv "$ACTIVE_STATE_FILE" "$LOOP_DIR/cancel-state.md"
