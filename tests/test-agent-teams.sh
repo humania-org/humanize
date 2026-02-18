@@ -68,6 +68,16 @@ else
     fail "error message mentions CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var" "env var name in output" "$SETUP_OUTPUT"
 fi
 
+# Test: --agent-teams rejects non-"1" values like "0" and "false"
+for BAD_VALUE in "0" "false" "yes" "true"; do
+    SETUP_OUTPUT=$(CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="$BAD_VALUE" CLAUDE_PROJECT_DIR="$TEST_DIR/project" bash "$SETUP_SCRIPT" --agent-teams temp/plan.md 2>&1) || SETUP_EXIT=$?
+    if [[ "${SETUP_EXIT:-0}" -ne 0 ]]; then
+        pass "setup rejects CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=$BAD_VALUE"
+    else
+        fail "setup rejects CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=$BAD_VALUE" "non-zero exit" "exit 0"
+    fi
+done
+
 # ========================================
 # Test: --agent-teams succeeds with env var set
 # ========================================

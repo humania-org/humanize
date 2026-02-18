@@ -284,7 +284,7 @@ fi
 # ========================================
 
 if [[ "$AGENT_TEAMS" == "true" ]]; then
-    if [[ -z "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" ]]; then
+    if [[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" != "1" ]]; then
         echo "Error: --agent-teams requires the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS environment variable to be set." >&2
         echo "" >&2
         echo "Claude Code Agent Teams is an experimental feature that must be enabled before use." >&2
