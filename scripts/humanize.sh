@@ -360,8 +360,9 @@ _humanize_monitor_codex() {
         local plan_file=$(grep -E "^plan_file:" "$state_file" 2>/dev/null | sed 's/plan_file: *//')
         local ask_codex_question=$(grep -E "^ask_codex_question:" "$state_file" 2>/dev/null | sed 's/ask_codex_question: *//' | tr -d ' ')
         local review_started=$(grep -E "^review_started:" "$state_file" 2>/dev/null | sed 's/review_started: *//' | tr -d ' ')
+        local agent_teams=$(grep -E "^agent_teams:" "$state_file" 2>/dev/null | sed 's/agent_teams: *//' | tr -d ' ')
 
-        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}"
+        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}|${agent_teams:-}"
     }
 
     # Internal wrappers that call top-level functions
@@ -399,6 +400,7 @@ _humanize_monitor_codex() {
         local plan_file="${state_parts[6]}"
         local ask_codex_question="${state_parts[7]:-false}"
         local review_started="${state_parts[8]:-false}"
+        local agent_teams="${state_parts[9]:-}"
 
         # Parse goal-tracker.md
         local -a goal_parts
@@ -520,7 +522,18 @@ _humanize_monitor_codex() {
             ask_q_display="On"
             ask_q_color="${green}"
         fi
-        printf "${magenta}Status:${reset}   ${status_line} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${clr_eol}\n"
+        # Build team mode display if agent_teams is set
+        local team_mode_segment=""
+        if [[ -n "$agent_teams" ]]; then
+            local team_display="Off"
+            local team_color="${yellow}"
+            if [[ "$agent_teams" == "true" ]]; then
+                team_display="On"
+                team_color="${green}"
+            fi
+            team_mode_segment=" | Team Mode: ${team_color}${team_display}${reset}"
+        fi
+        printf "${magenta}Status:${reset}   ${status_line} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${team_mode_segment}${clr_eol}\n"
 
         # Progress line (color based on completion status)
         local ac_color="${green}"
