@@ -347,7 +347,7 @@ _humanize_monitor_codex() {
     _parse_state_md() {
         local state_file="$1"
         if [[ ! -f "$state_file" ]]; then
-            echo "N/A|N/A|N/A|N/A|N/A|N/A|N/A|false|false"
+            echo "N/A|N/A|N/A|N/A|N/A|N/A|N/A|false|false||"
             return
         fi
 
@@ -361,8 +361,9 @@ _humanize_monitor_codex() {
         local ask_codex_question=$(grep -E "^ask_codex_question:" "$state_file" 2>/dev/null | sed 's/ask_codex_question: *//' | tr -d ' ')
         local review_started=$(grep -E "^review_started:" "$state_file" 2>/dev/null | sed 's/review_started: *//' | tr -d ' ')
         local agent_teams=$(grep -E "^agent_teams:" "$state_file" 2>/dev/null | sed 's/agent_teams: *//' | tr -d ' ')
+        local push_every_round=$(grep -E "^push_every_round:" "$state_file" 2>/dev/null | sed 's/push_every_round: *//' | tr -d ' ')
 
-        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}|${agent_teams:-}"
+        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}|${agent_teams:-}|${push_every_round:-}"
     }
 
     # Internal wrappers that call top-level functions
@@ -401,6 +402,7 @@ _humanize_monitor_codex() {
         local ask_codex_question="${state_parts[7]:-false}"
         local review_started="${state_parts[8]:-false}"
         local agent_teams="${state_parts[9]:-}"
+        local push_every_round="${state_parts[10]:-}"
 
         # Parse goal-tracker.md
         local -a goal_parts
@@ -467,7 +469,18 @@ _humanize_monitor_codex() {
         if [[ "$full_review_round" != "N/A" && -n "$full_review_round" ]]; then
             full_review_display=" (${full_review_round})"
         fi
-        printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}${full_review_display}    ${yellow}Model:${reset} ${codex_model} (${codex_effort})${clr_eol}\n"
+        # Build push_every_round segment if set
+        local push_segment=""
+        if [[ -n "$push_every_round" ]]; then
+            local push_display="No"
+            local push_color="${yellow}"
+            if [[ "$push_every_round" == "true" ]]; then
+                push_display="Yes"
+                push_color="${green}"
+            fi
+            push_segment=" | Push Every Round: ${push_color}${push_display}${reset}"
+        fi
+        printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}${full_review_display} | ${yellow}Model:${reset} ${codex_model} (${codex_effort})${push_segment}${clr_eol}\n"
 
         # Loop status line with color based on status
         # Colors: Active=yellow, Complete=green, Finalize=cyan, Stop states=red, Others=orange
