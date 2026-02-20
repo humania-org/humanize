@@ -13,8 +13,8 @@
 #   stderr: Status/debug info (model, effort, log paths)
 #
 # Storage:
-#   Project-local: .humanize/skill/<timestamp>/{input,output,metadata}.md
-#   Cache: ~/.cache/humanize/<sanitized-path>/skill-<timestamp>/codex-run.{cmd,out,log}
+#   Project-local: .humanize/skill/<unique-id>/{input,output,metadata}.md
+#   Cache: ~/.cache/humanize/<sanitized-path>/skill-<unique-id>/codex-run.{cmd,out,log}
 #
 
 set -euo pipefail
@@ -64,7 +64,7 @@ DESCRIPTION:
   Sends a one-shot question or task to Codex and returns the response.
   Unlike the RLCR loop, this is a single consultation without iteration.
 
-  The response is saved to .humanize/skill/<timestamp>/output.md for reference.
+  The response is saved to .humanize/skill/<unique-id>/output.md for reference.
 
 EXAMPLES:
   /humanize:ask-codex How should I structure the authentication module?
@@ -200,16 +200,17 @@ fi
 # ========================================
 
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+UNIQUE_ID="${TIMESTAMP}-$$-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-# Project-local storage: .humanize/skill/<timestamp>/
-SKILL_DIR="$PROJECT_ROOT/.humanize/skill/$TIMESTAMP"
+# Project-local storage: .humanize/skill/<unique-id>/
+SKILL_DIR="$PROJECT_ROOT/.humanize/skill/$UNIQUE_ID"
 mkdir -p "$SKILL_DIR"
 
-# Cache storage: ~/.cache/humanize/<sanitized-path>/skill-<timestamp>/
+# Cache storage: ~/.cache/humanize/<sanitized-path>/skill-<unique-id>/
 # Falls back to project-local .humanize/cache/ if home cache is not writable
 SANITIZED_PROJECT_PATH=$(echo "$PROJECT_ROOT" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
 CACHE_BASE="${XDG_CACHE_HOME:-$HOME/.cache}"
-CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/skill-$TIMESTAMP"
+CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/skill-$UNIQUE_ID"
 if ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
     CACHE_DIR="$SKILL_DIR/cache"
     mkdir -p "$CACHE_DIR"
