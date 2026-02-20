@@ -57,6 +57,8 @@ TEST_SUITES=(
     # Session ID and Agent Teams tests
     "test-session-id.sh"
     "test-agent-teams.sh"
+    # Ask Codex tests
+    "test-ask-codex.sh"
     # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"
