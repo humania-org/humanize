@@ -2,7 +2,6 @@
 name: ask-codex
 description: One-shot consultation with Codex as an independent expert. Sends a question or task to codex exec and returns the response.
 argument-hint: "[--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [question or task]"
-disable-model-invocation: true
 allowed-tools: "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh:*)"
 ---
 
