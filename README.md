@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.9.4**
+**Current Version: 1.10.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -136,6 +136,7 @@ The loop has two phases:
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 | `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
 | `/cancel-pr-loop` | Cancel active PR loop |
+| `/ask-codex [question]` | One-shot consultation with Codex |
 
 ### Command Options
 
@@ -198,6 +199,26 @@ OPTIONS:
                          Timeout for each Codex review in seconds (default: 900)
   -h, --help             Show help message
 ```
+
+#### ask-codex
+
+```
+/humanize:ask-codex [OPTIONS] <question or task>
+
+OPTIONS:
+  --codex-model <MODEL:EFFORT>
+                         Codex model and reasoning effort (default: gpt-5.3-codex:xhigh)
+  --codex-timeout <SECONDS>
+                         Timeout for the Codex query in seconds (default: 600)
+  -h, --help             Show help message
+```
+
+The ask-codex skill sends a one-shot question or task to Codex and returns the response
+inline. Unlike the RLCR loop, this is a single consultation without iteration -- useful
+for getting a second opinion, reviewing a design, or asking domain-specific questions.
+
+Responses are saved to `.humanize/skill/<timestamp>/` with `input.md`, `output.md`,
+and `metadata.md` for reference.
 
 The PR loop automates the process of handling GitHub PR reviews from remote bots:
 
