@@ -59,6 +59,8 @@ TEST_SUITES=(
     "test-agent-teams.sh"
     # Ask Codex tests
     "test-ask-codex.sh"
+    # Skill monitor tests
+    "test-skill-monitor.sh"
     # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"

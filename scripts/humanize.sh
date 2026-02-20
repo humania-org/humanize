@@ -1116,12 +1116,16 @@ humanize() {
                 pr)
                     _humanize_monitor_pr "$@"
                     ;;
+                skill)
+                    _humanize_monitor_skill "$@"
+                    ;;
                 *)
-                    echo "Usage: humanize monitor <rlcr|pr>"
+                    echo "Usage: humanize monitor <rlcr|pr|skill>"
                     echo ""
                     echo "Subcommands:"
                     echo "  rlcr    Monitor the latest RLCR loop log from .humanize/rlcr"
                     echo "  pr      Monitor the latest PR loop from .humanize/pr-loop"
+                    echo "  skill   Monitor ask-codex skill invocations from .humanize/skill"
                     echo ""
                     echo "Features:"
                     echo "  - Fixed status bar showing session info, round progress, model config"
@@ -1138,6 +1142,7 @@ humanize() {
             echo "Commands:"
             echo "  monitor rlcr    Monitor the latest RLCR loop log"
             echo "  monitor pr      Monitor the latest PR loop"
+            echo "  monitor skill   Monitor ask-codex skill invocations"
             return 1
             ;;
     esac
@@ -1578,3 +1583,8 @@ _humanize_monitor_pr() {
         trap - INT TERM EXIT
     fi
 }
+
+# Source skill monitor (provides _humanize_monitor_skill)
+if [[ -f "$HUMANIZE_SCRIPT_DIR/lib/monitor-skill.sh" ]]; then
+    source "$HUMANIZE_SCRIPT_DIR/lib/monitor-skill.sh"
+fi
