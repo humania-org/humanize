@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.10.4**
+**Current Version: 1.10.5**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -155,11 +155,17 @@ OPTIONS:
   --track-plan-file      Indicate plan file should be tracked in git (must be clean)
   --push-every-round     Require git push after each round (default: commits stay local)
   --base-branch <BRANCH> Base branch for code review phase (default: auto-detect)
-                         Auto-detection priority: remote default > main > master
+                         Priority: user input > remote default > main > master
   --full-review-round <N>
                          Interval for Full Alignment Check rounds (default: 5, min: 2)
+                         Full Alignment Checks occur at rounds N-1, 2N-1, 3N-1, etc.
   --skip-impl            Skip implementation phase, go directly to code review
                          Plan file is optional when using this flag
+  --claude-answer-codex  When Codex finds Open Questions, let Claude answer them
+                         directly instead of asking user via AskUserQuestion
+  --agent-teams          Enable Claude Code Agent Teams mode for parallel development.
+                         Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
+                         Claude acts as team leader, splitting tasks among team members.
   -h, --help             Show help message
 ```
 
@@ -171,6 +177,7 @@ OPTIONS:
 OPTIONS:
   --input   Path to the input draft file (required)
   --output  Path to the output plan file (required)
+  -h, --help             Show help message
 
 The gen-plan command transforms rough draft documents into structured implementation plans.
 
