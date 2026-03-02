@@ -11,7 +11,7 @@
 #   20  - Wrapper/runtime error
 #
 # Usage:
-#   scripts/rlcr-stop-gate.sh [--session-id ID] [--transcript-path PATH] [--tasks-base-dir PATH] [--project-root PATH] [--json]
+#   scripts/rlcr-stop-gate.sh [--session-id ID] [--transcript-path PATH] [--project-root PATH] [--json]
 #
 
 set -euo pipefail
@@ -23,7 +23,6 @@ HOOK_SCRIPT="$HUMANIZE_ROOT/hooks/loop-codex-stop-hook.sh"
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 TRANSCRIPT_PATH="${CLAUDE_TRANSCRIPT_PATH:-}"
-TASKS_BASE_DIR=""
 PRINT_JSON="false"
 
 usage() {
@@ -33,7 +32,6 @@ Usage: rlcr-stop-gate.sh [options]
 Options:
   --session-id ID         Session ID forwarded to hook input
   --transcript-path PATH  Transcript path forwarded to hook input
-  --tasks-base-dir PATH   Task directory override (tests/debug only)
   --project-root PATH     Project root (default: repo root)
   --json                  Print raw hook JSON on block
   -h, --help              Show this help
@@ -50,11 +48,6 @@ while [[ $# -gt 0 ]]; do
         --transcript-path)
             [[ -n "${2:-}" ]] || { echo "Error: --transcript-path requires a value" >&2; exit 20; }
             TRANSCRIPT_PATH="$2"
-            shift 2
-            ;;
-        --tasks-base-dir)
-            [[ -n "${2:-}" ]] || { echo "Error: --tasks-base-dir requires a value" >&2; exit 20; }
-            TASKS_BASE_DIR="$2"
             shift 2
             ;;
         --project-root)
@@ -94,15 +87,13 @@ fi
 HOOK_INPUT=$(jq -n \
     --arg session_id "$SESSION_ID" \
     --arg transcript_path "$TRANSCRIPT_PATH" \
-    --arg tasks_base_dir "$TASKS_BASE_DIR" \
     --arg cwd "$PROJECT_ROOT" \
     '{
         hook_event_name: "Stop",
         stop_hook_active: false,
         cwd: $cwd,
         session_id: ($session_id | select(length > 0)),
-        transcript_path: ($transcript_path | select(length > 0)),
-        tasks_base_dir: ($tasks_base_dir | select(length > 0))
+        transcript_path: ($transcript_path | select(length > 0))
     }')
 
 # Capture hook exit code explicitly to map non-zero to exit 20 (wrapper error)

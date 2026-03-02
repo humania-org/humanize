@@ -86,9 +86,17 @@ sync_dir() {
     if command -v rsync >/dev/null 2>&1; then
         rsync -a --delete "$src/" "$dst/"
     else
-        rm -rf "$dst"
-        mkdir -p "$dst"
-        cp -a "$src/." "$dst/"
+        # Copy to a temp sibling first so the destination is not destroyed
+        # if cp fails partway through (disk full, permission error, etc.).
+        local tmp_dst
+        tmp_dst="$(mktemp -d "$(dirname "$dst")/.sync_tmp.XXXXXX")"
+        if cp -a "$src/." "$tmp_dst/"; then
+            rm -rf "$dst"
+            mv "$tmp_dst" "$dst"
+        else
+            rm -rf "$tmp_dst"
+            die "failed to copy $src to $dst"
+        fi
     fi
 }
 
