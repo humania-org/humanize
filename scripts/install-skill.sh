@@ -1,26 +1,23 @@
 #!/bin/bash
 #
-# Install/upgrade Humanize skills for Kimi and/or Codex and configure HUMANIZE_ROOT.
+# Install/upgrade Humanize skills for Kimi and/or Codex.
 #
 # What this does:
 # 1) Sync skills/{humanize,humanize-gen-plan,humanize-rlcr} to target skills dir(s)
-# 2) Export HUMANIZE_ROOT for this process
-# 3) Optionally persist HUMANIZE_ROOT in shell profile (idempotent managed block)
+# 2) Copy runtime dependencies into <skills-dir>/humanize/{scripts,hooks,prompt-template}
+# 3) Hydrate SKILL.md command paths with concrete runtime root paths
 #
 # Usage:
 #   ./scripts/install-skill.sh [options]
 #
 # Options:
-#   --repo-root PATH       Humanize repo root (default: auto-detect)
-#   --target MODE          kimi|codex|both (default: kimi)
-#   --skills-dir PATH      Legacy alias for target skills dir (kept for compatibility)
-#   --kimi-skills-dir PATH Kimi skills dir (default: ~/.config/agents/skills)
+#   --repo-root PATH        Humanize repo root (default: auto-detect)
+#   --target MODE           kimi|codex|both (default: kimi)
+#   --skills-dir PATH       Legacy alias for target skills dir (kept for compatibility)
+#   --kimi-skills-dir PATH  Kimi skills dir (default: ~/.config/agents/skills)
 #   --codex-skills-dir PATH Codex skills dir (default: ${CODEX_HOME:-~/.codex}/skills)
-#   --humanize-root PATH   Value to write into HUMANIZE_ROOT (default: repo root)
-#   --profile PATH         Profile file to update (default: auto-detect by shell)
-#   --no-persist           Do not modify profile; print export command only
-#   --dry-run              Print actions without writing
-#   -h, --help             Show help
+#   --dry-run               Print actions without writing
+#   -h, --help              Show help
 #
 
 set -euo pipefail
@@ -31,9 +28,6 @@ TARGET="kimi"
 KIMI_SKILLS_DIR="${HOME}/.config/agents/skills"
 CODEX_SKILLS_DIR="${CODEX_HOME:-${HOME}/.codex}/skills"
 LEGACY_SKILLS_DIR=""
-HUMANIZE_ROOT="$REPO_ROOT"
-PROFILE_FILE=""
-PERSIST_PROFILE="true"
 DRY_RUN="false"
 
 SKILL_NAMES=(
@@ -50,16 +44,13 @@ Usage:
   scripts/install-skill.sh [options]
 
 Options:
-  --target MODE          kimi|codex|both (default: kimi)
-  --repo-root PATH       Humanize repo root (default: auto-detect)
-  --skills-dir PATH      Legacy alias for target skills dir (compat)
-  --kimi-skills-dir PATH Kimi skills dir (default: ~/.config/agents/skills)
+  --target MODE           kimi|codex|both (default: kimi)
+  --repo-root PATH        Humanize repo root (default: auto-detect)
+  --skills-dir PATH       Legacy alias for target skills dir (compat)
+  --kimi-skills-dir PATH  Kimi skills dir (default: ~/.config/agents/skills)
   --codex-skills-dir PATH Codex skills dir (default: ${CODEX_HOME:-~/.codex}/skills)
-  --humanize-root PATH   Value to write into HUMANIZE_ROOT (default: repo root)
-  --profile PATH         Profile file to update (default: auto-detect by shell)
-  --no-persist           Do not modify profile; print export command only
-  --dry-run              Print actions without writing
-  -h, --help             Show help
+  --dry-run               Print actions without writing
+  -h, --help              Show help
 EOF
 }
 
@@ -72,29 +63,19 @@ die() {
     exit 1
 }
 
-detect_profile() {
-    local shell_name
-    shell_name="$(basename "${SHELL:-}")"
-    case "$shell_name" in
-        zsh) echo "${HOME}/.zshrc" ;;
-        bash) echo "${HOME}/.bashrc" ;;
-        *) echo "${HOME}/.profile" ;;
-    esac
-}
-
 validate_repo() {
     [[ -d "$REPO_ROOT/skills" ]] || die "skills directory not found under repo root: $REPO_ROOT"
     [[ -d "$REPO_ROOT/scripts" ]] || die "scripts directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/hooks" ]] || die "hooks directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/prompt-template" ]] || die "prompt-template directory not found under repo root: $REPO_ROOT"
     for skill in "${SKILL_NAMES[@]}"; do
         [[ -f "$REPO_ROOT/skills/$skill/SKILL.md" ]] || die "missing $REPO_ROOT/skills/$skill/SKILL.md"
     done
 }
 
-sync_one_skill() {
-    local skill="$1"
-    local target_dir="$2"
-    local src="$REPO_ROOT/skills/$skill"
-    local dst="$target_dir/$skill"
+sync_dir() {
+    local src="$1"
+    local dst="$2"
 
     if [[ "$DRY_RUN" == "true" ]]; then
         log "DRY-RUN sync $src -> $dst"
@@ -109,6 +90,49 @@ sync_one_skill() {
         mkdir -p "$dst"
         cp -a "$src/." "$dst/"
     fi
+}
+
+sync_one_skill() {
+    local skill="$1"
+    local target_dir="$2"
+    local src="$REPO_ROOT/skills/$skill"
+    local dst="$target_dir/$skill"
+    sync_dir "$src" "$dst"
+}
+
+install_runtime_bundle() {
+    local target_dir="$1"
+    local runtime_root="$target_dir/humanize"
+    local component
+
+    log "syncing runtime bundle into: $runtime_root"
+
+    for component in scripts hooks prompt-template; do
+        sync_dir "$REPO_ROOT/$component" "$runtime_root/$component"
+    done
+}
+
+hydrate_skill_runtime_root() {
+    local target_dir="$1"
+    local runtime_root="$target_dir/humanize"
+    local escaped_runtime_root="${runtime_root//&/\\&}"
+    local skill
+    local skill_file
+    local tmp
+
+    for skill in "${SKILL_NAMES[@]}"; do
+        skill_file="$target_dir/$skill/SKILL.md"
+        [[ -f "$skill_file" ]] || continue
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log "DRY-RUN hydrate runtime root in $skill_file"
+            continue
+        fi
+
+        tmp="$(mktemp)"
+        awk -v runtime_root="$escaped_runtime_root" '{gsub(/\{\{HUMANIZE_RUNTIME_ROOT\}\}/, runtime_root); print}' "$skill_file" > "$tmp"
+        mv "$tmp" "$skill_file"
+    done
 }
 
 sync_target() {
@@ -126,42 +150,8 @@ sync_target() {
         log "syncing [$label] skill: $skill"
         sync_one_skill "$skill" "$target_dir"
     done
-}
-
-update_profile() {
-    local profile="$1"
-    local value="$2"
-    local begin="# >>> humanize-kimi >>>"
-    local end="# <<< humanize-kimi <<<"
-    local tmp
-    tmp="$(mktemp)"
-
-    if [[ ! -f "$profile" ]]; then
-        [[ "$DRY_RUN" == "true" ]] || touch "$profile"
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY-RUN update profile block in $profile"
-        return
-    fi
-
-    # Remove existing managed block, if any.
-    awk -v begin="$begin" -v end="$end" '
-        BEGIN { in_block=0 }
-        $0 == begin { in_block=1; next }
-        $0 == end { in_block=0; next }
-        in_block == 0 { print }
-    ' "$profile" > "$tmp"
-
-    {
-        cat "$tmp"
-        echo ""
-        echo "$begin"
-        echo "export HUMANIZE_ROOT=\"$value\""
-        echo "$end"
-    } > "$profile"
-
-    rm -f "$tmp"
+    install_runtime_bundle "$target_dir"
+    hydrate_skill_runtime_root "$target_dir"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -194,20 +184,6 @@ while [[ $# -gt 0 ]]; do
             CODEX_SKILLS_DIR="$2"
             shift 2
             ;;
-        --humanize-root)
-            [[ -n "${2:-}" ]] || die "--humanize-root requires a value"
-            HUMANIZE_ROOT="$2"
-            shift 2
-            ;;
-        --profile)
-            [[ -n "${2:-}" ]] || die "--profile requires a value"
-            PROFILE_FILE="$2"
-            shift 2
-            ;;
-        --no-persist)
-            PERSIST_PROFILE="false"
-            shift
-            ;;
         --dry-run)
             DRY_RUN="true"
             shift
@@ -235,8 +211,6 @@ if [[ -n "$LEGACY_SKILLS_DIR" ]]; then
     esac
 fi
 
-PROFILE_FILE="${PROFILE_FILE:-$(detect_profile)}"
-
 log "repo root: $REPO_ROOT"
 log "target: $TARGET"
 if [[ "$TARGET" == "kimi" || "$TARGET" == "both" ]]; then
@@ -245,8 +219,6 @@ fi
 if [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]; then
     log "codex skills dir: $CODEX_SKILLS_DIR"
 fi
-log "HUMANIZE_ROOT: $HUMANIZE_ROOT"
-log "profile: $PROFILE_FILE"
 
 case "$TARGET" in
     kimi)
@@ -260,20 +232,6 @@ case "$TARGET" in
         sync_target "codex" "$CODEX_SKILLS_DIR"
         ;;
 esac
-
-# Export for current process
-export HUMANIZE_ROOT="$HUMANIZE_ROOT"
-
-if [[ "$PERSIST_PROFILE" == "true" ]]; then
-    update_profile "$PROFILE_FILE" "$HUMANIZE_ROOT"
-    if [[ "$DRY_RUN" == "true" ]]; then
-        log "would update profile: $PROFILE_FILE"
-    else
-        log "updated profile: $PROFILE_FILE"
-    fi
-else
-    log "profile update skipped (--no-persist)"
-fi
 
 cat <<EOF
 
@@ -296,34 +254,8 @@ fi
 
 cat <<EOF
 
-HUMANIZE_ROOT:
-  $HUMANIZE_ROOT
+Runtime root per target:
+  <skills-dir>/humanize
 
-EOF
-
-if [[ "$PERSIST_PROFILE" == "true" ]]; then
-    cat <<EOF
-To apply profile changes in current shell:
-  source "$PROFILE_FILE"
-EOF
-else
-    cat <<EOF
-To apply in current shell (profile unchanged):
-  export HUMANIZE_ROOT="$HUMANIZE_ROOT"
-EOF
-fi
-
-cat <<EOF
-
-Manual commands to set HUMANIZE_ROOT:
-
-export HUMANIZE_ROOT="$HUMANIZE_ROOT"
-
-zsh:
-  echo 'export HUMANIZE_ROOT="$HUMANIZE_ROOT"' >> ~/.zshrc
-  source ~/.zshrc
-
-bash:
-  echo 'export HUMANIZE_ROOT="$HUMANIZE_ROOT"' >> ~/.bashrc
-  source ~/.bashrc
+No shell profile changes were made.
 EOF

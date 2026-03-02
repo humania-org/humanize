@@ -49,6 +49,8 @@ If you have the plugin cloned locally:
 claude --plugin-dir /path/to/humanize
 ```
 
+For Codex skill runtime installation, see [Install Humanize Skills for Codex](docs/install-for-codex.md).
+
 ### Prerequisites
 
 - `codex` - OpenAI Codex CLI (for review). Check with `codex --version`.

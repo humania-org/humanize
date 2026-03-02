@@ -4,6 +4,12 @@ This guide explains how to install the Humanize skills for Codex skill runtime (
 
 ## Quick Install (Recommended)
 
+One-line install from anywhere:
+
+```bash
+tmp_dir="$(mktemp -d)" && git clone --depth 1 https://github.com/humania-org/humanize.git "$tmp_dir/humanize" && "$tmp_dir/humanize/scripts/install-skills-codex.sh"
+```
+
 From the Humanize repo root:
 
 ```bash
@@ -18,7 +24,7 @@ Or use the unified installer directly:
 
 This will:
 - Sync `humanize`, `humanize-gen-plan`, and `humanize-rlcr` into `${CODEX_HOME:-~/.codex}/skills`
-- Configure `HUMANIZE_ROOT` in your shell profile
+- Copy runtime dependencies into `${CODEX_HOME:-~/.codex}/skills/humanize`
 - Use RLCR defaults: `codex exec` with `gpt-5.2:xhigh`, `codex review` with `gpt-5.2:high`
 
 ## Verify
@@ -31,6 +37,19 @@ Expected directories:
 - `humanize`
 - `humanize-gen-plan`
 - `humanize-rlcr`
+
+Runtime dependencies in `humanize/`:
+- `scripts/`
+- `hooks/`
+- `prompt-template/`
+
+Installed files/directories:
+- `${CODEX_HOME:-~/.codex}/skills/humanize/SKILL.md`
+- `${CODEX_HOME:-~/.codex}/skills/humanize-gen-plan/SKILL.md`
+- `${CODEX_HOME:-~/.codex}/skills/humanize-rlcr/SKILL.md`
+- `${CODEX_HOME:-~/.codex}/skills/humanize/scripts/`
+- `${CODEX_HOME:-~/.codex}/skills/humanize/hooks/`
+- `${CODEX_HOME:-~/.codex}/skills/humanize/prompt-template/`
 
 ## Optional: Install for Both Codex and Kimi
 
@@ -46,9 +65,6 @@ Expected directories:
 
 # Custom Codex skills dir
 ./scripts/install-skills-codex.sh --codex-skills-dir /custom/codex/skills
-
-# Do not edit shell profile
-./scripts/install-skills-codex.sh --no-persist
 ```
 
 ## Troubleshooting
@@ -56,8 +72,5 @@ Expected directories:
 If scripts are not found from installed skills:
 
 ```bash
-echo "$HUMANIZE_ROOT"
-ls -la "$HUMANIZE_ROOT/scripts"
+ls -la "${CODEX_HOME:-$HOME/.codex}/skills/humanize/scripts"
 ```
-
-If `HUMANIZE_ROOT` is wrong, update it in your shell profile and restart your terminal.

@@ -10,21 +10,20 @@ Use this flow to run RLCR in environments without native hooks.
 Do not re-implement review logic manually. Always call the RLCR stop gate wrapper:
 
 ```bash
-"${HUMANIZE_ROOT}/scripts/rlcr-stop-gate.sh"
+"{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh"
 ```
 
 The wrapper executes `hooks/loop-codex-stop-hook.sh`, so skill-mode behavior stays aligned with hook-mode behavior.
 
 ## Runtime Root
 
-Set root path once:
+The installer hydrates this skill with an absolute runtime root path:
 
 ```bash
-export HUMANIZE_ROOT="/path/to/humanize"
-export HUMANIZE_ROOT="${HUMANIZE_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+{{HUMANIZE_RUNTIME_ROOT}}
 ```
 
-All commands below assume `${HUMANIZE_ROOT}` is set.
+All commands below assume `{{HUMANIZE_RUNTIME_ROOT}}`.
 
 ## Required Sequence
 
@@ -33,7 +32,7 @@ All commands below assume `${HUMANIZE_ROOT}` is set.
 Start the loop with the setup script:
 
 ```bash
-"${HUMANIZE_ROOT}/scripts/setup-rlcr-loop.sh" $ARGUMENTS
+"{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-rlcr-loop.sh" $ARGUMENTS
 ```
 
 If setup exits non-zero, stop and report the error.
@@ -51,7 +50,7 @@ For each round:
 5. Run gate command:
 
 ```bash
-GATE_CMD=("${HUMANIZE_ROOT}/scripts/rlcr-stop-gate.sh")
+GATE_CMD=("{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh")
 [[ -n "${CLAUDE_SESSION_ID:-}" ]] && GATE_CMD+=(--session-id "$CLAUDE_SESSION_ID")
 [[ -n "${CLAUDE_TRANSCRIPT_PATH:-}" ]] && GATE_CMD+=(--transcript-path "$CLAUDE_TRANSCRIPT_PATH")
 "${GATE_CMD[@]}"
@@ -126,5 +125,5 @@ Review phase `codex review` runs with `gpt-5.2:high`.
 ## Cancel
 
 ```bash
-"${HUMANIZE_ROOT}/scripts/cancel-rlcr-loop.sh"
+"{{HUMANIZE_RUNTIME_ROOT}}/scripts/cancel-rlcr-loop.sh"
 ```

@@ -24,8 +24,7 @@ From the Humanize repo root, run:
 
 This command will:
 - Sync `humanize`, `humanize-gen-plan`, and `humanize-rlcr` into `~/.config/agents/skills`
-- Configure `HUMANIZE_ROOT` in your shell profile
-- Print the `source` command to apply changes in the current shell
+- Copy runtime dependencies into `~/.config/agents/skills/humanize`
 
 Common installer script (all targets):
 
@@ -41,21 +40,7 @@ Common installer script (all targets):
 cd /path/to/humanize
 ```
 
-### 2. Set Humanize runtime root
-
-The skills call scripts from the Humanize repository.  
-Export `HUMANIZE_ROOT` so skills can find them without hard-coded paths:
-
-```bash
-export HUMANIZE_ROOT="$(pwd)"
-
-# Persist in your shell profile (choose one)
-echo 'export HUMANIZE_ROOT="/path/to/humanize"' >> ~/.zshrc
-# or
-echo 'export HUMANIZE_ROOT="/path/to/humanize"' >> ~/.bashrc
-```
-
-### 3. Copy skills to kimi's skills directory
+### 2. Copy skills and runtime bundle to kimi's skills directory
 
 ```bash
 # Create the skills directory if it doesn't exist
@@ -65,9 +50,20 @@ mkdir -p ~/.config/agents/skills
 cp -r skills/humanize ~/.config/agents/skills/
 cp -r skills/humanize-gen-plan ~/.config/agents/skills/
 cp -r skills/humanize-rlcr ~/.config/agents/skills/
+
+# Copy runtime dependencies used by the skills
+cp -r scripts ~/.config/agents/skills/humanize/
+cp -r hooks ~/.config/agents/skills/humanize/
+cp -r prompt-template ~/.config/agents/skills/humanize/
+
+# Hydrate runtime root placeholders inside SKILL.md files
+for skill in humanize humanize-gen-plan humanize-rlcr; do
+  sed -i.bak "s|{{HUMANIZE_RUNTIME_ROOT}}|$HOME/.config/agents/skills/humanize|g" \
+    "$HOME/.config/agents/skills/$skill/SKILL.md"
+done
 ```
 
-### 4. Verify installation
+### 3. Verify installation
 
 ```bash
 # List installed skills
@@ -79,7 +75,7 @@ ls -la ~/.config/agents/skills/
 # humanize-rlcr/
 ```
 
-### 5. Restart kimi (if already running)
+### 4. Restart kimi (if already running)
 
 Skills are loaded at startup. Restart kimi to pick up the new skills:
 
@@ -210,11 +206,8 @@ export OPENAI_API_KEY="your-api-key"
 If skills report missing scripts like `setup-rlcr-loop.sh`, verify:
 
 ```bash
-echo "$HUMANIZE_ROOT"
-ls -la "$HUMANIZE_ROOT/scripts"
+ls -la ~/.config/agents/skills/humanize/scripts
 ```
-
-If empty or wrong, update `HUMANIZE_ROOT` in your shell profile and restart kimi.
 
 ### Installer options
 
@@ -232,9 +225,6 @@ Common examples:
 
 # Custom skills directory
 ./scripts/install-skills-kimi.sh --skills-dir /custom/skills/dir
-
-# Do not modify shell profile
-./scripts/install-skills-kimi.sh --no-persist
 ```
 
 ### Output files not found

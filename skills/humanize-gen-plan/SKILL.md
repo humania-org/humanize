@@ -8,16 +8,15 @@ type: flow
 
 Transforms a rough draft document into a well-structured implementation plan with clear goals, acceptance criteria (AC-X format), path boundaries, and feasibility suggestions.
 
-Set runtime root before running validation commands:
+The installer hydrates this skill with an absolute runtime root path:
 
 ```bash
-export HUMANIZE_ROOT="/path/to/humanize"
-export HUMANIZE_ROOT="${HUMANIZE_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+{{HUMANIZE_RUNTIME_ROOT}}
 ```
 
 ```mermaid
 flowchart TD
-    BEGIN([BEGIN]) --> VALIDATE[Validate input/output paths<br/>Run: ${HUMANIZE_ROOT}/scripts/validate-gen-plan-io.sh --input &lt;draft&gt; --output &lt;plan&gt;]
+    BEGIN([BEGIN]) --> VALIDATE[Validate input/output paths<br/>Run: {{HUMANIZE_RUNTIME_ROOT}}/scripts/validate-gen-plan-io.sh --input &lt;draft&gt; --output &lt;plan&gt;]
     VALIDATE --> CHECK{Validation passed?}
     CHECK -->|No| REPORT_ERROR[Report validation error<br/>Stop]
     REPORT_ERROR --> END_FAIL([END])
