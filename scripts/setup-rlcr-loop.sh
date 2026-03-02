@@ -26,23 +26,9 @@ GIT_TIMEOUT=30
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
 
-# RLCR defaults:
-# - Claude Code plugin flow -> gpt-5.3-codex:xhigh (historical default)
-# - Skill mode (Codex/Kimi) -> gpt-5.2:xhigh
-# - codex review effort     -> high (enforced in stop hook)
-#
+# Source shared loop library (provides runtime-aware DEFAULT_CODEX_MODEL and other constants)
 # Callers can override by exporting DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT
 # before invoking this script.
-if [[ -z "${DEFAULT_CODEX_MODEL:-}" ]]; then
-    if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
-        DEFAULT_CODEX_MODEL="gpt-5.3-codex"
-    else
-        DEFAULT_CODEX_MODEL="gpt-5.2"
-    fi
-fi
-DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-xhigh}"
-
-# Source shared loop library (provides DEFAULT_CODEX_MODEL and other constants)
 HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
 source "$HOOKS_LIB_DIR/loop-common.sh"
 

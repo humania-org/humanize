@@ -89,17 +89,32 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Build hook input JSON while omitting empty fields.
+# Include standard Stop hook fields so the underlying hook sees the same schema
+# as a real Claude Code Stop event (hook_event_name, stop_hook_active, cwd).
 HOOK_INPUT=$(jq -n \
     --arg session_id "$SESSION_ID" \
     --arg transcript_path "$TRANSCRIPT_PATH" \
     --arg tasks_base_dir "$TASKS_BASE_DIR" \
+    --arg cwd "$PROJECT_ROOT" \
     '{
+        hook_event_name: "Stop",
+        stop_hook_active: false,
+        cwd: $cwd,
         session_id: ($session_id | select(length > 0)),
         transcript_path: ($transcript_path | select(length > 0)),
         tasks_base_dir: ($tasks_base_dir | select(length > 0))
     }')
 
-HOOK_OUTPUT="$(printf '%s' "$HOOK_INPUT" | CLAUDE_PROJECT_DIR="$PROJECT_ROOT" "$HOOK_SCRIPT")"
+# Capture hook exit code explicitly to map non-zero to exit 20 (wrapper error)
+# instead of letting set -e propagate the raw hook exit code.
+HOOK_EXIT=0
+HOOK_OUTPUT="$(printf '%s' "$HOOK_INPUT" | CLAUDE_PROJECT_DIR="$PROJECT_ROOT" "$HOOK_SCRIPT")" || HOOK_EXIT=$?
+
+if [[ $HOOK_EXIT -ne 0 ]]; then
+    echo "Error: Hook script exited with code $HOOK_EXIT" >&2
+    [[ -n "$HOOK_OUTPUT" ]] && printf '%s\n' "$HOOK_OUTPUT" >&2
+    exit 20
+fi
 
 # No JSON response means hook allowed exit.
 if [[ -z "$HOOK_OUTPUT" ]]; then

@@ -115,7 +115,6 @@ install_runtime_bundle() {
 hydrate_skill_runtime_root() {
     local target_dir="$1"
     local runtime_root="$target_dir/humanize"
-    local escaped_runtime_root="${runtime_root//&/\\&}"
     local skill
     local skill_file
     local tmp
@@ -130,7 +129,12 @@ hydrate_skill_runtime_root() {
         fi
 
         tmp="$(mktemp)"
-        awk -v runtime_root="$escaped_runtime_root" '{gsub(/\{\{HUMANIZE_RUNTIME_ROOT\}\}/, runtime_root); print}' "$skill_file" > "$tmp"
+        # Use ENVIRON to pass the runtime root to awk instead of -v, which
+        # interprets backslash escape sequences (e.g. \n -> newline).
+        # ENVIRON passes the value verbatim.
+        _HYDRATE_RUNTIME_ROOT="$runtime_root" \
+            awk '{gsub(/\{\{HUMANIZE_RUNTIME_ROOT\}\}/, ENVIRON["_HYDRATE_RUNTIME_ROOT"]); print}' "$skill_file" > "$tmp" \
+            || { rm -f "$tmp"; die "failed to hydrate $skill_file"; }
         mv "$tmp" "$skill_file"
     done
 }

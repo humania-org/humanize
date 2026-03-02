@@ -40,8 +40,18 @@ readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
-# Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort)
-DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-gpt-5.3-codex}"
+# Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort).
+#
+# Runtime-aware model selection:
+# - Claude Code plugin flow (CLAUDE_PLUGIN_ROOT set) -> gpt-5.3-codex
+# - Skill mode (Codex/Kimi, no CLAUDE_PLUGIN_ROOT)  -> gpt-5.2
+if [[ -z "${DEFAULT_CODEX_MODEL:-}" ]]; then
+    if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        DEFAULT_CODEX_MODEL="gpt-5.3-codex"
+    else
+        DEFAULT_CODEX_MODEL="gpt-5.2"
+    fi
+fi
 DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-xhigh}"
 
 # Codex review markers
