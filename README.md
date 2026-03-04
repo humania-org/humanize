@@ -1,258 +1,64 @@
 # Humanize
 
-**Current Version: 1.12.2**
+**Current Version: 1.12.3**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
-## What is RLCR?
+A Claude Code plugin that provides iterative development with independent AI review. Build with confidence through continuous feedback loops.
 
-**RLCR** stands for **Ralph-Loop with Codex Review**. It was inspired by the official [ralph-loop](https://github.com/anthropics/claude-code/tree/main/.plugins/ralph-loop) plugin, enhanced with a series of optimizations and independent Codex review capabilities.
+## Core Concepts
 
-The name can also be interpreted as **Reinforcement Learning with Code Review** - reflecting the iterative improvement cycle where AI-generated code is continuously refined through external review feedback.
+- **Iteration over Perfection** -- Instead of expecting perfect output in one shot, Humanize leverages continuous feedback loops where issues are caught early and refined incrementally.
+- **One Build + One Review** -- Claude implements, Codex independently reviews. No blind spots.
+- **Ralph Loop with Swarm Mode** -- Iterative refinement continues until all acceptance criteria are met. Optionally parallelize with Agent Teams.
 
-A Claude Code plugin that provides iterative development with Codex review. Humanize creates a feedback loop where Claude implements your plan while Codex independently reviews the work, ensuring quality through continuous refinement.
+## How It Works
 
-## Core Philosophy
+<p align="center">
+  <img src="docs/images/rlcr-workflow.svg" alt="RLCR Workflow" width="680"/>
+</p>
 
-**Iteration over Perfection**: Instead of expecting perfect output in one shot, Humanize leverages an iterative feedback loop where:
-- Claude implements your plan
-- Codex independently reviews progress
-- Issues are caught and addressed early
-- Work continues until all acceptance criteria are met
+The loop has two phases: **Implementation** (Claude works, Codex reviews summaries) and **Code Review** (Codex checks code quality with severity markers). Issues feed back into implementation until resolved.
 
-This approach provides:
-- Independent review preventing blind spots
-- Goal tracking to prevent drift
-- Quality assurance through iteration
-- Complete audit trail of development progress
-
-## Installation
-
-### Option 1: Install from Git Marketplace (Recommended)
-
-Start Claude Code and run the following commands:
+## Install
 
 ```bash
-# Add the marketplace
 /plugin marketplace add git@github.com:humania-org/humanize.git
-
-# Install the plugin
 /plugin install humanize@humania
 ```
 
-### Option 2: Local Development / Testing
+Requires [codex CLI](https://github.com/openai/codex) for review. See the full [Installation Guide](docs/install-for-claude.md) for prerequisites and alternative setup options.
 
-If you have the plugin cloned locally:
+## Quick Start
 
-```bash
-# Start Claude Code with the plugin directory
-claude --plugin-dir /path/to/humanize
-```
-
-For Codex skill runtime installation, see [Install Humanize Skills for Codex](docs/install-for-codex.md).
-
-### Prerequisites
-
-- `codex` - OpenAI Codex CLI (for review). Check with `codex --version`.
-
-### Environment Variables
-
-Humanize supports the following environment variables for advanced configuration:
-
-#### HUMANIZE_CODEX_BYPASS_SANDBOX
-
-**WARNING: This is a dangerous option that disables security protections. Use only if you understand the implications.**
-
-- **Purpose**: Controls whether Codex runs with sandbox protection
-- **Default**: Not set (uses `--full-auto` with sandbox protection)
-- **Values**:
-  - `true` or `1`: Bypasses Codex sandbox and approvals (uses `--dangerously-bypass-approvals-and-sandbox`)
-  - Any other value or unset: Uses safe mode with sandbox
-
-**When to use this**:
-- Linux servers without landlock kernel support (where Codex sandbox fails)
-- Automated CI/CD pipelines in trusted environments
-- Development environments where you have full control
-
-**When NOT to use this**:
-- Public or shared development servers
-- When reviewing untrusted code or pull requests
-- Production systems
-- Any environment where unauthorized system access could cause damage
-
-**Security implications**:
-- Codex will have unrestricted access to your filesystem
-- Codex can execute arbitrary commands without approval prompts
-- Review all code changes carefully when using this mode
-
-**Usage example**:
-```bash
-# Export before starting Claude Code
-export HUMANIZE_CODEX_BYPASS_SANDBOX=true
-
-# Or set for a single session
-HUMANIZE_CODEX_BYPASS_SANDBOX=true claude --plugin-dir /path/to/humanize
-```
-
-## Usage
-
-### How It Works
-
-```mermaid
-flowchart LR
-    Plan["Your Plan<br/>(plan.md)"] --> Claude["Claude Implements<br/>& Summarizes"]
-    Claude --> Codex["Codex Reviews<br/>Summary"]
-    Codex -->|Feedback Loop| Claude
-    Codex -->|COMPLETE| Review["Code Review<br/>(codex review)"]
-    Review -->|Issues Found| Claude
-    Review -->|No Issues| Done((Done))
-```
-
-The loop has two phases:
-1. **Implementation Phase**: Claude works, Codex reviews summaries until COMPLETE
-2. **Review Phase**: `codex review --base <branch>` checks code quality with `[P0-9]` severity markers
-
-### Quick Start
-
-1. **Create a plan file** or just write down your thoughts in `<name/you/like/for/draft>.md` and use `/humanize:gen-plan`
+1. **Generate a plan** from your draft:
    ```bash
-   /humanize:gen-plan --input <name/you/like/for/draft.md> --output <docs/my-feature-plan.md>
-   ``` 
-3. **Run the loop**:
-   ```bash
-   /humanize:start-rlcr-loop <docs/my-feature-plan.md>
+   /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
-4. **Monitor progress** in `.humanize/rlcr/<timestamp>/` or you can use the monitor script:
+
+2. **Run the loop**:
    ```bash
-   source ~/.claude/plugins/cache/humania/humanize/<LATEST.VERSION>/scripts/humanize.sh // Add this to your .bashrc or .zshrc
-   humanize monitor [rlcr|pr] // Launch this from where you start claude to monitor RLCR loop or PR loop
+   /humanize:start-rlcr-loop docs/plan.md
    ```
-5. **Cancel if needed**: `/humanize:cancel-rlcr-loop`
 
-### Commands
+3. **Monitor progress**:
+   ```bash
+   humanize monitor rlcr
+   ```
 
-| Command | Purpose |
-|---------|---------|
-| `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
-| `/cancel-rlcr-loop` | Cancel active loop |
-| `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
-| `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
-| `/cancel-pr-loop` | Cancel active PR loop |
-| `/ask-codex [question]` | One-shot consultation with Codex |
+## Monitor Dashboard
 
-### Command Options
+<p align="center">
+  <img src="docs/images/monitor.png" alt="Humanize Monitor" width="680"/>
+</p>
 
-#### start-rlcr-loop
+## Documentation
 
-```
-/humanize:start-rlcr-loop [path/to/plan.md | --plan-file path/to/plan.md] [OPTIONS]
-
-OPTIONS:
-  --plan-file <path>     Explicit plan file path (alternative to positional arg)
-  --max <N>              Maximum iterations before auto-stop (default: 42)
-  --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.2-codex:xhigh)
-  --codex-timeout <SECONDS>
-                         Timeout for each Codex review in seconds (default: 5400)
-  --track-plan-file      Indicate plan file should be tracked in git (must be clean)
-  --push-every-round     Require git push after each round (default: commits stay local)
-  --base-branch <BRANCH> Base branch for code review phase (default: auto-detect)
-                         Priority: user input > remote default > main > master
-  --full-review-round <N>
-                         Interval for Full Alignment Check rounds (default: 5, min: 2)
-                         Full Alignment Checks occur at rounds N-1, 2N-1, 3N-1, etc.
-  --skip-impl            Skip implementation phase, go directly to code review
-                         Plan file is optional when using this flag
-  --claude-answer-codex  When Codex finds Open Questions, let Claude answer them
-                         directly instead of asking user via AskUserQuestion
-  --agent-teams          Enable Claude Code Agent Teams mode for parallel development.
-                         Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
-                         Claude acts as team leader, splitting tasks among team members.
-  -h, --help             Show help message
-```
-
-#### gen-plan
-
-```
-/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md>
-
-OPTIONS:
-  --input   Path to the input draft file (required)
-  --output  Path to the output plan file (required)
-  -h, --help             Show help message
-
-The gen-plan command transforms rough draft documents into structured implementation plans.
-
-Workflow:
-1. Validates input/output paths
-2. Checks if draft is relevant to the repository
-3. Analyzes draft for clarity, consistency, completeness, and functionality
-4. Engages user to resolve any issues found
-5. Generates a structured plan.md with AC-X acceptance criteria
-```
-
-#### start-pr-loop
-
-```
-/humanize:start-pr-loop --claude|--codex [OPTIONS]
-
-BOT FLAGS (at least one required):
-  --claude   Monitor reviews from claude[bot] (trigger with @claude)
-  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger with @codex)
-
-OPTIONS:
-  --max <N>              Maximum iterations before auto-stop (default: 42)
-  --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.2-codex:medium)
-  --codex-timeout <SECONDS>
-                         Timeout for each Codex review in seconds (default: 900)
-  -h, --help             Show help message
-```
-
-#### ask-codex
-
-```
-/humanize:ask-codex [OPTIONS] <question or task>
-
-OPTIONS:
-  --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.2-codex:xhigh)
-  --codex-timeout <SECONDS>
-                         Timeout for the Codex query in seconds (default: 3600)
-  -h, --help             Show help message
-```
-
-The ask-codex skill sends a one-shot question or task to Codex and returns the response
-inline. Unlike the RLCR loop, this is a single consultation without iteration -- useful
-for getting a second opinion, reviewing a design, or asking domain-specific questions.
-
-Responses are saved to `.humanize/skill/<timestamp>/` with `input.md`, `output.md`,
-and `metadata.md` for reference.
-
-The PR loop automates the process of handling GitHub PR reviews from remote bots:
-
-1. Detects the PR associated with the current branch
-2. Fetches review comments from the specified bot(s)
-3. Claude analyzes and fixes issues identified by the bot(s)
-4. Pushes changes and triggers re-review by commenting @bot
-5. Stop Hook polls for new bot reviews (every 30s, 15min timeout per bot)
-6. Local Codex validates if remote concerns are approved or have issues
-7. Loop continues until all bots approve or max iterations reached
-
-**Prerequisites:**
-- GitHub CLI (`gh`) must be installed and authenticated
-- Codex CLI must be installed
-- Current branch must have an associated open PR
-
-**Monitoring:**
-```bash
-humanize monitor pr
-```
+- [Usage Guide](docs/usage.md) -- Commands, options, environment variables
+- [Install for Claude Code](docs/install-for-claude.md) -- Full installation instructions
+- [Install for Codex](docs/install-for-codex.md) -- Codex skill runtime setup
+- [Install for Kimi](docs/install-for-kimi.md) -- Kimi CLI skill setup
 
 ## License
 
 MIT
-
-## Credits
-
-- Claude Code: [Anthropic](https://github.com/anthropics/claude-code)
