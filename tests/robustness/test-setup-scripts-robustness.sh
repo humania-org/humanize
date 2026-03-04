@@ -673,21 +673,21 @@ create_minimal_plan "$TEST_DIR/repo28"
 echo "plan.md" >> "$TEST_DIR/repo28/.gitignore"
 git -C "$TEST_DIR/repo28" add .gitignore && git -C "$TEST_DIR/repo28" commit -q -m "Add gitignore"
 
-# Create empty bin dir with no codex - should fail at codex check
+# Create empty bin dir with no codex - should fail at dependency check
 mkdir -p "$TEST_DIR/repo28/bin"
 # Prepend empty bin dir to hide system codex (if any)
 
 OUTPUT=$(PATH="$TEST_DIR/repo28/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo28" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
-# Should fail at codex check (not argument parsing) - proves args were valid
+# Should fail at dependency check (not argument parsing) - proves args were valid
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "codex"; then
-    pass "Valid RLCR setup proceeds to codex check"
+    pass "Valid RLCR setup proceeds to dependency check"
 else
     # If codex is actually installed, it might proceed further
     if command -v codex &>/dev/null; then
         pass "Valid RLCR setup (codex available, may proceed further)"
     else
-        fail "Valid RLCR setup" "fail at codex check" "exit=$EXIT_CODE"
+        fail "Valid RLCR setup" "fail at dependency check" "exit=$EXIT_CODE"
     fi
 fi
 
@@ -704,7 +704,7 @@ mkdir -p "$TEST_DIR/repo29/bin"
 
 OUTPUT=$(PATH="$TEST_DIR/repo29/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo29" plan.md --max 10 --codex-timeout 3600 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
-# Should NOT fail at argument parsing - should fail later (codex check)
+# Should NOT fail at argument parsing - should fail later (dependency check)
 if echo "$OUTPUT" | grep -qi "positive integer"; then
     fail "Valid numeric args" "accepted" "rejected as invalid"
 else
@@ -1072,6 +1072,137 @@ else
     else
         pass "--skip-impl with plan file works"
     fi
+fi
+
+# ========================================
+# Dependency Check Tests
+# ========================================
+
+echo ""
+echo "--- Dependency Check Tests ---"
+echo ""
+
+# Test 46: Missing codex shows dependency error
+echo "Test 46: Missing codex shows dependency error"
+mkdir -p "$TEST_DIR/repo46"
+init_basic_git_repo "$TEST_DIR/repo46"
+create_minimal_plan "$TEST_DIR/repo46"
+echo "plan.md" >> "$TEST_DIR/repo46/.gitignore"
+git -C "$TEST_DIR/repo46" add .gitignore && git -C "$TEST_DIR/repo46" commit -q -m "Add gitignore"
+
+# Create bin dir with jq but no codex
+mkdir -p "$TEST_DIR/repo46/bin"
+cat > "$TEST_DIR/repo46/bin/jq" << 'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$TEST_DIR/repo46/bin/jq"
+# Hide system codex by making the only codex on PATH our empty bin dir
+OUTPUT=$(PATH="$TEST_DIR/repo46/bin:/usr/bin:/bin" run_rlcr_setup "$TEST_DIR/repo46" plan.md 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "Missing required dependencies" && echo "$OUTPUT" | grep -q "codex"; then
+    pass "Missing codex detected in dependency check"
+else
+    if command -v codex &>/dev/null; then
+        skip "Cannot test missing codex (codex is installed on this system)"
+    else
+        fail "Missing codex detection" "dependency error mentioning codex" "exit=$EXIT_CODE output=$OUTPUT"
+    fi
+fi
+
+# Test 47: Missing jq shows dependency error
+echo ""
+echo "Test 47: Missing jq shows dependency error"
+mkdir -p "$TEST_DIR/repo47"
+init_basic_git_repo "$TEST_DIR/repo47"
+create_minimal_plan "$TEST_DIR/repo47"
+echo "plan.md" >> "$TEST_DIR/repo47/.gitignore"
+git -C "$TEST_DIR/repo47" add .gitignore && git -C "$TEST_DIR/repo47" commit -q -m "Add gitignore"
+
+# Create bin dir with codex but no jq
+mkdir -p "$TEST_DIR/repo47/bin"
+cat > "$TEST_DIR/repo47/bin/codex" << 'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$TEST_DIR/repo47/bin/codex"
+# Use a restricted PATH that has git but no jq
+OUTPUT=$(PATH="$TEST_DIR/repo47/bin:/usr/bin:/bin" run_rlcr_setup "$TEST_DIR/repo47" plan.md 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "Missing required dependencies" && echo "$OUTPUT" | grep -q "jq"; then
+    pass "Missing jq detected in dependency check"
+else
+    if command -v jq &>/dev/null && [[ "$(command -v jq)" == /usr/bin/jq || "$(command -v jq)" == /bin/jq ]]; then
+        skip "Cannot test missing jq (jq is available in /usr/bin or /bin)"
+    else
+        fail "Missing jq detection" "dependency error mentioning jq" "exit=$EXIT_CODE output=$OUTPUT"
+    fi
+fi
+
+# Test 48: Multiple missing dependencies listed together
+echo ""
+echo "Test 48: Multiple missing dependencies listed together"
+mkdir -p "$TEST_DIR/repo48"
+init_basic_git_repo "$TEST_DIR/repo48"
+create_minimal_plan "$TEST_DIR/repo48"
+echo "plan.md" >> "$TEST_DIR/repo48/.gitignore"
+git -C "$TEST_DIR/repo48" add .gitignore && git -C "$TEST_DIR/repo48" commit -q -m "Add gitignore"
+
+# Create a bin dir that has system tools but not codex or jq.
+# We symlink all of /usr/bin except codex and jq, plus add git.
+mkdir -p "$TEST_DIR/repo48/bin"
+# Only include essential tools (bash, env, git, etc.) but NOT codex or jq
+for tool in bash env cat sed awk grep mkdir date head od tr wc dirname sort ls rm cp mv chmod ln readlink printf; do
+    TOOL_PATH=$(command -v "$tool" 2>/dev/null || true)
+    if [[ -n "$TOOL_PATH" && -x "$TOOL_PATH" && ! -e "$TEST_DIR/repo48/bin/$tool" ]]; then
+        ln -s "$TOOL_PATH" "$TEST_DIR/repo48/bin/$tool"
+    fi
+done
+REAL_GIT_PATH=$(command -v git)
+ln -s "$REAL_GIT_PATH" "$TEST_DIR/repo48/bin/git"
+# Also link timeout/gtimeout if available
+for tool in timeout gtimeout; do
+    TOOL_PATH=$(command -v "$tool" 2>/dev/null || true)
+    if [[ -n "$TOOL_PATH" && -x "$TOOL_PATH" ]]; then
+        ln -s "$TOOL_PATH" "$TEST_DIR/repo48/bin/$tool"
+    fi
+done
+
+OUTPUT=$(PATH="$TEST_DIR/repo48/bin" run_rlcr_setup "$TEST_DIR/repo48" plan.md 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -q "codex" && echo "$OUTPUT" | grep -q "jq"; then
+    pass "Multiple missing dependencies listed in single error"
+else
+    # If both tools happen to be in our restricted bin, skip
+    if PATH="$TEST_DIR/repo48/bin" command -v codex &>/dev/null && PATH="$TEST_DIR/repo48/bin" command -v jq &>/dev/null; then
+        skip "Cannot test multiple missing deps (both available in restricted PATH)"
+    else
+        fail "Multiple missing deps" "error listing codex and jq" "exit=$EXIT_CODE"
+    fi
+fi
+
+# Test 49: All dependencies present passes check
+echo ""
+echo "Test 49: All dependencies present passes dependency check"
+mkdir -p "$TEST_DIR/repo49"
+init_basic_git_repo "$TEST_DIR/repo49"
+create_minimal_plan "$TEST_DIR/repo49"
+echo "plan.md" >> "$TEST_DIR/repo49/.gitignore"
+git -C "$TEST_DIR/repo49" add .gitignore && git -C "$TEST_DIR/repo49" commit -q -m "Add gitignore"
+
+# Create mock codex and jq
+mkdir -p "$TEST_DIR/repo49/bin"
+echo '#!/bin/bash
+exit 0' > "$TEST_DIR/repo49/bin/codex"
+chmod +x "$TEST_DIR/repo49/bin/codex"
+
+OUTPUT=$(PATH="$TEST_DIR/repo49/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo49" plan.md 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+# Should NOT fail at dependency check - should proceed further
+if echo "$OUTPUT" | grep -qi "Missing required dependencies"; then
+    fail "All deps present" "no dependency error" "dependency error shown"
+else
+    pass "All dependencies present - proceeds past dependency check"
 fi
 
 # ========================================

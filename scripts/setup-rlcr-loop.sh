@@ -255,6 +255,37 @@ PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 # loop-common.sh already sourced above (provides find_active_loop, find_active_pr_loop, etc.)
 
 # ========================================
+# Required Dependency Check
+# ========================================
+# Check all required external tools upfront so users get a single,
+# actionable error message instead of a cryptic mid-loop failure.
+
+MISSING_DEPS=()
+
+if ! command -v codex &>/dev/null; then
+    MISSING_DEPS+=("codex  - Install: https://github.com/openai/codex")
+fi
+
+if ! command -v jq &>/dev/null; then
+    MISSING_DEPS+=("jq     - Install: https://jqlang.github.io/jq/download/")
+fi
+
+if ! command -v git &>/dev/null; then
+    MISSING_DEPS+=("git    - Install: https://git-scm.com/downloads")
+fi
+
+if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
+    echo "Error: Missing required dependencies for RLCR loop" >&2
+    echo "" >&2
+    for dep in "${MISSING_DEPS[@]}"; do
+        echo "  - $dep" >&2
+    done
+    echo "" >&2
+    echo "Please install the missing tools and try again." >&2
+    exit 1
+fi
+
+# ========================================
 # Mutual Exclusion Check
 # ========================================
 
@@ -577,14 +608,6 @@ else
     # Skip-impl mode: set placeholder LINE_COUNT
     LINE_COUNT=0
 fi  # End of skip-impl plan file content validation skip
-
-# Check codex is available
-if ! command -v codex &>/dev/null; then
-    echo "Error: start-rlcr-loop requires codex to run" >&2
-    echo "" >&2
-    echo "Please install Codex CLI: https://openai.com/codex" >&2
-    exit 1
-fi
 
 # ========================================
 # Record Branch
