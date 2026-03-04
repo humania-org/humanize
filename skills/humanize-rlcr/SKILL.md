@@ -2,6 +2,7 @@
 name: humanize-rlcr
 description: Start RLCR (Ralph-Loop with Codex Review) with hook-equivalent enforcement from skill mode by reusing the existing stop-hook logic.
 type: flow
+user-invocable: false
 ---
 
 # Humanize RLCR Loop (Hook-Equivalent)

@@ -147,6 +147,42 @@ hydrate_skill_runtime_root() {
     done
 }
 
+strip_user_invocable_for_runtime() {
+    local target_dir="$1"
+    local skill
+    local skill_file
+    local tmp
+
+    for skill in "${SKILL_NAMES[@]}"; do
+        skill_file="$target_dir/$skill/SKILL.md"
+        [[ -f "$skill_file" ]] || continue
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log "DRY-RUN strip user-invocable in $skill_file"
+            continue
+        fi
+
+        tmp="$(mktemp)"
+        awk '
+            BEGIN { in_fm = 0; fm_done = 0 }
+            /^---[[:space:]]*$/ {
+                if (fm_done == 0) {
+                    in_fm = !in_fm
+                    if (in_fm == 0) {
+                        fm_done = 1
+                    }
+                }
+                print
+                next
+            }
+            in_fm && $0 ~ /^user-invocable:[[:space:]]*/ { next }
+            { print }
+        ' "$skill_file" > "$tmp" \
+            || { rm -f "$tmp"; die "failed to update $skill_file"; }
+        mv "$tmp" "$skill_file"
+    done
+}
+
 sync_target() {
     local label="$1"
     local target_dir="$2"
@@ -164,6 +200,7 @@ sync_target() {
     done
     install_runtime_bundle "$target_dir"
     hydrate_skill_runtime_root "$target_dir"
+    strip_user_invocable_for_runtime "$target_dir"
 }
 
 while [[ $# -gt 0 ]]; do

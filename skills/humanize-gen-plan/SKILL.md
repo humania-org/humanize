@@ -2,6 +2,7 @@
 name: humanize-gen-plan
 description: Generate a structured implementation plan from a draft document. Validates input, checks relevance, analyzes for issues, and generates a complete plan.md with acceptance criteria.
 type: flow
+user-invocable: false
 ---
 
 # Humanize Generate Plan
