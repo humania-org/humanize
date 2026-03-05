@@ -682,6 +682,16 @@ else
     fail "validate-gen-plan-io.sh not found or not executable"
 fi
 
+# Test: Plan Structure block in gen-plan.md matches gen-plan-template.md
+if [[ -f "$GEN_PLAN_CMD" ]] && [[ -f "$PLAN_TEMPLATE" ]]; then
+    EXTRACTED=$(awk '/^```markdown[[:space:]]*$/{in_block=1;next} /^```[[:space:]]*$/ && in_block{exit} in_block' "$GEN_PLAN_CMD")
+    if [[ "$EXTRACTED" == "$(<"$PLAN_TEMPLATE")" ]]; then
+        pass "gen-plan.md Plan Structure block matches gen-plan-template.md"
+    else
+        fail "gen-plan.md Plan Structure block matches gen-plan-template.md" "identical content" "content differs (run: diff <(awk '/^\`\`\`markdown/{in_block=1;next} /^\`\`\`/ && in_block{exit} in_block' \"$GEN_PLAN_CMD\") \"$PLAN_TEMPLATE\")"
+    fi
+fi
+
 # ========================================
 # Summary
 # ========================================
