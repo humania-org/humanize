@@ -186,16 +186,22 @@ else
     fail "plan template includes pending user decisions section" "Pending User Decisions section" "missing"
 fi
 
-if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Convergence Log" "$PLAN_TEMPLATE"; then
-    pass "plan template includes convergence log section"
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "## Convergence Log" "$PLAN_TEMPLATE"; then
+    pass "plan template does not include convergence log section"
 else
-    fail "plan template includes convergence log section" "Convergence Log section" "missing"
+    fail "plan template does not include convergence log section" "no Convergence Log section" "section still present"
 fi
 
-if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Codex Team Workflow" "$PLAN_TEMPLATE"; then
-    pass "plan template includes three-batch codex workflow section"
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "## Codex Team Workflow" "$PLAN_TEMPLATE"; then
+    pass "plan template does not include codex team workflow section"
 else
-    fail "plan template includes three-batch codex workflow section" "Codex Team Workflow section" "missing"
+    fail "plan template does not include codex team workflow section" "no Codex Team Workflow section" "section still present"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "### Convergence Status" "$PLAN_TEMPLATE"; then
+    pass "plan template includes convergence status subsection"
+else
+    fail "plan template includes convergence status subsection" "Convergence Status subsection" "missing"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Task Breakdown" "$GEN_PLAN_CMD"; then
@@ -638,6 +644,31 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
     else
         fail "validate-gen-plan-io: auto-start flag should be accepted" "0" "$EXIT_CODE"
     fi
+
+if [[ -f "$VALIDATE_SCRIPT" ]]; then
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion 2>&1) || EXIT=$?
+    # We expect exit code != 1,2,3,5,7 (flag was recognized, even if other args fail)
+    # Specifically: exit code 6 means invalid args; if flag is unknown it exits 6 with "unknown option"
+    if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
+        pass "validate script accepts --discussion flag"
+    else
+        fail "validate script accepts --discussion flag" "accepted" "unknown option error"
+    fi
+
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --direct 2>&1) || EXIT=$?
+    if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
+        pass "validate script accepts --direct flag"
+    else
+        fail "validate script accepts --direct flag" "accepted" "unknown option error"
+    fi
+
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion --direct 2>&1) || EXIT=$?
+    if echo "$OUTPUT" | grep -qi "mutually exclusive\|cannot use"; then
+        pass "validate script rejects --discussion and --direct together"
+    else
+        fail "validate script rejects --discussion and --direct together" "mutual exclusion error" "no error produced"
+    fi
+fi
 
     # Test: Help option should exit 6
     EXIT_CODE=0
