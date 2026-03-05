@@ -44,9 +44,7 @@ Parse `$ARGUMENTS` and set:
 - `GEN_PLAN_MODE_DIRECT=true` if `--direct` is present
 - If both `--discussion` and `--direct` are present simultaneously, report error "Cannot use --discussion and --direct together" and stop
 
-This option allows skipping manual plan review and starting implementation immediately, but only when plan convergence is achieved and no pending user decisions remain.
-
-The effective mode (`GEN_PLAN_MODE`) is resolved after Phase 0.5 config loading, where CLI flags take priority over project config.
+`AUTO_START_RLCR_IF_CONVERGED=true` allows skipping manual plan review and starting implementation immediately, but only when plan convergence is achieved and no pending user decisions remain.
 
 ---
 
@@ -62,7 +60,7 @@ After setting execution mode flags, load the project-level configuration:
 4. Also extract the `gen_plan_mode` field from the same config:
    - Valid values: `"discussion"` or `"direct"` (case-insensitive).
    - Invalid or absent values: treat as absent (fall back to default) and log a warning if the value is present but invalid.
-5. Resolve `GEN_PLAN_MODE` using the following priority (highest to lowest):
+5. Resolve `GEN_PLAN_MODE` using the following priority (highest to lowest), with CLI flags taking priority over project config:
    - CLI flag: if `GEN_PLAN_MODE_DISCUSSION=true`, set `GEN_PLAN_MODE=discussion`; if `GEN_PLAN_MODE_DIRECT=true`, set `GEN_PLAN_MODE=direct`
    - Config file `gen_plan_mode` field (if valid)
    - Default: `discussion`

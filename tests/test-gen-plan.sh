@@ -645,30 +645,29 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         fail "validate-gen-plan-io: auto-start flag should be accepted" "0" "$EXIT_CODE"
     fi
 
-if [[ -f "$VALIDATE_SCRIPT" ]]; then
-    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion 2>&1) || EXIT=$?
-    # We expect exit code != 1,2,3,5,7 (flag was recognized, even if other args fail)
-    # Specifically: exit code 6 means invalid args; if flag is unknown it exits 6 with "unknown option"
+    # Test: --discussion flag is recognized (not rejected as unknown)
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion 2>&1) || true
     if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
         pass "validate script accepts --discussion flag"
     else
         fail "validate script accepts --discussion flag" "accepted" "unknown option error"
     fi
 
-    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --direct 2>&1) || EXIT=$?
+    # Test: --direct flag is recognized (not rejected as unknown)
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --direct 2>&1) || true
     if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
         pass "validate script accepts --direct flag"
     else
         fail "validate script accepts --direct flag" "accepted" "unknown option error"
     fi
 
-    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion --direct 2>&1) || EXIT=$?
+    # Test: --discussion and --direct together are rejected as mutually exclusive
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion --direct 2>&1) || true
     if echo "$OUTPUT" | grep -qi "mutually exclusive\|cannot use"; then
         pass "validate script rejects --discussion and --direct together"
     else
         fail "validate script rejects --discussion and --direct together" "mutual exclusion error" "no error produced"
     fi
-fi
 
     # Test: Help option should exit 6
     EXIT_CODE=0
