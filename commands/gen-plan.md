@@ -1,8 +1,10 @@
 ---
 description: "Generate implementation plan from draft document"
-argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md>"
+argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-plan-io.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"
   - "Read"
   - "Glob"
   - "Grep"
@@ -14,16 +16,47 @@ hide-from-slash-command-tool: "true"
 
 # Generate Plan from Draft
 
+Read and execute below with ultrathink.
+
 This command transforms a user's draft document into a well-structured implementation plan with clear goals, acceptance criteria (AC-X format), path boundaries, and feasibility suggestions.
 
 ## Workflow Overview
 
-1. **IO Validation**: Validate input and output paths
-2. **Relevance Check**: Verify draft is relevant to the repository
-3. **Draft Analysis**: Analyze draft for clarity, consistency, completeness, and functionality
-4. **Issue Resolution**: Engage user to clarify any issues found
-5. **Plan Generation**: Generate the structured plan.md
-6. **Write and Complete**: Write output file and report results
+1. **Execution Mode Setup**: Parse optional behaviors from command arguments
+2. **Load Project Config**: Read `.humanize/config.json` and extract `chinese_plan` flag
+3. **IO Validation**: Validate input and output paths
+4. **Relevance Check**: Verify draft is relevant to the repository
+5. **Codex First-Pass Analysis**: Use one planning Codex before Claude synthesizes plan details
+6. **Claude Candidate Plan (v1)**: Claude builds an initial plan from draft + Codex findings
+7. **Iterative Convergence Loop**: Claude and a second Codex iteratively challenge/refine plan reasonability
+8. **Issue and Disagreement Resolution**: Resolve unresolved opposite opinions (or skip manual review if converged and auto-start mode is enabled)
+9. **Final Plan Generation**: Generate the converged structured plan.md with task routing tags and Codex handoff sections
+10. **Write and Complete**: Write output file, optionally write `_zh` Chinese-only variant, optionally auto-start work, and report results
+
+---
+
+## Phase 0: Execution Mode Setup
+
+Parse `$ARGUMENTS` and set:
+- `AUTO_START_RLCR_IF_CONVERGED=true` if `--auto-start-rlcr-if-converged` is present
+- `AUTO_START_RLCR_IF_CONVERGED=false` otherwise
+
+This option allows skipping manual plan review and starting implementation immediately, but only when plan convergence is achieved and no pending user decisions remain.
+
+---
+
+## Phase 0.5: Load Project Config
+
+After setting execution mode flags, load the project-level configuration:
+
+1. Attempt to read `.humanize/config.json` from the project root (the repository root where the command was invoked).
+2. If the file does not exist, treat all config fields as absent. This is NOT an error; continue normally.
+3. If the file exists, parse it as JSON and extract the `chinese_plan` field:
+   - If `chinese_plan` is `true` (boolean), set `CHINESE_PLAN_ENABLED=true`.
+   - Otherwise (field absent, `false`, or any non-true value), set `CHINESE_PLAN_ENABLED=false`.
+4. A malformed JSON file should be reported as a warning but must NOT stop execution; fall back to `CHINESE_PLAN_ENABLED=false`.
+
+`CHINESE_PLAN_ENABLED` controls whether a `_zh` Chinese-only variant of the output file is written in Phase 8.
 
 ---
 
@@ -73,9 +106,45 @@ After IO validation passes, check if the draft is relevant to this repository.
 
 ---
 
-## Phase 3: Draft Analysis
+## Phase 3: Codex First-Pass Analysis
+
+After relevance check, invoke Codex BEFORE Claude plan synthesis.
+
+This Codex pass is the **planning Codex batch (Batch 1)** in the multi-Codex workflow.
+
+1. Run:
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "<structured prompt>"
+   ```
+2. The structured prompt MUST include:
+   - Repository context (project purpose, relevant files)
+   - Raw draft content
+   - Explicit request to critique assumptions, identify missing requirements, and propose stronger plan directions
+3. Require Codex output to follow this format:
+   - `CORE_RISKS:` highest-risk assumptions and potential failure modes
+   - `MISSING_REQUIREMENTS:` likely omitted requirements or edge cases
+   - `TECHNICAL_GAPS:` feasibility or architecture gaps
+   - `ALTERNATIVE_DIRECTIONS:` viable alternatives with tradeoffs
+   - `QUESTIONS_FOR_USER:` questions that need explicit human decisions
+   - `CANDIDATE_CRITERIA:` candidate acceptance criteria suggestions
+4. Preserve this output as **Codex Analysis v1** and feed it into Claude planning.
+5. Record a concise **Batch 1 Planning Summary** that can later be handed to implementation Codex agents.
+
+### Codex Availability Handling
+
+If `ask-codex.sh` fails (missing Codex CLI, timeout, or runtime error), use AskUserQuestion and let the user choose:
+- Retry with updated Codex settings/environment
+- Continue with Claude-only planning (explicitly note reduced cross-review confidence in plan output)
+
+---
+
+## Phase 4: Claude Candidate Plan (v1)
+
+Use draft content + Codex Analysis v1 to produce an initial candidate plan and issue map.
 
 Deeply analyze the draft for potential issues. Use Explore agents to investigate the codebase.
+
+Alongside candidate plan v1, prepare an **Implementation Handoff Draft** for later Batch 2 Codex implementers. It should summarize scope, boundaries, dependencies, and known risks in concise execution language.
 
 ### Analysis Dimensions
 
@@ -108,13 +177,65 @@ Use the Task tool with `subagent_type: "Explore"` to investigate:
 
 ---
 
-## Phase 4: Issue Resolution
+## Phase 5: Iterative Convergence Loop (Claude <-> Second Codex)
+
+After Claude candidate plan v1 is ready, run iterative challenge/refine rounds with a SECOND Codex pass.
+
+### Convergence Round Steps
+
+1. **Second Codex Reasonability Review**
+   - Run:
+     ```bash
+     "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "<review current candidate plan>"
+     ```
+   - Prompt MUST include current candidate plan, prior disagreements, and unresolved items
+   - Require output format:
+     - `AGREE:` points accepted as reasonable
+     - `DISAGREE:` points considered unreasonable and why
+     - `REQUIRED_CHANGES:` must-fix items before convergence
+     - `OPTIONAL_IMPROVEMENTS:` non-blocking improvements
+     - `UNRESOLVED:` opposite opinions needing user decisions
+2. **Claude Revision**
+   - Claude updates the candidate plan to address `REQUIRED_CHANGES`
+   - Claude documents accepted/rejected suggestions with rationale
+3. **Convergence Assessment**
+   - Update a per-round convergence matrix:
+     - Topic
+     - Claude position
+     - Second Codex position
+     - Resolution status (`resolved`, `needs_user_decision`, `deferred`)
+     - Round-to-round delta
+
+### Loop Termination Rules
+
+Repeat convergence rounds until one of the following is true:
+- No `REQUIRED_CHANGES` remain and no high-impact `DISAGREE` remains
+- Two consecutive rounds produce no material plan changes
+- Maximum 3 rounds reached
+
+If max rounds are reached with unresolved opposite opinions, carry them to user decision phase explicitly.
+
+Set convergence state explicitly:
+- `PLAN_CONVERGENCE_STATUS=converged` when convergence conditions are met
+- `PLAN_CONVERGENCE_STATUS=partially_converged` otherwise
+
+---
+
+## Phase 6: Issue and Disagreement Resolution
 
 > **Critical**: The draft document contains the most valuable human input. During issue resolution, NEVER discard or override any original draft content. All clarifications should be treated as incremental additions that supplement the draft, not replacements. Keep track of both the original draft statements and the clarified information.
 
-### Step 1: Resolve Analysis Issues
+### Step 1: Manual Review Gate
 
-If any issues are found during analysis, use AskUserQuestion to clarify with the user.
+Decide if manual review can be skipped:
+- If `AUTO_START_RLCR_IF_CONVERGED=true` **and** `PLAN_CONVERGENCE_STATUS=converged`, set `HUMAN_REVIEW_REQUIRED=false`
+- Otherwise set `HUMAN_REVIEW_REQUIRED=true`
+
+If `HUMAN_REVIEW_REQUIRED=false`, skip Step 2-4 and continue directly to Phase 7.
+
+### Step 2: Resolve Analysis Issues (when manual review is required)
+
+If any issues are found during Codex-first analysis, Claude analysis, or convergence loop, use AskUserQuestion to clarify with the user.
 
 For each issue category that has problems, present:
 - What the issue is
@@ -123,7 +244,7 @@ For each issue category that has problems, present:
 
 Continue this dialogue until all significant issues are resolved or acknowledged by the user.
 
-### Step 2: Confirm Quantitative Metrics
+### Step 3: Confirm Quantitative Metrics (when manual review is required)
 
 After all analysis issues are resolved, check the draft for any quantitative metrics or numeric thresholds, such as:
 - Performance targets: "less than 15GB/s", "under 100ms latency"
@@ -139,7 +260,22 @@ Document the user's answer for each metric, as this distinction significantly af
 
 ---
 
-## Phase 5: Plan Generation
+### Step 4: Resolve Unresolved Claude/Codex Disagreements (when manual review is required)
+
+For every item marked `needs_user_decision`, explicitly ask the user to decide.
+
+For each unresolved disagreement, present:
+- The decision topic
+- Claude's position
+- Codex's position
+- Tradeoffs and risks of each option
+- A clear recommendation (if one option is materially safer)
+
+If the user does not decide immediately, keep the item in the plan as `PENDING` under a dedicated user-decision section.
+
+---
+
+## Phase 7: Final Plan Generation
 
 Deeply think and generate the plan.md following these rules:
 
@@ -214,6 +350,58 @@ Example: "The implementation includes core feature X with basic validation"
 
 <Describe relative dependencies between components, not time estimates>
 
+## Task Breakdown
+
+Each task MUST include exactly one routing tag generated by the planning agent:
+- `coding`: implemented by Claude
+- `analyze`: executed via Codex (`/humanize:ask-codex`)
+
+| Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
+|---------|-------------|-----------|----------------------------|------------|
+| task1 | <...> | AC-1 | coding | - |
+| task2 | <...> | AC-2 | analyze | task1 |
+
+## Codex Team Workflow
+
+### Batch 1 - Planning Codex
+- Input: raw draft + repository context
+- Output: risk map, missing requirements, and plan critiques (Codex Analysis v1)
+
+### Batch 2 - Implementation Codex Team
+- Input: converged plan + concise implementation handoff summary
+- Output: implementation changes aligned to ACs and task dependencies
+- Handoff Summary:
+  - Scope:
+  - Key Constraints:
+  - High-Risk Areas:
+  - Required Validations:
+
+### Batch 3 - Review Codex Team
+- Input: implementation summaries and changed files
+- Output: independent quality review, risk checks, and final readiness verdict
+
+## Claude-Codex Deliberation
+
+### Agreements
+- <Point both sides agree on>
+
+### Resolved Disagreements
+- <Topic>: Claude vs Codex summary, chosen resolution, and rationale
+
+## Convergence Log
+
+- Round 1: <Second Codex objections and Claude revisions>
+- Round 2: <Remaining disagreements and updates>
+- Final Status: `converged` or `partially_converged`
+
+## Pending User Decisions
+
+- DEC-1: <Decision topic>
+  - Claude Position: <...>
+  - Codex Position: <...>
+  - Tradeoff Summary: <...>
+  - Decision Status: `PENDING` or `<User's final decision>`
+
 ## Implementation Notes
 
 ### Code Style Requirements
@@ -244,11 +432,19 @@ Example: "The implementation includes core feature X with basic validation"
 
 10. **Code Style Constraint**: The generated plan MUST include a section or note instructing that implementation code and comments should NOT contain plan-specific progress terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers. These terms belong in the plan document, not in the resulting codebase.
 
-11. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 4 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
+11. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 6 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
+
+12. **Debate Traceability**: The plan MUST include Codex-first findings, Claude/Codex agreements, resolved disagreements, and unresolved decisions. Unresolved opposite opinions MUST be recorded in `## Pending User Decisions` for explicit user decision.
+
+13. **Convergence Requirement**: The plan MUST document multi-round reasonability review (`## Convergence Log`) and stop only when convergence conditions are met or max rounds reached with explicit carry-over decisions.
+
+14. **Task Tag Requirement**: The plan MUST include `## Task Breakdown`, and every task MUST be tagged as either `coding` or `analyze` (no untagged tasks, no other tag values).
+
+15. **Three-Batch Codex Workflow Requirement**: The plan MUST include `## Codex Team Workflow` and explicitly define Batch 1 (planning), Batch 2 (implementation handoff), and Batch 3 (independent review).
 
 ---
 
-## Phase 6: Write and Complete
+## Phase 8: Write and Complete
 
 The output file already contains the plan template structure and the original draft content (combined during IO validation). Now complete the plan through the following steps:
 
@@ -265,6 +461,8 @@ After updating, **read the complete plan file** and verify:
 - The plan is complete and comprehensive
 - All sections are consistent with each other
 - The structured plan aligns with the original draft content
+- Claude/Codex disagreement handling is explicit and correctly reflected
+- Convergence rounds and termination status are explicitly recorded
 - No contradictions exist between different parts of the document
 
 If inconsistencies are found, fix them using the Edit tool.
@@ -283,13 +481,58 @@ If multiple languages are detected:
    - Use the Edit tool to apply the translations
 3. If the user declines, leave the document as-is
 
-### Step 4: Report Results
+### Step 4: Write Chinese-Only Variant (Conditional)
+
+If `CHINESE_PLAN_ENABLED=true`, write a `_zh` variant of the output file containing a full Chinese translation of the English plan:
+
+**Filename construction rule** - insert `_zh` immediately before the file extension:
+- `plan.md` becomes `plan_zh.md`
+- `docs/my-plan.md` becomes `docs/my-plan_zh.md`
+- `output` (no extension) becomes `output_zh`
+
+Algorithm:
+1. Find the last `.` in the base filename.
+2. If a `.` is found, insert `_zh` before it: `<stem>_zh.<extension>`.
+3. If no `.` is found (no extension), append `_zh` to the filename: `<filename>_zh`.
+4. The `_zh` file is placed in the same directory as the main output file.
+
+**Content of the `_zh` file**:
+- Translate the English plan content into Simplified Chinese.
+- Section headings, AC labels, task IDs, file paths, API names, and command flags MUST remain unchanged (identifiers are language-neutral).
+- The `_zh` file is a Chinese-only reading view of the same plan; it must not add new information not present in the main file.
+- The original draft section at the bottom should be kept as-is (not re-translated).
+
+If `CHINESE_PLAN_ENABLED=false` (the default), do NOT create the `_zh` file. The absence of `.humanize/config.json` or the absence of the `chinese_plan` field both imply `CHINESE_PLAN_ENABLED=false`; no error is raised.
+
+### Step 5: Optional Direct Work Start
+
+If all of the following are true:
+- `AUTO_START_RLCR_IF_CONVERGED=true`
+- `PLAN_CONVERGENCE_STATUS=converged`
+- There are no pending decisions with status `PENDING`
+
+Then start work immediately by running:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh" --plan-file <output-plan-path>
+```
+
+If the auto-start command fails, report the failure reason and provide the exact manual fallback command:
+
+```bash
+/humanize:start-rlcr-loop <output-plan-path>
+```
+
+### Step 6: Report Results
 
 Report to the user:
 - Path to the generated plan
 - Summary of what was included
 - Number of acceptance criteria defined
+- Number of convergence rounds executed
+- Number of unresolved user decisions (if any)
 - Whether language was unified (if applicable)
+- Whether direct work start was attempted, and its result
 
 ---
 
@@ -298,6 +541,10 @@ Report to the user:
 If issues arise during plan generation that require user input:
 - Use AskUserQuestion to clarify
 - Document any user decisions in the plan's context
+
+If auto-start mode is enabled but convergence conditions are not met:
+- Explain why direct start was skipped
+- Tell the user to either resolve pending decisions or run `/humanize:start-rlcr-loop <plan.md>` manually
 
 If unable to generate a complete plan:
 - Explain what information is missing

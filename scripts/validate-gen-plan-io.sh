@@ -14,17 +14,19 @@
 set -e
 
 usage() {
-    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md>"
+    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged]"
     echo ""
     echo "Options:"
     echo "  --input   Path to the input draft file (required)"
     echo "  --output  Path to the output plan file (required)"
+    echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning"
     echo "  -h, --help  Show this help message"
     exit 6
 }
 
 INPUT_FILE=""
 OUTPUT_FILE=""
+AUTO_START_RLCR_IF_CONVERGED="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             fi
             OUTPUT_FILE="$2"
             shift 2
+            ;;
+        --auto-start-rlcr-if-converged)
+            AUTO_START_RLCR_IF_CONVERGED="true"
+            shift
             ;;
         -h|--help)
             usage

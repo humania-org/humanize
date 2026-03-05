@@ -51,6 +51,7 @@ TEST_SUITES=(
     "test-monitor-e2e-deletion.sh"
     "test-monitor-e2e-sigint.sh"
     "test-gen-plan.sh"
+    "test-task-tag-routing.sh"
     "test-pr-loop-1-scripts.sh"
     "test-pr-loop-2-hooks.sh"
     "test-pr-loop-3-stophook.sh"

@@ -116,6 +116,107 @@ else
 fi
 
 # ----------------------------------------
+# PT-5b: Claude/Codex deliberation workflow validation
+# ----------------------------------------
+echo ""
+echo "PT-5b: Claude/Codex deliberation workflow validation"
+PLAN_TEMPLATE="$PROJECT_ROOT/prompt-template/plan/gen-plan-template.md"
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "scripts/ask-codex.sh" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command allows ask-codex script"
+else
+    fail "gen-plan command allows ask-codex script" "ask-codex script reference" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q -- "--auto-start-rlcr-if-converged" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command exposes auto-start-if-converged option"
+else
+    fail "gen-plan command exposes auto-start-if-converged option" "--auto-start-rlcr-if-converged" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -qi "ultrathink" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires ultrathink execution mode"
+else
+    fail "gen-plan command requires ultrathink execution mode" "ultrathink instruction" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Pending User Decisions" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires pending user decisions section"
+else
+    fail "gen-plan command requires pending user decisions section" "Pending User Decisions section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Phase 3: Codex First-Pass Analysis" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command includes codex first-pass analysis phase"
+else
+    fail "gen-plan command includes codex first-pass analysis phase" "Phase 3 codex first-pass section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Phase 5: Iterative Convergence Loop" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command includes iterative convergence loop phase"
+else
+    fail "gen-plan command includes iterative convergence loop phase" "Phase 5 convergence loop section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Maximum 3 rounds reached" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines convergence loop termination limit"
+else
+    fail "gen-plan command defines convergence loop termination limit" "Maximum 3 rounds reached" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]]; then
+    PHASE3_LINE=$(grep -n "## Phase 3: Codex First-Pass Analysis" "$GEN_PLAN_CMD" | head -1 | cut -d: -f1 || true)
+    PHASE4_LINE=$(grep -n "## Phase 4: Claude Candidate Plan (v1)" "$GEN_PLAN_CMD" | head -1 | cut -d: -f1 || true)
+    if [[ -n "$PHASE3_LINE" && -n "$PHASE4_LINE" && "$PHASE3_LINE" -lt "$PHASE4_LINE" ]]; then
+        pass "gen-plan command orders codex analysis before claude candidate plan"
+    else
+        fail "gen-plan command orders codex analysis before claude candidate plan" "Phase 3 line < Phase 4 line" "phase3=$PHASE3_LINE phase4=$PHASE4_LINE"
+    fi
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Claude-Codex Deliberation" "$PLAN_TEMPLATE"; then
+    pass "plan template includes Claude-Codex deliberation section"
+else
+    fail "plan template includes Claude-Codex deliberation section" "Claude-Codex Deliberation section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Pending User Decisions" "$PLAN_TEMPLATE"; then
+    pass "plan template includes pending user decisions section"
+else
+    fail "plan template includes pending user decisions section" "Pending User Decisions section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Convergence Log" "$PLAN_TEMPLATE"; then
+    pass "plan template includes convergence log section"
+else
+    fail "plan template includes convergence log section" "Convergence Log section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Codex Team Workflow" "$PLAN_TEMPLATE"; then
+    pass "plan template includes three-batch codex workflow section"
+else
+    fail "plan template includes three-batch codex workflow section" "Codex Team Workflow section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Task Breakdown" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires task breakdown section"
+else
+    fail "gen-plan command requires task breakdown section" "Task Breakdown section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Task Tag Requirement" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines mandatory coding/analyze tags"
+else
+    fail "gen-plan command defines mandatory coding/analyze tags" "Task Tag Requirement rule" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "Tag (\`coding\`/\`analyze\`)" "$PLAN_TEMPLATE"; then
+    pass "plan template includes coding/analyze task tag column"
+else
+    fail "plan template includes coding/analyze task tag column" "tag column in task table" "missing"
+fi
+
+# ----------------------------------------
 # PT-6: Agent name validation
 # ----------------------------------------
 echo ""
@@ -527,6 +628,15 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         pass "validate-gen-plan-io: valid paths exits 0"
     else
         fail "validate-gen-plan-io: valid paths should exit 0" "0" "$EXIT_CODE"
+    fi
+
+    # Test: Valid paths with auto-start flag should exit 0
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output-auto.md" --auto-start-rlcr-if-converged 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: auto-start flag accepted"
+    else
+        fail "validate-gen-plan-io: auto-start flag should be accepted" "0" "$EXIT_CODE"
     fi
 
     # Test: Help option should exit 6

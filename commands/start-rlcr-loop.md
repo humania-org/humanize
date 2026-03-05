@@ -67,7 +67,9 @@ If the pre-check passed (or was skipped), execute the setup script to initialize
 
 This command starts an iterative development loop where:
 
-1. You work on the implementation plan provided
+1. You execute the implementation plan with task-tag routing
+   - `coding` tasks: Claude executes directly
+   - `analyze` tasks: execute via `/humanize:ask-codex`
 2. Write a summary of your work to the specified summary file
 3. When you try to exit, Codex reviews your summary
 4. If Codex finds issues, you receive feedback and continue
@@ -86,9 +88,11 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 
 ### Key Features
 1. **Acceptance Criteria**: Each task maps to a specific AC - nothing can be "forgotten"
-2. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
-3. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
-4. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
+2. **Task Tag Routing**: Every task should carry `coding` or `analyze` tag from plan generation
+   - `coding -> Claude`, `analyze -> Codex`
+3. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
+4. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
+5. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
 
 ### How to Use
 1. **Round 0**: Initialize the Goal Tracker with Ultimate Goal and Acceptance Criteria
@@ -113,7 +117,7 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 
 The RLCR loop has two phases within the active loop:
 
-1. **Implementation Phase**: Work on the plan, Codex reviews your summary
+1. **Implementation Phase**: Work by task tags (`coding -> Claude`, `analyze -> /humanize:ask-codex`), then Codex reviews your summary
 2. **Review Phase**: After COMPLETE, `codex review` checks code quality with `[P0-9]` severity markers
 
 The `--base-branch` option specifies the base branch for code review comparison. If not provided, it auto-detects from: remote default > local main > local master.
