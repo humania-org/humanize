@@ -14,12 +14,14 @@
 set -e
 
 usage() {
-    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged]"
+    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct]"
     echo ""
     echo "Options:"
     echo "  --input   Path to the input draft file (required)"
     echo "  --output  Path to the output plan file (required)"
     echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning"
+    echo "  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)"
+    echo "  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)"
     echo "  -h, --help  Show this help message"
     exit 6
 }
@@ -27,6 +29,8 @@ usage() {
 INPUT_FILE=""
 OUTPUT_FILE=""
 AUTO_START_RLCR_IF_CONVERGED="false"
+GEN_PLAN_MODE_DISCUSSION="false"
+GEN_PLAN_MODE_DIRECT="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -51,6 +55,14 @@ while [[ $# -gt 0 ]]; do
             AUTO_START_RLCR_IF_CONVERGED="true"
             shift
             ;;
+        --discussion)
+            GEN_PLAN_MODE_DISCUSSION="true"
+            shift
+            ;;
+        --direct)
+            GEN_PLAN_MODE_DIRECT="true"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -60,6 +72,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate mutually exclusive flags
+if [[ "$GEN_PLAN_MODE_DISCUSSION" == "true" && "$GEN_PLAN_MODE_DIRECT" == "true" ]]; then
+    echo "Error: --discussion and --direct are mutually exclusive"
+    exit 6
+fi
 
 # Validate required arguments
 if [[ -z "$INPUT_FILE" ]]; then
