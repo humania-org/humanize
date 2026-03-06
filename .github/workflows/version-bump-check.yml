@@ -2,18 +2,26 @@ name: Version Bump Check
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   version-bump-check:
     runs-on: ubuntu-latest
     steps:
+      - name: Skip for non-main targets
+        if: github.base_ref != 'main'
+        run: |
+          echo "PR targets '${{ github.base_ref }}', not 'main'. Skipping version bump check."
+          exit 0
+
       - name: Checkout PR branch
+        if: github.base_ref == 'main'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Check version bump
+        if: github.base_ref == 'main'
         run: |
           echo "Checking that all version numbers have been incremented..."
 
