@@ -26,7 +26,7 @@ Permitted writes (before any optional auto-start) are limited to:
 - The plan output file (`--output`)
 - Optional `_zh` translated plan (only when `CHINESE_PLAN_ENABLED=true`)
 
-If `--auto-start-rlcr-if-converged` is enabled and `PLAN_CONVERGENCE_STATUS=converged` with no pending user decisions, the command MAY immediately start the RLCR loop by running `/humanize:start-rlcr-loop <output-plan-path>`. All coding happens in that subsequent command/loop, not during plan generation.
+If `--auto-start-rlcr-if-converged` is enabled, the command MAY immediately start the RLCR loop by running `/humanize:start-rlcr-loop <output-plan-path>`, but only in `discussion` mode when `PLAN_CONVERGENCE_STATUS=converged` and there are no pending user decisions. All coding happens in that subsequent command/loop, not during plan generation.
 
 This command transforms a user's draft document into a well-structured implementation plan with clear goals, acceptance criteria (AC-X format), path boundaries, and feasibility suggestions.
 
@@ -39,7 +39,7 @@ This command transforms a user's draft document into a well-structured implement
 5. **Codex First-Pass Analysis**: Use one planning Codex before Claude synthesizes plan details
 6. **Claude Candidate Plan (v1)**: Claude builds an initial plan from draft + Codex findings
 7. **Iterative Convergence Loop**: Claude and a second Codex iteratively challenge/refine plan reasonability
-8. **Issue and Disagreement Resolution**: Resolve unresolved opposite opinions (or skip manual review if converged and auto-start mode is enabled)
+8. **Issue and Disagreement Resolution**: Resolve unresolved opposite opinions (or skip manual review if converged, auto-start mode is enabled, and `GEN_PLAN_MODE=discussion`)
 9. **Final Plan Generation**: Generate the converged structured plan.md with task routing tags
 10. **Write and Complete**: Write output file, optionally write `_zh` Chinese variant, optionally auto-start implementation, and report results
 
@@ -54,7 +54,7 @@ Parse `$ARGUMENTS` and set:
 - `GEN_PLAN_MODE_DIRECT=true` if `--direct` is present
 - If both `--discussion` and `--direct` are present simultaneously, report error "Cannot use --discussion and --direct together" and stop
 
-`AUTO_START_RLCR_IF_CONVERGED=true` allows skipping manual plan review and starting implementation immediately (by invoking `/humanize:start-rlcr-loop <output-plan-path>`), but only when plan convergence is achieved and no pending user decisions remain.
+`AUTO_START_RLCR_IF_CONVERGED=true` allows skipping manual plan review and starting implementation immediately (by invoking `/humanize:start-rlcr-loop <output-plan-path>`), but only when `GEN_PLAN_MODE=discussion`, plan convergence is achieved, and no pending user decisions remain. In `direct` mode this condition is never satisfied.
 
 ---
 
@@ -199,7 +199,7 @@ Use the Task tool with `subagent_type: "Explore"` to investigate:
 
 ## Phase 5: Iterative Convergence Loop (Claude <-> Second Codex)
 
-If `GEN_PLAN_MODE=direct`, skip this entire phase. The plan proceeds directly from candidate plan v1 (Phase 4) to Phase 6 without convergence rounds. Set `PLAN_CONVERGENCE_STATUS=converged` and `HUMAN_REVIEW_REQUIRED=true`.
+If `GEN_PLAN_MODE=direct`, skip this entire phase. The plan proceeds directly from candidate plan v1 (Phase 4) to Phase 6 without convergence rounds. Since no convergence rounds or second-pass review occurred, set `PLAN_CONVERGENCE_STATUS=partially_converged` and `HUMAN_REVIEW_REQUIRED=true` (direct mode must NOT satisfy `--auto-start-rlcr-if-converged` conditions).
 
 After Claude candidate plan v1 is ready, run iterative challenge/refine rounds with a SECOND Codex pass.
 
@@ -250,7 +250,8 @@ Set convergence state explicitly:
 ### Step 1: Manual Review Gate
 
 Decide if manual review can be skipped:
-- If `AUTO_START_RLCR_IF_CONVERGED=true` **and** `PLAN_CONVERGENCE_STATUS=converged`, set `HUMAN_REVIEW_REQUIRED=false`
+- If `GEN_PLAN_MODE=direct`, set `HUMAN_REVIEW_REQUIRED=true`
+- Else if `AUTO_START_RLCR_IF_CONVERGED=true` **and** `PLAN_CONVERGENCE_STATUS=converged`, set `HUMAN_REVIEW_REQUIRED=false`
 - Otherwise set `HUMAN_REVIEW_REQUIRED=true`
 
 If `HUMAN_REVIEW_REQUIRED=false`, skip Step 2-4 and continue directly to Phase 7.
@@ -522,6 +523,7 @@ If `CHINESE_PLAN_ENABLED=false` (the default), do NOT create the `_zh` file. The
 If all of the following are true:
 - `AUTO_START_RLCR_IF_CONVERGED=true`
 - `PLAN_CONVERGENCE_STATUS=converged`
+- `GEN_PLAN_MODE=discussion`
 - There are no pending decisions with status `PENDING`
 
 Then start work immediately by running:

@@ -134,6 +134,18 @@ else
     fail "gen-plan command exposes auto-start-if-converged option" "--auto-start-rlcr-if-converged" "missing"
 fi
 
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -n "GEN_PLAN_MODE=direct" "$GEN_PLAN_CMD" | grep -q "PLAN_CONVERGENCE_STATUS=partially_converged"; then
+    pass "gen-plan direct mode does not mark plan as converged"
+else
+    fail "gen-plan direct mode does not mark plan as converged" "PLAN_CONVERGENCE_STATUS=partially_converged in direct-mode branch" "missing or still marked converged"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -n -A12 "Optional Direct Work Start" "$GEN_PLAN_CMD" | grep -q "GEN_PLAN_MODE=discussion"; then
+    pass "gen-plan auto-start requires discussion mode"
+else
+    fail "gen-plan auto-start requires discussion mode" "GEN_PLAN_MODE=discussion in auto-start conditions" "missing"
+fi
+
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -qi "ultrathink" "$GEN_PLAN_CMD"; then
     pass "gen-plan command requires ultrathink execution mode"
 else

@@ -19,7 +19,7 @@ usage() {
     echo "Options:"
     echo "  --input   Path to the input draft file (required)"
     echo "  --output  Path to the output plan file (required)"
-    echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning"
+    echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning (discussion mode only)"
     echo "  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)"
     echo "  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)"
     echo "  -h, --help  Show this help message"
@@ -88,6 +88,11 @@ fi
 if [[ -z "$OUTPUT_FILE" ]]; then
     echo "ERROR: --output is required"
     usage
+fi
+
+# Note on auto-start behavior in direct mode
+if [[ "$GEN_PLAN_MODE_DIRECT" == "true" && "$AUTO_START_RLCR_IF_CONVERGED" == "true" ]]; then
+    echo "NOTE: --auto-start-rlcr-if-converged only triggers in --discussion mode; in --direct mode the plan is not considered converged and auto-start will be skipped."
 fi
 
 # Get absolute paths
