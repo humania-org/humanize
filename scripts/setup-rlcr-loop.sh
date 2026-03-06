@@ -99,7 +99,9 @@ DESCRIPTION:
   3. Has two phases: Implementation Phase and Review Phase
 
   The flow:
-  1. Claude works on the plan (Implementation Phase)
+  1. Claude executes plan tasks with tag-based routing (Implementation Phase)
+     - `coding` tasks: Claude implements directly
+     - `analyze` tasks: Claude delegates execution via `/humanize:ask-codex`
   2. Claude writes a summary to round-N-summary.md
   3. On exit attempt, Codex reviews the summary
   4. If Codex finds issues, it blocks exit and sends feedback
@@ -929,10 +931,10 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 | 0 | Initial plan | - | - |
 
 #### Active Tasks
-<!-- Map each task to its target Acceptance Criterion -->
-| Task | Target AC | Status | Notes |
-|------|-----------|--------|-------|
-| [To be populated by Claude based on plan] | - | pending | - |
+<!-- Map each task to its target Acceptance Criterion and routing tag -->
+| Task | Target AC | Status | Tag | Owner | Notes |
+|------|-----------|--------|-----|-------|-------|
+| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | - |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -1007,7 +1009,7 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 1. Read @$GOAL_TRACKER_FILE
 2. If the "Ultimate Goal" section says "[To be extracted...]", extract a clear goal statement from the plan
 3. If the "Acceptance Criteria" section says "[To be defined...]", define 3-7 specific, testable criteria
-4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC
+4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC and filling Tag/Owner
 5. Write the updated goal-tracker.md
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be modified in Round 0. After this round, it becomes read-only.
@@ -1018,6 +1020,15 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 
 For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList) to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Tasks for ALL discovered issues and attempt to resolve each one.
+
+## Task Tag Routing (MUST FOLLOW)
+
+Each task must have one routing tag from the plan: \`coding\` or \`analyze\`.
+
+- Tag \`coding\`: Claude executes the task directly.
+- Tag \`analyze\`: Claude must execute via \`/humanize:ask-codex\`, then integrate Codex output.
+- Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> claude\`, \`analyze -> codex\`).
+- If a task is missing a valid tag, do not guess silently; document it in Plan Evolution Log and block completion until clarified.
 
 EOF
 
@@ -1057,6 +1068,7 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 Throughout your work, you MUST maintain the Goal Tracker:
 
 1. **Before starting a task**: Mark it as "in_progress" in Active Tasks
+   - Confirm Tag/Owner routing is correct before execution
 2. **After completing a task**: Move it to "Completed and Verified" with evidence (but mark as "pending verification")
 3. **If you discover the plan has errors**:
    - Do NOT silently change direction

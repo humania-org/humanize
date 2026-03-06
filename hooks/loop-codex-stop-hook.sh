@@ -1163,6 +1163,22 @@ Focus on the code changes made during this RLCR session. Focus more on changes b
     exit 0
 }
 
+# Append task tag routing reminder to follow-up prompts.
+# Arguments: $1=prompt_file_path
+append_task_tag_routing_note() {
+    local prompt_file="$1"
+
+    cat >> "$prompt_file" << 'ROUTING_EOF'
+
+## Task Tag Routing Reminder
+
+Follow the plan's per-task routing tags strictly:
+- `coding` task -> Claude executes directly
+- `analyze` task -> execute via `/humanize:ask-codex`, then integrate the result
+- Keep Goal Tracker Active Tasks columns `Tag` and `Owner` aligned with execution
+ROUTING_EOF
+}
+
 # Continue review loop when issues are found
 # Arguments: $1=round_number, $2=review_content
 continue_review_loop_with_issues() {
@@ -1198,6 +1214,7 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
     load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
         "REVIEW_CONTENT=$review_content" \
         "SUMMARY_FILE=$next_summary_file" > "$next_prompt_file"
+    append_task_tag_routing_note "$next_prompt_file"
 
     jq -n \
         --arg reason "$(cat "$next_prompt_file")" \
@@ -1625,6 +1642,7 @@ FOOTER_FALLBACK="## Before Exiting
 Commit your changes and write summary to {{NEXT_SUMMARY_FILE}}"
 load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-footer.md" "$FOOTER_FALLBACK" \
     "NEXT_SUMMARY_FILE=$NEXT_SUMMARY_FILE" >> "$NEXT_PROMPT_FILE"
+append_task_tag_routing_note "$NEXT_PROMPT_FILE"
 
 # Add push instruction only if push_every_round is true
 if [[ "$PUSH_EVERY_ROUND" == "true" ]]; then

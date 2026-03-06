@@ -56,11 +56,16 @@ OPTIONS:
 ### gen-plan
 
 ```
-/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md>
+/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md> [OPTIONS]
 
 OPTIONS:
   --input   Path to the input draft file (required)
   --output  Path to the output plan file (required)
+  --auto-start-rlcr-if-converged
+             Start the RLCR loop automatically when the plan is converged
+             (discussion mode only; ignored in --direct)
+  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
+  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
   -h, --help             Show help message
 
 The gen-plan command transforms rough draft documents into structured implementation plans.
@@ -71,6 +76,7 @@ Workflow:
 3. Analyzes draft for clarity, consistency, completeness, and functionality
 4. Engages user to resolve any issues found
 5. Generates a structured plan.md with acceptance criteria
+6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
 ```
 
 ### start-pr-loop

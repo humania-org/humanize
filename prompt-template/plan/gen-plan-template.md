@@ -66,9 +66,55 @@ Example: "The implementation includes core feature X with basic validation"
 
 <Describe relative dependencies between components, not time estimates>
 
+## Task Breakdown
+
+Each task must include exactly one routing tag:
+- `coding`: implemented by Claude
+- `analyze`: executed via Codex (`/humanize:ask-codex`)
+
+| Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
+|---------|-------------|-----------|----------------------------|------------|
+| task1 | <...> | AC-1 | coding | - |
+| task2 | <...> | AC-2 | analyze | task1 |
+
+## Claude-Codex Deliberation
+
+### Agreements
+- <Point both sides agree on>
+
+### Resolved Disagreements
+- <Topic>: Claude vs Codex summary, chosen resolution, and rationale
+
+### Convergence Status
+- Final Status: `converged` or `partially_converged`
+
+## Pending User Decisions
+
+- DEC-1: <Decision topic>
+  - Claude Position: <...>
+  - Codex Position: <...>
+  - Tradeoff Summary: <...>
+  - Decision Status: `PENDING` or `<User's final decision>`
+
 ## Implementation Notes
 
 ### Code Style Requirements
 - Implementation code and comments must NOT contain plan-specific terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers
 - These terms are for plan documentation only, not for the resulting codebase
 - Use descriptive, domain-appropriate naming in code instead
+
+## Output File Convention
+
+This template is used to produce the main output file (e.g., `plan.md`).
+
+### Chinese Variant (`_zh` file)
+
+When `chinese_plan=true` is set in `.humanize/config.json`, a `_zh` variant of the output file is also written after the main file. The `_zh` filename is constructed by inserting `_zh` immediately before the file extension:
+
+- `plan.md` becomes `plan_zh.md`
+- `docs/my-plan.md` becomes `docs/my-plan_zh.md`
+- `output` (no extension) becomes `output_zh`
+
+The `_zh` file contains a full Chinese translation of the English plan. All identifiers (`AC-*`, task IDs, file paths, API names, command flags) remain unchanged, as they are language-neutral.
+
+When `chinese_plan=false` (the default), or when `.humanize/config.json` does not exist, or when the `chinese_plan` field is absent, the `_zh` file is NOT written. A missing config file is not an error.
