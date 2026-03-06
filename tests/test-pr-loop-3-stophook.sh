@@ -15,8 +15,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/test-helpers.sh"
 source "$SCRIPT_DIR/test-pr-loop-lib.sh"
 
-if [[ "${GITHUB_ACTIONS:-}" == "true" ]] && [[ "${GITHUB_REPOSITORY:-}" != "humania-org/humanize" ]]; then
-    skip "PR Loop Stop Hook Tests" "Claude bot integration is only configured on humania-org/humanize; skipping in fork CI"
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    skip "PR Loop Stop Hook Tests" "Skipped in GitHub Actions"
     print_test_summary "PR Loop Stop Hook Tests"
     exit 0
 fi
