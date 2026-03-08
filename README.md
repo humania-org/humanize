@@ -43,6 +43,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 
 3. **Monitor progress**:
    ```bash
+   source <path/to/humanize>/scripts/humanize.sh
    humanize monitor rlcr
    ```
 
