@@ -15,6 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/test-helpers.sh"
 
 ASK_CODEX_SCRIPT="$SCRIPT_DIR/../scripts/ask-codex.sh"
+ASK_CODEX_SKILL="$SCRIPT_DIR/../skills/ask-codex/SKILL.md"
 
 echo "=========================================="
 echo "Ask Codex Tests (mock)"
@@ -401,6 +402,35 @@ if [[ -n "$CACHE_PATH" ]] && grep -q "cache test" "$CACHE_PATH/codex-run.cmd"; t
     pass "codex-run.cmd records the question"
 else
     fail "codex-run.cmd records the question"
+fi
+
+# ========================================
+# Skill Guidance Tests
+# ========================================
+
+echo ""
+echo "--- Skill Guidance Tests ---"
+echo ""
+
+# Test: skill explicitly warns against unsafe bare $ARGUMENTS shell expansion
+if grep -Fq 'Never run this unsafe form' "$ASK_CODEX_SKILL" && grep -Fq '"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" $ARGUMENTS' "$ASK_CODEX_SKILL"; then
+    pass "skill warns against bare \$ARGUMENTS shell expansion"
+else
+    fail "skill warns against bare \$ARGUMENTS shell expansion" "explicit unsafe-form warning" "missing"
+fi
+
+# Test: skill documents the safe quoted simple invocation
+if grep -Fq '"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "$ARGUMENTS"' "$ASK_CODEX_SKILL"; then
+    pass "skill quotes the question when no flags are present"
+else
+    fail "skill quotes the question when no flags are present" "quoted simple invocation" "missing"
+fi
+
+# Test: skill explains that free-form text must be a quoted final argument
+if grep -Fq 'one quoted final argument' "$ASK_CODEX_SKILL"; then
+    pass "skill requires one quoted final argument for free-form text"
+else
+    fail "skill requires one quoted final argument for free-form text" "quoted final argument guidance" "missing"
 fi
 
 # ========================================
