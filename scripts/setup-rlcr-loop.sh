@@ -14,7 +14,7 @@ set -euo pipefail
 # Default Configuration
 # ========================================
 
-# Reviewer/model defaults are provided by loop-common.sh
+# Reviewer defaults are provided by loop-common.sh
 DEFAULT_CODEX_TIMEOUT=5400
 DEFAULT_MAX_ITERATIONS=42
 DEFAULT_FULL_REVIEW_ROUND=5
@@ -24,7 +24,6 @@ GIT_TIMEOUT=30
 
 # Source portable timeout wrapper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
 
 # Source shared loop library (provides runtime-aware reviewer defaults and other constants)
@@ -32,7 +31,6 @@ source "$SCRIPT_DIR/portable-timeout.sh"
 # before invoking this script.
 HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
 source "$HOOKS_LIB_DIR/loop-common.sh"
-source "$SCRIPT_DIR/lib/config-loader.sh"
 
 # ========================================
 # Parse Arguments
@@ -43,8 +41,8 @@ PLAN_FILE_EXPLICIT=""
 TRACK_PLAN_FILE="false"
 MAX_ITERATIONS="$DEFAULT_MAX_ITERATIONS"
 CODEX_MODEL="$DEFAULT_LOOP_REVIEWER_MODEL"
-CODEX_MODEL_CLI_OVERRIDE="false"
 CODEX_EFFORT="$DEFAULT_LOOP_REVIEWER_EFFORT"
+LOOP_REVIEWER_EFFORT="$DEFAULT_LOOP_REVIEWER_EFFORT"
 CODEX_TIMEOUT="$DEFAULT_CODEX_TIMEOUT"
 PUSH_EVERY_ROUND="false"
 BASE_BRANCH=""
@@ -54,7 +52,6 @@ SKIP_IMPL_NO_PLAN="false"
 ASK_CODEX_QUESTION="true"
 AGENT_TEAMS="false"
 BITLESSON_ALLOW_EMPTY_NONE="true"
-DELEGATION_ENFORCEMENT="${HUMANIZE_CODEX_DELEGATION_ENFORCEMENT:-warn}"
 
 show_help() {
     cat <<HELP_EOF
@@ -72,7 +69,7 @@ OPTIONS:
   --track-plan-file    Indicate plan file should be tracked in git (must be clean)
   --max <N>            Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
-                       Codex model and reasoning effort for summary review (default: ${DEFAULT_LOOP_REVIEWER_MODEL}:${DEFAULT_LOOP_REVIEWER_EFFORT})
+                       Codex model and reasoning effort for Codex review (default: ${DEFAULT_LOOP_REVIEWER_MODEL}:${DEFAULT_LOOP_REVIEWER_EFFORT})
   --codex-timeout <SECONDS>
                        Timeout for each Codex review in seconds (default: 5400)
   --push-every-round   Require git push after each round (default: commits stay local)
@@ -91,38 +88,34 @@ OPTIONS:
                        your plan that deserve human clarification. By default,
                        Claude asks user for clarification, which is preferred.
   --agent-teams        Enable Claude Code Agent Teams mode for parallel development.
-                       Disabled by default; must be explicitly enabled.
-  --no-agent-teams     Disable Agent Teams mode for this loop.
-  --agent-teams requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1.
+                       Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
+                       Claude acts as team leader, splitting tasks among team members.
   --allow-empty-bitlesson-none
                        Allow 'Action: none' even if '.humanize/bitlesson.md' has no concrete entries
                        (default: enabled)
   --require-bitlesson-entry-for-none
                        Enforce strict mode: in round > 0, 'Action: none' requires at least
                        one concrete lesson entry in '.humanize/bitlesson.md'
-  HUMANIZE_CODEX_DELEGATION_ENFORCEMENT
-                       Delegation enforcement level for agent-team prompting.
-                       Allowed values: warn, strict (default: warn)
   -h, --help           Show this help message
 
 DESCRIPTION:
-  Starts an iterative loop with a Codex CLI implementation worker and Codex review in your CURRENT session.
+  Starts an iterative loop with Codex review in your CURRENT session.
   This command:
 
   1. Takes a markdown plan file as input (not a prompt string)
-  2. Uses Codex to independently review implementation progress each iteration (cross-vendor style, even if models are from the same provider)
+  2. Uses Codex to independently review Claude's work each iteration
   3. Has two phases: Implementation Phase and Review Phase
 
   The flow:
-  1. Execute plan tasks with tag-based routing (Implementation Phase)
-     - 'coding' tasks: use the configured coding_worker_model
-     - 'analyze' tasks: use the configured analyzing_worker_model
-  2. Write a summary to round-N-summary.md
+  1. Claude executes plan tasks with tag-based routing (Implementation Phase)
+     - \`coding\` tasks: Claude implements directly
+     - \`analyze\` tasks: Claude delegates execution via \`/humanize:ask-codex\`
+  2. Claude writes a summary to round-N-summary.md
   3. On exit attempt, Codex reviews the summary
   4. If Codex finds issues, it blocks exit and sends feedback
   5. If Codex outputs "COMPLETE", enters Review Phase
   6. In Review Phase, codex review checks code quality with [P0-9] markers
-  7. If code review finds issues, execute fixes using the configured coding worker
+  7. If code review finds issues, Claude fixes them
   8. When no issues found, enters Finalize Phase and loop ends
 
 EXAMPLES:
@@ -130,8 +123,6 @@ EXAMPLES:
   /humanize:start-rlcr-loop docs/impl.md --max 20
   /humanize:start-rlcr-loop plan.md --codex-model ${DEFAULT_LOOP_REVIEWER_MODEL}:${DEFAULT_LOOP_REVIEWER_EFFORT}
   /humanize:start-rlcr-loop plan.md --codex-timeout 7200  # 2 hour timeout
-  /humanize:start-rlcr-loop plan.md
-  /humanize:start-rlcr-loop plan.md --no-agent-teams
 
 STOPPING:
   - /humanize:cancel-rlcr-loop   Cancel the active loop
@@ -181,7 +172,6 @@ while [[ $# -gt 0 ]]; do
                 CODEX_MODEL="$2"
                 CODEX_EFFORT="$DEFAULT_LOOP_REVIEWER_EFFORT"
             fi
-            CODEX_MODEL_CLI_OVERRIDE="true"
             shift 2
             ;;
         --codex-timeout)
@@ -248,10 +238,6 @@ while [[ $# -gt 0 ]]; do
             AGENT_TEAMS="true"
             shift
             ;;
-        --no-agent-teams)
-            AGENT_TEAMS="false"
-            shift
-            ;;
         --allow-empty-bitlesson-none)
             BITLESSON_ALLOW_EMPTY_NONE="true"
             shift
@@ -278,36 +264,44 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate delegation enforcement level from environment
-if [[ "$DELEGATION_ENFORCEMENT" != "warn" && "$DELEGATION_ENFORCEMENT" != "strict" ]]; then
-    echo "Error: HUMANIZE_CODEX_DELEGATION_ENFORCEMENT must be 'warn' or 'strict', got: $DELEGATION_ENFORCEMENT" >&2
-    exit 1
-fi
-
 # ========================================
 # Validate Prerequisites
 # ========================================
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# Load merged config to get reviewer model/effort
-LOOP_REVIEWER_EFFORT="high"
-if command -v jq >/dev/null 2>&1; then
-    MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$PROJECT_ROOT" 2>/dev/null || echo "{}")"
-    _extracted_effort="$(get_config_value "$MERGED_CONFIG" loop_reviewer_effort 2>/dev/null || true)"
-    [[ -n "$_extracted_effort" ]] && LOOP_REVIEWER_EFFORT="$_extracted_effort"
-    _extracted_model="$(get_config_value "$MERGED_CONFIG" loop_reviewer_model 2>/dev/null || true)"
-    if [[ "$CODEX_MODEL_CLI_OVERRIDE" != "true" && -n "$_extracted_model" ]]; then
-        CODEX_MODEL="$_extracted_model"
-    fi
-fi
-# Validate effort value for YAML safety
-if [[ ! "$LOOP_REVIEWER_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-    echo "Warning: loop_reviewer_effort '$LOOP_REVIEWER_EFFORT' contains invalid characters, using default 'high'" >&2
-    LOOP_REVIEWER_EFFORT="high"
+# loop-common.sh already sourced above (provides find_active_loop, find_active_pr_loop, etc.)
+
+# ========================================
+# Required Dependency Check
+# ========================================
+# Check all required external tools upfront so users get a single,
+# actionable error message instead of a cryptic mid-loop failure.
+
+MISSING_DEPS=()
+
+if ! command -v codex &>/dev/null; then
+    MISSING_DEPS+=("codex  - Install: https://github.com/openai/codex")
 fi
 
-# loop-common.sh already sourced above (provides find_active_loop, find_active_pr_loop, etc.)
+if ! command -v jq &>/dev/null; then
+    MISSING_DEPS+=("jq     - Install: https://jqlang.github.io/jq/download/")
+fi
+
+if ! command -v git &>/dev/null; then
+    MISSING_DEPS+=("git    - Install: https://git-scm.com/downloads")
+fi
+
+if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
+    echo "Error: Missing required dependencies for RLCR loop" >&2
+    echo "" >&2
+    for dep in "${MISSING_DEPS[@]}"; do
+        echo "  - $dep" >&2
+    done
+    echo "" >&2
+    echo "Please install the missing tools and try again." >&2
+    exit 1
+fi
 
 # ========================================
 # Mutual Exclusion Check
@@ -382,33 +376,6 @@ if [[ -z "$PLAN_FILE" ]]; then
         echo "For help: /humanize:start-rlcr-loop --help" >&2
         exit 1
     fi
-fi
-
-# ========================================
-# Dependency Check
-# ========================================
-
-# Check all required external tools upfront so users get a single,
-# actionable error message instead of a cryptic mid-loop failure.
-MISSING_DEPS=()
-
-if ! command -v codex &>/dev/null; then
-    MISSING_DEPS+=("codex  - Install: https://github.com/openai/codex")
-fi
-
-if ! command -v jq &>/dev/null; then
-    MISSING_DEPS+=("jq     - Install: https://jqlang.github.io/jq/download/")
-fi
-
-if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
-    echo "Error: Missing required dependencies for RLCR loop" >&2
-    echo "" >&2
-    for dep in "${MISSING_DEPS[@]}"; do
-        echo "  - $dep" >&2
-    done
-    echo "" >&2
-    echo "Please install the missing tools and try again." >&2
-    exit 1
 fi
 
 # ========================================
@@ -878,7 +845,6 @@ review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
-delegation_enforcement: $DELEGATION_ENFORCEMENT
 bitlesson_required: true
 bitlesson_file: $BITLESSON_FILE_REL
 bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
@@ -985,7 +951,7 @@ AC_SECTION=$({ sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria
 if [[ -n "$AC_SECTION" ]]; then
     echo "$AC_SECTION" >> "$GOAL_TRACKER_FILE"
 else
-    echo "[To be defined by coordinator in Round 0 based on the plan]" >> "$GOAL_TRACKER_FILE"
+    echo "[To be defined by Claude in Round 0 based on the plan]" >> "$GOAL_TRACKER_FILE"
 fi
 
 cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
@@ -1007,7 +973,7 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| [To be populated by coordinator based on plan] | - | pending | coding or analyze | worker or analyzer | - |
+| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | - |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -1092,14 +1058,11 @@ Do not try to execute anything to trigger the review - just stop and it will run
 
 1. Read @$BITLESSON_FILE before applying any fixes
 2. For each fix task/sub-task, run the \`bitlesson-selector\` agent first and apply selected lesson IDs (or \`NONE\`)
-3. For every delegated agent invocation, include explicit cross-vendor review context in the prompt:
-   - "your output will be reviewed independently (cross-vendor style)", or
-   - "you are reviewing findings/results produced by an independent worker (cross-vendor style)"
-4. Review your current work
-5. When ready, try to exit - Codex will review your code
-6. Fix any issues Codex finds
-7. Repeat until no issues remain
-8. Enter finalize phase for code simplification
+3. Review your current work
+4. When ready, try to exit - Codex will review your code
+5. Fix any issues Codex finds
+6. Repeat until no issues remain
+7. Enter finalize phase for code simplification
 
 ## Note
 
@@ -1154,19 +1117,13 @@ Before executing any task or sub-task:
 For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList) to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Tasks for ALL discovered issues and attempt to resolve each one.
 
-## Delegated Agent Cross-Review Protocol (MANDATORY)
-
-For every delegated agent invocation in this round (Task agents, \`bitlesson-selector\`, code-simplifier, etc.), include explicit cross-vendor review context in the prompt (even if all models are from the same provider today):
-- Either: "Your output will be reviewed by an independent reviewer (cross-vendor style)."
-- Or: "You are reviewing findings/results produced by an independent worker (cross-vendor style)."
-
 ## Task Tag Routing (MUST FOLLOW)
 
 Each task must have one routing tag from the plan: \`coding\` or \`analyze\`.
 
-- Tag \`coding\`: execute via the configured coding worker (\`coding_worker_model\` config key).
+- Tag \`coding\`: Claude executes the task directly.
 - Tag \`analyze\`: Claude must execute via \`/humanize:ask-codex\`, then integrate Codex output.
-- Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> worker\`, \`analyze -> analyzer\`).
+- Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> claude\`, \`analyze -> codex\`).
 - If a task is missing a valid tag, do not guess silently; document it in Plan Evolution Log and block completion until clarified.
 
 EOF
@@ -1193,7 +1150,6 @@ You are operating in **Agent Teams mode** as the **Team Leader**.
 Split tasks into independent units, create agent teams to execute them, and coordinate team members.
 Do NOT do implementation work yourself - delegate all coding to team members.
 Prevent overlapping changes by assigning clear file ownership boundaries.
-Every worker/analyzer/reviewer prompt must include explicit independent review context (cross-vendor style).
 AGENT_TEAMS_EOF
     fi
 fi
@@ -1225,7 +1181,7 @@ Throughout your work, you MUST maintain the Goal Tracker:
 Note: You MUST NOT try to exit \`start-rlcr-loop\` loop by lying or edit loop state file or try to execute \`cancel-rlcr-loop\`
 
 After completing the work, please:
-0. If you have access to the \`code-simplifier\` agent, use it to review and optimize the code you just wrote. Include explicit cross-vendor-style review context in that delegated agent prompt.
+0. If you have access to the \`code-simplifier\` agent, use it to review and optimize the code you just wrote
 1. Finalize @$GOAL_TRACKER_FILE (this is Round 0, so you are initializing it - see "Goal Tracker Setup" above)
 2. Commit your changes with a descriptive commit message
 3. Write your work summary into @$SUMMARY_PATH
@@ -1263,7 +1219,6 @@ Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
 Codex Review Effort: $LOOP_REVIEWER_EFFORT
 Codex Timeout: ${CODEX_TIMEOUT}s
-Delegation Enforcement: $DELEGATION_ENFORCEMENT
 Loop Directory: $LOOP_DIR
 
 Skip-impl mode is active. The implementation phase is skipped.
@@ -1294,8 +1249,6 @@ Codex Review Effort: $LOOP_REVIEWER_EFFORT
 Codex Timeout: ${CODEX_TIMEOUT}s
 Full Review Round: $FULL_REVIEW_ROUND (Full Alignment Checks at rounds $((FULL_REVIEW_ROUND - 1)), $((2 * FULL_REVIEW_ROUND - 1)), $((3 * FULL_REVIEW_ROUND - 1)), ...)
 Ask User for Codex Questions: $ASK_CODEX_QUESTION
-Agent Teams: $AGENT_TEAMS
-Delegation Enforcement: $DELEGATION_ENFORCEMENT
 Loop Directory: $LOOP_DIR
 
 The loop is now active. When you try to exit:
