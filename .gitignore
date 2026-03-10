@@ -7,6 +7,8 @@ temp
 # Humanize state directories (runtime-generated, project-local)
 .humanize/
 
+# Root-level bitlesson file (runtime-generated, kept out of version control)
+/bitlesson.md
 
 # Python cache
 __pycache__/
