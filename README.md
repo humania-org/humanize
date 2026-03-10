@@ -6,6 +6,10 @@
 
 A Claude Code plugin that provides iterative development with independent AI review. Build with confidence through continuous feedback loops.
 
+## What is RLCR?
+
+**RLCR** stands for **Ralph-Loop with Codex Review**, inspired by the official ralph-loop plugin and enhanced with independent Codex review. The name also reads as **Reinforcement Learning with Code Review** -- reflecting the iterative cycle where AI-generated code is continuously refined through external review feedback.
+
 ## Core Concepts
 
 - **Iteration over Perfection** -- Instead of expecting perfect output in one shot, Humanize leverages continuous feedback loops where issues are caught early and refined incrementally.
