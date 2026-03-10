@@ -49,7 +49,6 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 # Source portable timeout wrapper for git operations
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
-source "$PLUGIN_ROOT/scripts/lib/model-router.sh"
 
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
@@ -114,18 +113,13 @@ MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
 PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
 FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
 REVIEW_STARTED="$STATE_REVIEW_STARTED"
-# RLCR mode split:
-# - summary review uses state codex_model, with reviewer effort from loop_reviewer_effort
-#   and falls back to state codex_effort for older state files
-# - codex review uses the same model and reviewer-dedicated effort
-CODEX_EXEC_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_LOOP_REVIEWER_MODEL}"
-CODEX_EXEC_EFFORT="${STATE_LOOP_REVIEWER_EFFORT:-${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}}"
-CODEX_REVIEW_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_LOOP_REVIEWER_MODEL}"
-CODEX_REVIEW_EFFORT="${STATE_LOOP_REVIEWER_EFFORT:-high}"
+CODEX_EXEC_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
+CODEX_EXEC_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
+CODEX_REVIEW_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
+CODEX_REVIEW_EFFORT="${STATE_CODEX_EFFORT:-high}"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
-DELEGATION_ENFORCEMENT="${STATE_DELEGATION_ENFORCEMENT:-warn}"
 BITLESSON_REQUIRED="false"
 if [[ -n "$RAW_BITLESSON_REQUIRED" ]]; then
     BITLESSON_REQUIRED=$(echo "$RAW_BITLESSON_REQUIRED" | sed 's/^bitlesson_required:[[:space:]]*//' | tr -d ' "')
@@ -154,10 +148,6 @@ fi
 if [[ "$BITLESSON_ALLOW_EMPTY_NONE" != "true" && "$BITLESSON_ALLOW_EMPTY_NONE" != "false" ]]; then
     BITLESSON_ALLOW_EMPTY_NONE="true"
 fi
-if [[ "$DELEGATION_ENFORCEMENT" != "warn" && "$DELEGATION_ENFORCEMENT" != "strict" ]]; then
-    echo "Warning: Invalid delegation_enforcement value '$DELEGATION_ENFORCEMENT' in state file; defaulting to warn" >&2
-    DELEGATION_ENFORCEMENT="warn"
-fi
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
 if [[ ! "$CODEX_EXEC_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -175,25 +165,6 @@ if [[ ! "$CODEX_REVIEW_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
 fi
-
-if ! LOOP_REVIEWER_PROVIDER="$(detect_provider "$CODEX_EXEC_MODEL" 2>/dev/null)"; then
-    echo "Error: Unsupported codex_model in state file: $CODEX_EXEC_MODEL" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
-    exit 0
-fi
-if ! MAPPED_CODEX_EXEC_EFFORT="$(map_effort "$CODEX_EXEC_EFFORT" "$LOOP_REVIEWER_PROVIDER" 2>/dev/null)"; then
-    echo "Error: Unsupported codex_effort in state file: $CODEX_EXEC_EFFORT" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
-    exit 0
-fi
-if ! MAPPED_CODEX_REVIEW_EFFORT="$(map_effort "$CODEX_REVIEW_EFFORT" "$LOOP_REVIEWER_PROVIDER" 2>/dev/null)"; then
-    echo "Error: Unsupported review effort in hook config: $CODEX_REVIEW_EFFORT" >&2
-    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
-    exit 0
-fi
-CODEX_EXEC_EFFORT="$MAPPED_CODEX_EXEC_EFFORT"
-CODEX_REVIEW_EFFORT="$MAPPED_CODEX_REVIEW_EFFORT"
-unset MAPPED_CODEX_EXEC_EFFORT MAPPED_CODEX_REVIEW_EFFORT
 
 # Validate critical fields were actually present (not just defaulted)
 # This prevents silently treating a truncated state file as round 0
@@ -908,26 +879,6 @@ COMPLETED_ITERATIONS=$((CURRENT_ROUND + 1))
 PREV_ROUND=$(( CURRENT_ROUND > 0 ? CURRENT_ROUND - 1 : 0 ))
 PREV_PREV_ROUND=$(( CURRENT_ROUND > 1 ? CURRENT_ROUND - 2 : 0 ))
 
-if [[ "$LOOP_REVIEWER_PROVIDER" == "codex" ]]; then
-    ANALYZING_WORKER_VENDOR="Codex CLI (OpenAI)"
-elif [[ "$LOOP_REVIEWER_PROVIDER" == "claude" ]]; then
-    ANALYZING_WORKER_VENDOR="Claude CLI (Anthropic)"
-else
-    ANALYZING_WORKER_VENDOR="configured analyzer"
-fi
-
-CODING_WORKER_MODEL="${DEFAULT_CODEX_WORKER_MODEL}"
-ANALYZING_WORKER_MODEL="${CODEX_REVIEW_MODEL:-${DEFAULT_CODEX_MODEL}}"
-CODING_WORKER_VENDOR="configured worker"
-if detect_provider "$CODING_WORKER_MODEL" >/dev/null 2>&1; then
-    _cw_provider="$(detect_provider "$CODING_WORKER_MODEL")"
-    if [[ "$_cw_provider" == "codex" ]]; then
-        CODING_WORKER_VENDOR="Codex CLI (OpenAI)"
-    elif [[ "$_cw_provider" == "claude" ]]; then
-        CODING_WORKER_VENDOR="Claude CLI (Anthropic)"
-    fi
-fi
-
 # Build the review prompt
 FULL_ALIGNMENT_FALLBACK="# Full Alignment Review (Round {{CURRENT_ROUND}})
 
@@ -964,15 +915,10 @@ if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \
         "PREV_PREV_ROUND=$PREV_PREV_ROUND" \
-        "ANALYZING_WORKER_VENDOR=$ANALYZING_WORKER_VENDOR" \
-        "ANALYZING_WORKER_MODEL=$ANALYZING_WORKER_MODEL" \
-        "CODING_WORKER_VENDOR=$CODING_WORKER_VENDOR" \
-        "CODING_WORKER_MODEL=$CODING_WORKER_MODEL" \
         "REVIEW_RESULT_FILE=$REVIEW_RESULT_FILE" > "$REVIEW_PROMPT_FILE"
 
 else
     # Regular review prompt with goal alignment section
-    # Note: Pass all derived variables for consistency with full alignment template
     load_and_render_safe "$TEMPLATE_DIR" "codex/regular-review.md" "$REGULAR_REVIEW_FALLBACK" \
         "CURRENT_ROUND=$CURRENT_ROUND" \
         "PLAN_FILE=$PLAN_FILE" \
@@ -985,10 +931,6 @@ else
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \
         "PREV_PREV_ROUND=$PREV_PREV_ROUND" \
-        "ANALYZING_WORKER_VENDOR=$ANALYZING_WORKER_VENDOR" \
-        "ANALYZING_WORKER_MODEL=$ANALYZING_WORKER_MODEL" \
-        "CODING_WORKER_VENDOR=$CODING_WORKER_VENDOR" \
-        "CODING_WORKER_MODEL=$CODING_WORKER_MODEL" \
         "REVIEW_RESULT_FILE=$REVIEW_RESULT_FILE" > "$REVIEW_PROMPT_FILE"
 fi
 
@@ -998,20 +940,15 @@ fi
 # Initialize these before the REVIEW_STARTED guard so they are available in both
 # impl phase (codex exec) and review phase (codex review)
 
-# First, check if the configured reviewer CLI exists
-if ! check_provider_dependency "$LOOP_REVIEWER_PROVIDER" 2>/dev/null; then
-    INSTALL_STEP="1. Install Codex CLI: https://github.com/openai/codex"
-    if [[ "$LOOP_REVIEWER_PROVIDER" == "claude" ]]; then
-        INSTALL_STEP="1. Install Claude Code CLI"
-    fi
+# First, check if Codex CLI exists
+if ! command -v codex >/dev/null 2>&1; then
+    REASON="# Codex CLI Not Found
 
-    REASON="# Provider CLI Not Found
-
-The '${LOOP_REVIEWER_PROVIDER}' CLI is not installed or not in PATH.
+The 'codex' CLI is not installed or not in PATH.
 RLCR loop requires it to perform reviews.
 
 **To fix:**
-$INSTALL_STEP
+1. Install Codex CLI: https://github.com/openai/codex
 2. Retry the exit
 
 Or use \`/cancel-rlcr-loop\` to end the loop."
@@ -1039,26 +976,22 @@ mkdir -p "$CACHE_DIR"
 
 # portable-timeout.sh already sourced above
 
-# Build provider-specific command arguments for summary review
-if [[ "$LOOP_REVIEWER_PROVIDER" == "codex" ]]; then
-    CODEX_EXEC_ARGS=("-m" "$CODEX_EXEC_MODEL")
-    if [[ -n "$CODEX_EXEC_EFFORT" ]]; then
-        CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EXEC_EFFORT}")
-    fi
-
-    CODEX_AUTO_FLAG="--full-auto"
-    if [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "true" ]] || [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "1" ]]; then
-        CODEX_AUTO_FLAG="--dangerously-bypass-approvals-and-sandbox"
-    fi
-    CODEX_EXEC_ARGS+=("$CODEX_AUTO_FLAG" "-C" "$PROJECT_ROOT")
+# Build command arguments for summary review (codex exec)
+CODEX_EXEC_ARGS=("-m" "$CODEX_EXEC_MODEL")
+if [[ -n "$CODEX_EXEC_EFFORT" ]]; then
+    CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EXEC_EFFORT}")
 fi
 
+CODEX_AUTO_FLAG="--full-auto"
+if [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "true" ]] || [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "1" ]]; then
+    CODEX_AUTO_FLAG="--dangerously-bypass-approvals-and-sandbox"
+fi
+CODEX_EXEC_ARGS+=("$CODEX_AUTO_FLAG" "-C" "$PROJECT_ROOT")
+
 # Build Codex command arguments for codex review
-if [[ "$LOOP_REVIEWER_PROVIDER" == "codex" ]]; then
-    CODEX_REVIEW_ARGS=("-c" "model=${CODEX_REVIEW_MODEL}" "-c" "review_model=${CODEX_REVIEW_MODEL}")
-    if [[ -n "$CODEX_REVIEW_EFFORT" ]]; then
-        CODEX_REVIEW_ARGS+=("-c" "model_reasoning_effort=${CODEX_REVIEW_EFFORT}")
-    fi
+CODEX_REVIEW_ARGS=("-c" "model=${CODEX_REVIEW_MODEL}" "-c" "review_model=${CODEX_REVIEW_MODEL}")
+if [[ -n "$CODEX_REVIEW_EFFORT" ]]; then
+    CODEX_REVIEW_ARGS+=("-c" "model_reasoning_effort=${CODEX_REVIEW_EFFORT}")
 fi
 
 # ========================================
@@ -1091,7 +1024,7 @@ run_codex_code_review() {
     local prompt_fallback="# Code Review Phase - Round ${round}
 
 This file documents the code review invocation for audit purposes.
-Provider: ${LOOP_REVIEWER_PROVIDER}
+Provider: codex
 
 ## Review Configuration
 - Base Branch: ${BASE_BRANCH}
@@ -1110,78 +1043,24 @@ Provider: ${LOOP_REVIEWER_PROVIDER}
 
     echo "Code review prompt (audit) saved to: $prompt_file" >&2
 
-    if [[ "$LOOP_REVIEWER_PROVIDER" == "claude" ]]; then
-        local diff_content=""
-        local diff_exit=0
-        local review_prompt=""
-        local CLAUDE_REVIEW_ARGS=("--model" "$CODEX_REVIEW_MODEL" "--output-format" "text" "--disable-slash-commands")
+    {
+        echo "# Code review invocation debug info"
+        echo "# Timestamp: $timestamp"
+        echo "# Working directory: $PROJECT_ROOT"
+        echo "# Base branch: $BASE_BRANCH"
+        echo "# Base commit: ${BASE_COMMIT:-N/A}"
+        echo "# Review base ($review_base_type): $review_base"
+        echo "# Timeout: $CODEX_TIMEOUT seconds"
+        echo ""
+        echo "codex review --base $review_base ${CODEX_REVIEW_ARGS[*]}"
+    } > "$CODEX_REVIEW_CMD_FILE"
 
-        if [[ -n "$CODEX_REVIEW_EFFORT" ]]; then
-            CLAUDE_REVIEW_ARGS+=("--effort" "$CODEX_REVIEW_EFFORT")
-        fi
+    echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
+    echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
 
-        {
-            echo "# Code review invocation debug info"
-            echo "# Timestamp: $timestamp"
-            echo "# Working directory: $PROJECT_ROOT"
-            echo "# Base branch: $BASE_BRANCH"
-            echo "# Base commit: ${BASE_COMMIT:-N/A}"
-            echo "# Review base ($review_base_type): $review_base"
-            echo "# Timeout: $CODEX_TIMEOUT seconds"
-            echo ""
-            echo "cd \"$PROJECT_ROOT\" && git diff \"$review_base\"..HEAD | claude -p ${CLAUDE_REVIEW_ARGS[*]} -"
-        } > "$CODEX_REVIEW_CMD_FILE"
-
-        echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-        echo "Running Claude review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
-
-        diff_content="$(cd "$PROJECT_ROOT" && run_with_timeout "$GIT_TIMEOUT" git diff "$review_base"..HEAD 2>&1)" || diff_exit=$?
-
-        if [[ "$diff_exit" -ne 0 ]]; then
-            echo "git diff failed with exit code $diff_exit (base: $review_base)" >&2
-            echo "git diff error output: $diff_content" >&2
-            echo "git diff failed (exit $diff_exit) for base $review_base" > "$CODEX_REVIEW_LOG_FILE"
-            CODEX_REVIEW_EXIT_CODE="$diff_exit"
-            return "$diff_exit"
-        fi
-
-        if [[ -z "$diff_content" ]]; then
-            echo "No changes to review (empty diff from $review_base to HEAD)" >&2
-            echo "No code changes detected between $review_base and HEAD. Nothing to review." > "$CODEX_REVIEW_LOG_FILE"
-            return 0
-        fi
-
-        review_prompt="You are a code reviewer. Review the following git diff for issues.
-Mark issues with severity markers [P0] through [P9] where P0 is critical and P9 is minor.
-If no issues are found, output only: No issues found.
-
-## Diff (${review_base}..HEAD)
-
-$diff_content"
-
-        CODEX_REVIEW_EXIT_CODE=0
-        (cd "$PROJECT_ROOT" && printf '%s' "$review_prompt" | run_with_timeout "$CODEX_TIMEOUT" claude -p "${CLAUDE_REVIEW_ARGS[@]}" -) \
-            > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
-    else
-        {
-            echo "# Code review invocation debug info"
-            echo "# Timestamp: $timestamp"
-            echo "# Working directory: $PROJECT_ROOT"
-            echo "# Base branch: $BASE_BRANCH"
-            echo "# Base commit: ${BASE_COMMIT:-N/A}"
-            echo "# Review base ($review_base_type): $review_base"
-            echo "# Timeout: $CODEX_TIMEOUT seconds"
-            echo ""
-            echo "codex review --base $review_base ${CODEX_REVIEW_ARGS[*]}"
-        } > "$CODEX_REVIEW_CMD_FILE"
-
-        echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
-        echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
-
-        CODEX_REVIEW_EXIT_CODE=0
-        (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
-            > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
-    fi
+    CODEX_REVIEW_EXIT_CODE=0
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
+        > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Code review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
     echo "Code review log saved to: $CODEX_REVIEW_LOG_FILE" >&2
@@ -1345,12 +1224,8 @@ append_task_tag_routing_note() {
 
 ## Task Tag Routing Reminder
 
-# Note: /humanize:codex-worker and /humanize:ask-codex are fixed skill command names.
-# The underlying models are controlled by the coding_worker_model and analyzing_worker_model
-# config keys respectively in your project config (or plugin defaults).
-
 Follow the plan's per-task routing tags strictly:
-- `coding` task -> execute via `/humanize:codex-worker`
+- `coding` task -> Claude executes directly
 - `analyze` task -> execute via `/humanize:ask-codex`, then integrate the result
 - Keep Goal Tracker Active Tasks columns `Tag` and `Owner` aligned with execution
 ROUTING_EOF
@@ -1511,12 +1386,11 @@ if [[ "$REVIEW_STARTED" == "true" ]]; then
     # Jump directly to Review Phase section below (after the COMPLETE/STOP handling)
 else
 
-echo "Running summary review for round $CURRENT_ROUND via $LOOP_REVIEWER_PROVIDER..." >&2
+echo "Running summary review for round $CURRENT_ROUND via codex..." >&2
 
-CODEX_RUN_FILE_PREFIX="${LOOP_REVIEWER_PROVIDER}-run"
-CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-${CODEX_RUN_FILE_PREFIX}.cmd"
-CODEX_STDOUT_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-${CODEX_RUN_FILE_PREFIX}.out"
-CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-${CODEX_RUN_FILE_PREFIX}.log"
+CODEX_CMD_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.cmd"
+CODEX_STDOUT_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.out"
+CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.log"
 
 # Save the command for debugging
 CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
@@ -1526,15 +1400,7 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    if [[ "$LOOP_REVIEWER_PROVIDER" == "claude" ]]; then
-        CLAUDE_DEBUG_ARGS=("--model" "$CODEX_EXEC_MODEL" "--output-format" "text" "--disable-slash-commands")
-        if [[ -n "$CODEX_EXEC_EFFORT" ]]; then
-            CLAUDE_DEBUG_ARGS+=("--effort" "$CODEX_EXEC_EFFORT")
-        fi
-        echo "cd \"$PROJECT_ROOT\" && claude -p ${CLAUDE_DEBUG_ARGS[*]} -"
-    else
-        echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
-    fi
+    echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$CODEX_PROMPT_CONTENT"
@@ -1544,17 +1410,8 @@ echo "Reviewer command saved to: $CODEX_CMD_FILE" >&2
 echo "Running summary review with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-if [[ "$LOOP_REVIEWER_PROVIDER" == "claude" ]]; then
-    CLAUDE_EXEC_ARGS=("--model" "$CODEX_EXEC_MODEL" "--output-format" "text" "--disable-slash-commands")
-    if [[ -n "$CODEX_EXEC_EFFORT" ]]; then
-        CLAUDE_EXEC_ARGS+=("--effort" "$CODEX_EXEC_EFFORT")
-    fi
-    (cd "$PROJECT_ROOT" && printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" claude -p "${CLAUDE_EXEC_ARGS[@]}" -) \
-        > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
-else
-    printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
-        > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
-fi
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
+    > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Reviewer exit code: $CODEX_EXIT_CODE" >&2
 echo "Reviewer stdout saved to: $CODEX_STDOUT_FILE" >&2
@@ -1839,15 +1696,7 @@ load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_
     "BITLESSON_FILE=$BITLESSON_FILE" > "$NEXT_PROMPT_FILE"
 
 if [[ "$AGENT_TEAMS" == "true" ]]; then
-    ENFORCEMENT_BLOCK="**Delegation Warning**: Delegate coding to \`/humanize:codex-worker\`; direct self-implementation can be flagged as non-compliant."
-    if [[ "$DELEGATION_ENFORCEMENT" == "strict" ]]; then
-        ENFORCEMENT_BLOCK=$(cat << 'STRICT_ENFORCEMENT_EOF'
-## STRICT MODE: Delegation Enforcement
-**WARNING**: Delegate all coding to `/humanize:codex-worker`.
-If you write implementation code, edit source files, or run commands that modify the codebase directly, this breaks the loop and this round is non-compliant.
-STRICT_ENFORCEMENT_EOF
-)
-    fi
+    ENFORCEMENT_BLOCK="**Delegation Warning**: Do NOT implement code yourself in Agent Teams mode; delegate all coding tasks to team members."
 
     TEMP_PROMPT_FILE="${NEXT_PROMPT_FILE}.tmp.$$"
     awk -v enforcement="$ENFORCEMENT_BLOCK" '

@@ -82,9 +82,7 @@ TEST_SUITES=(
     "test-gen-plan.sh"
     "test-task-tag-routing.sh"
     "test-config-merge.sh"
-    "test-config-deprecated-keys.sh"
     "test-config-error-handling.sh"
-    "test-setup-loop-state.sh"
     "test-pr-loop-1-scripts.sh"
     "test-pr-loop-2-hooks.sh"
     "test-pr-loop-3-stophook.sh"
@@ -100,7 +98,6 @@ TEST_SUITES=(
     # Provider routing tests
     "test-model-router.sh"
     "test-codex-worker-routing.sh"
-    "test-stop-hook-routing.sh"
     # Skill monitor tests
     "test-skill-monitor.sh"
     # Robustness tests

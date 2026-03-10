@@ -1,17 +1,6 @@
 {
-  "coding_worker_model": "gpt-5.3-codex",
-  "coding_worker_effort": "xhigh",
-  "analyzing_worker_model": "gpt-5.2",
-  "analyzing_worker_effort": "xhigh",
-  "task_reviewer_model": "gpt-5.2",
-  "task_reviewer_effort": "xhigh",
-  "loop_reviewer_model": "gpt-5.2",
-  "loop_reviewer_effort": "high",
   "bitlesson_model": "haiku",
   "agent_teams": false,
   "chinese_plan": false,
-  "gen_plan_mode": "discussion",
-  "coding_worker": "Codex worker (via configured coding_worker_model)",
-  "analyzing_worker": "Codex (via configured analyzing_worker_model)",
-  "reviewer": "Codex reviewer (via configured task_reviewer_model)"
+  "gen_plan_mode": "discussion"
 }

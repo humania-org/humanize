@@ -32,8 +32,6 @@ fi
 # shellcheck source=../scripts/lib/config-loader.sh
 source "$CONFIG_LOADER"
 
-EXPECTED_CODING_MODEL="$(jq -r '.coding_worker_model' "$PROJECT_ROOT/config/default_config.json")"
-EXPECTED_ANALYZING_MODEL="$(jq -r '.analyzing_worker_model' "$PROJECT_ROOT/config/default_config.json")"
 
 # ========================================
 # Test 1: Missing default_config.json is fatal
@@ -75,11 +73,11 @@ fi
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
-val=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val" == "$EXPECTED_CODING_MODEL" ]]; then
+val=$(get_config_value "$merged" "bitlesson_model")
+if [[ "$val" == "haiku" ]]; then
     pass "malformed project config: falls back to defaults"
 else
-    fail "malformed project config: falls back to defaults" "$EXPECTED_CODING_MODEL" "$val"
+    fail "malformed project config: falls back to defaults" "haiku" "$val"
 fi
 
 # ========================================
@@ -122,11 +120,11 @@ printf '{}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user2" \
     load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
-val=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val" == "$EXPECTED_CODING_MODEL" ]]; then
+val=$(get_config_value "$merged" "bitlesson_model")
+if [[ "$val" == "haiku" ]]; then
     pass "empty project config: uses all defaults"
 else
-    fail "empty project config: uses all defaults" "$EXPECTED_CODING_MODEL" "$val"
+    fail "empty project config: uses all defaults" "haiku" "$val"
 fi
 
 # ========================================
@@ -140,11 +138,11 @@ mkdir -p "$PROJECT_DIR"
 
 if merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user3" \
         load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null); then
-    val=$(get_config_value "$merged" "coding_worker_model")
-    if [[ "$val" == "$EXPECTED_CODING_MODEL" ]]; then
+    val=$(get_config_value "$merged" "bitlesson_model")
+    if [[ "$val" == "haiku" ]]; then
         pass "missing project config file: not fatal, uses defaults"
     else
-        fail "missing project config file: not fatal, uses defaults" "$EXPECTED_CODING_MODEL" "$val"
+        fail "missing project config file: not fatal, uses defaults" "haiku" "$val"
     fi
 else
     fail "missing project config file: not fatal, uses defaults" \

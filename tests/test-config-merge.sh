@@ -32,9 +32,6 @@ fi
 # shellcheck source=../scripts/lib/config-loader.sh
 source "$CONFIG_LOADER"
 
-EXPECTED_CODING_MODEL="$(jq -r '.coding_worker_model' "$PROJECT_ROOT/config/default_config.json")"
-EXPECTED_ANALYZING_MODEL="$(jq -r '.analyzing_worker_model' "$PROJECT_ROOT/config/default_config.json")"
-
 # ========================================
 # Test 1: Default-only (no user/project config)
 # ========================================
@@ -44,13 +41,6 @@ PROJECT_DIR="$TEST_DIR/empty-project"
 mkdir -p "$PROJECT_DIR"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
-
-val=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val" == "$EXPECTED_CODING_MODEL" ]]; then
-    pass "default-only: coding_worker_model comes from default_config.json"
-else
-    fail "default-only: coding_worker_model comes from default_config.json" "$EXPECTED_CODING_MODEL" "$val"
-fi
 
 val=$(get_config_value "$merged" "bitlesson_model")
 if [[ "$val" == "haiku" ]]; then
@@ -66,11 +56,11 @@ else
     fail "default-only: agent_teams defaults to false" "false" "$val"
 fi
 
-val=$(get_config_value "$merged" "analyzing_worker_model")
+val=$(get_config_value "$merged" "gen_plan_mode")
 if [[ -n "$val" ]]; then
-    pass "default-only: analyzing_worker_model is set"
+    pass "default-only: gen_plan_mode is set from defaults"
 else
-    fail "default-only: analyzing_worker_model is set" "non-empty value" "empty"
+    fail "default-only: gen_plan_mode is set from defaults" "non-empty value" "empty"
 fi
 
 # ========================================
@@ -80,22 +70,22 @@ fi
 setup_test_dir
 PROJECT_DIR="$TEST_DIR/project-override"
 mkdir -p "$PROJECT_DIR/.humanize"
-printf '{"coding_worker_model": "custom-model"}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "opus"}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config2" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-val=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val" == "custom-model" ]]; then
-    pass "project override: coding_worker_model overrides default"
+val=$(get_config_value "$merged" "bitlesson_model")
+if [[ "$val" == "opus" ]]; then
+    pass "project override: bitlesson_model overrides default"
 else
-    fail "project override: coding_worker_model overrides default" "custom-model" "$val"
+    fail "project override: bitlesson_model overrides default" "opus" "$val"
 fi
 
-val=$(get_config_value "$merged" "bitlesson_model")
-if [[ "$val" == "haiku" ]]; then
+val=$(get_config_value "$merged" "agent_teams")
+if [[ "$val" == "false" ]]; then
     pass "project override: non-overridden keys still use defaults"
 else
-    fail "project override: non-overridden keys still use defaults" "haiku" "$val"
+    fail "project override: non-overridden keys still use defaults" "false" "$val"
 fi
 
 # ========================================
@@ -106,12 +96,12 @@ setup_test_dir
 PROJECT_DIR="$TEST_DIR/layer-priority"
 mkdir -p "$PROJECT_DIR/.humanize"
 mkdir -p "$TEST_DIR/user-cfg/humanize"
-printf '{"coding_worker_model": "user-model"}' > "$TEST_DIR/user-cfg/humanize/config.json"
-printf '{"coding_worker_model": "project-model"}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "user-model"}' > "$TEST_DIR/user-cfg/humanize/config.json"
+printf '{"bitlesson_model": "project-model"}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/user-cfg" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-val=$(get_config_value "$merged" "coding_worker_model")
+val=$(get_config_value "$merged" "bitlesson_model")
 if [[ "$val" == "project-model" ]]; then
     pass "layer priority: project config wins over user config"
 else
@@ -127,18 +117,18 @@ PROJECT_DIR="$TEST_DIR/user-preserved"
 mkdir -p "$PROJECT_DIR/.humanize"
 mkdir -p "$TEST_DIR/user-cfg2/humanize"
 printf '{"bitlesson_model": "user-bitlesson"}' > "$TEST_DIR/user-cfg2/humanize/config.json"
-printf '{"coding_worker_model": "project-coding"}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"gen_plan_mode": "project-plan-mode"}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/user-cfg2" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
 val_b=$(get_config_value "$merged" "bitlesson_model")
-val_c=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val_b" == "user-bitlesson" && "$val_c" == "project-coding" ]]; then
+val_g=$(get_config_value "$merged" "gen_plan_mode")
+if [[ "$val_b" == "user-bitlesson" && "$val_g" == "project-plan-mode" ]]; then
     pass "layer merge: user-set key preserved when not overridden by project config"
 else
     fail "layer merge: user-set key preserved when not overridden by project config" \
-        "bitlesson_model=user-bitlesson, coding_worker_model=project-coding" \
-        "bitlesson_model=$val_b, coding_worker_model=$val_c"
+        "bitlesson_model=user-bitlesson, gen_plan_mode=project-plan-mode" \
+        "bitlesson_model=$val_b, gen_plan_mode=$val_g"
 fi
 
 # ========================================
@@ -148,15 +138,15 @@ fi
 setup_test_dir
 PROJECT_DIR="$TEST_DIR/null-strip"
 mkdir -p "$PROJECT_DIR/.humanize"
-printf '{"coding_worker_model": null}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"bitlesson_model": null}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg3" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-val=$(get_config_value "$merged" "coding_worker_model")
-if [[ "$val" == "$EXPECTED_CODING_MODEL" ]]; then
+val=$(get_config_value "$merged" "bitlesson_model")
+if [[ "$val" == "haiku" ]]; then
     pass "null strip: null in project config does not override default value"
 else
-    fail "null strip: null in project config does not override default value" "$EXPECTED_CODING_MODEL" "$val"
+    fail "null strip: null in project config does not override default value" "haiku" "$val"
 fi
 
 # ========================================
@@ -166,15 +156,15 @@ fi
 setup_test_dir
 PROJECT_DIR="$TEST_DIR/custom-config-path"
 mkdir -p "$PROJECT_DIR/.humanize"
-printf '{"coding_worker_model": "ignored-default-project"}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "ignored-default-project"}' > "$PROJECT_DIR/.humanize/config.json"
 
 custom_cfg="$TEST_DIR/my-custom.json"
-printf '{"coding_worker_model": "from-custom-path"}' > "$custom_cfg"
+printf '{"bitlesson_model": "from-custom-path"}' > "$custom_cfg"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg4" HUMANIZE_CONFIG="$custom_cfg" \
     load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-val=$(get_config_value "$merged" "coding_worker_model")
+val=$(get_config_value "$merged" "bitlesson_model")
 if [[ "$val" == "from-custom-path" ]]; then
     pass "HUMANIZE_CONFIG: custom config path via env var overrides project default"
 else
@@ -190,21 +180,21 @@ setup_test_dir
 PROJECT_DIR="$TEST_DIR/all-layers"
 mkdir -p "$PROJECT_DIR/.humanize"
 mkdir -p "$TEST_DIR/user-cfg-all/humanize"
-printf '{"analyzing_worker_model": "user-analyzer"}' > "$TEST_DIR/user-cfg-all/humanize/config.json"
-printf '{"coding_worker_model": "project-coder"}' > "$PROJECT_DIR/.humanize/config.json"
+printf '{"gen_plan_mode": "user-plan-mode"}' > "$TEST_DIR/user-cfg-all/humanize/config.json"
+printf '{"agent_teams": true}' > "$PROJECT_DIR/.humanize/config.json"
 
 merged=$(XDG_CONFIG_HOME="$TEST_DIR/user-cfg-all" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-val_a=$(get_config_value "$merged" "analyzing_worker_model")
-val_c=$(get_config_value "$merged" "coding_worker_model")
+val_g=$(get_config_value "$merged" "gen_plan_mode")
+val_a=$(get_config_value "$merged" "agent_teams")
 val_b=$(get_config_value "$merged" "bitlesson_model")
 
-if [[ "$val_a" == "user-analyzer" && "$val_c" == "project-coder" && "$val_b" == "haiku" ]]; then
-    pass "all-layers: analyzing_worker from user, coding_worker from project, bitlesson from default"
+if [[ "$val_g" == "user-plan-mode" && "$val_a" == "true" && "$val_b" == "haiku" ]]; then
+    pass "all-layers: gen_plan_mode from user, agent_teams from project, bitlesson_model from default"
 else
     fail "all-layers: all three layers contribute distinct keys" \
-        "user-analyzer + project-coder + haiku" \
-        "$val_a + $val_c + $val_b"
+        "user-plan-mode + true + haiku" \
+        "$val_g + $val_a + $val_b"
 fi
 
 print_test_summary "Config Merge Tests"

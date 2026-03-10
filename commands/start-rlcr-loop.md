@@ -68,8 +68,8 @@ If the pre-check passed (or was skipped), execute the setup script to initialize
 This command starts an iterative development loop where:
 
 1. You execute the implementation plan with task-tag routing
-   - `coding` tasks: execute via the configured coding worker (see `coding_worker_model` config key)
-   - `analyze` tasks: execute via the configured analyzing worker (see `analyzing_worker_model` config key)
+   - `coding` tasks: Claude executes directly
+   - `analyze` tasks: execute via `/humanize:ask-codex`
 2. Write a summary of your work to the specified summary file
 3. When you try to exit, Codex reviews your summary
 4. If Codex finds issues, you receive feedback and continue
@@ -89,7 +89,7 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 ### Key Features
 1. **Acceptance Criteria**: Each task maps to a specific AC - nothing can be "forgotten"
 2. **Task Tag Routing**: Every task should carry `coding` or `analyze` tag from plan generation
-   - `coding -> worker`, `analyze -> analyzer`
+   - `coding -> Claude`, `analyze -> Codex`
 3. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
 4. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
 5. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
@@ -106,7 +106,6 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 3. **Be thorough**: Include details about what was implemented, files changed, and tests added
 4. **No cheating**: Do not try to exit the loop by editing state files or running cancel commands
 5. **Trust the process**: Codex's feedback helps improve the implementation
-6. **Delegated agent context is mandatory**: Every delegated agent call must explicitly mention the worker/reviewer relationship and that review is **independent** (cross-vendor style), even if all models are OpenAI today.
 
 ## BitLesson Workflow (Project Level)
 
@@ -132,7 +131,7 @@ By default, empty `.humanize/bitlesson.md` does not block `Action: none`; use `-
 
 The RLCR loop has two phases within the active loop:
 
-1. **Implementation Phase**: Work by task tags (`coding -> configured coding worker via coding_worker_model`, `analyze -> configured analyzing worker via analyzing_worker_model`), then Codex reviews your summary
+1. **Implementation Phase**: Work by task tags (`coding -> Claude`, `analyze -> /humanize:ask-codex`), then Codex reviews your summary
 2. **Review Phase**: After COMPLETE, `codex review` checks code quality with `[P0-9]` severity markers
 
 The `--base-branch` option specifies the base branch for code review comparison. If not provided, it auto-detects from: remote default > local main > local master.
