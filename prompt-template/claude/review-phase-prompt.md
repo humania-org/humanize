@@ -8,10 +8,14 @@ You are in the **Review Phase**. Codex has performed a code review and found iss
 
 ## Instructions
 
-1. **Address all issues** marked with `[P0-9]` severity markers
-2. **Focus on fixes only** - do not add new features or make unrelated changes
-3. **Commit your changes** after fixing the issues
-4. **Write your summary** to: `{{SUMMARY_FILE}}`
+1. **Read `.humanize/bitlesson.md` and run `bitlesson-selector`** for each fix task/sub-task before coding
+2. **Delegated agent calls must include cross-agent context**:
+   - worker/implementation: "your output will be reviewed independently (cross-vendor style)"
+   - reviewer over worker artifacts: "you are reviewing findings/results produced by an independent worker (cross-vendor style)"
+3. **Address all issues** marked with `[P0-9]` severity markers
+4. **Focus on fixes only** - do not add new features or make unrelated changes
+5. **Commit your changes** after fixing the issues
+6. **Write your summary** to: `{{SUMMARY_FILE}}`
 
 ## Summary Template
 

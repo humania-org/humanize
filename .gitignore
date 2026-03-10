@@ -1,8 +1,14 @@
 # Scratchpad
 temp
 
-# Humanize state directories (used by start-rlcr-loop)
-.humanize*
+# Local Claude client settings
+/.claude/settings.json
+
+# Humanize state directories (runtime-generated, project-local)
+.humanize/
+
+# Project-level bitlesson knowledge base (runtime-generated, project-local)
+/bitlesson.md
 
 # Python cache
 __pycache__/

@@ -38,13 +38,19 @@ readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
+readonly FIELD_DELEGATION_ENFORCEMENT="delegation_enforcement"
+readonly FIELD_LOOP_REVIEWER_EFFORT="loop_reviewer_effort"
 
-# Default Codex configuration (single source of truth - all scripts reference this)
+# Default Codex configuration (from merged config during library setup).
 # Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort).
-#
-# Default model for Codex operations (same model for both plugin and skill mode)
-DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-gpt-5.4}"
-DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-high}"
+DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-}"
+DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-}"
+DEFAULT_LOOP_REVIEWER_MODEL="${DEFAULT_LOOP_REVIEWER_MODEL:-}"
+DEFAULT_LOOP_REVIEWER_EFFORT="${DEFAULT_LOOP_REVIEWER_EFFORT:-}"
+
+# Default worker configuration (used by /humanize:codex-worker).
+DEFAULT_CODEX_WORKER_MODEL="${DEFAULT_CODEX_WORKER_MODEL:-}"
+DEFAULT_CODEX_WORKER_EFFORT="${DEFAULT_CODEX_WORKER_EFFORT:-}"
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -157,6 +163,48 @@ is_deeply_nested() {
 
 # Source template loader
 LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+LOOP_COMMON_PLUGIN_ROOT="$(cd "$LOOP_COMMON_DIR/../.." && pwd)"
+export PLUGIN_ROOT="${PLUGIN_ROOT:-$LOOP_COMMON_PLUGIN_ROOT}"
+
+_lc_errexit=false; [[ -o errexit ]] && _lc_errexit=true
+_lc_nounset=false; [[ -o nounset ]] && _lc_nounset=true
+_lc_pipefail=false; [[ -o pipefail ]] && _lc_pipefail=true
+source "$LOOP_COMMON_PLUGIN_ROOT/scripts/lib/config-loader.sh"
+$_lc_errexit && set -e || set +e
+$_lc_nounset && set -u || set +u
+$_lc_pipefail && set -o pipefail || set +o pipefail
+unset _lc_errexit _lc_nounset _lc_pipefail
+
+_LOOP_COMMON_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# Config loading is best-effort: callers like setup-rlcr-loop.sh have their own
+# authoritative dependency checks (jq, codex) that produce clear error messages.
+# Suppress stderr to avoid noisy intermediate errors (e.g., "jq: command not found")
+# before the caller's check runs, and use || true so a config-load failure does not
+# abort sourcing before those checks are reached.
+_LOOP_COMMON_CONFIG="$(load_merged_config "$LOOP_COMMON_PLUGIN_ROOT" "$_LOOP_COMMON_PROJECT_ROOT" 2>/dev/null)" || true
+
+_cfg_analyzing_model="$(get_config_value "$_LOOP_COMMON_CONFIG" analyzing_worker_model 2>/dev/null || jq -r '.analyzing_worker_model // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+_cfg_analyzing_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" analyzing_worker_effort 2>/dev/null || jq -r '.analyzing_worker_effort // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+_cfg_coding_model="$(get_config_value "$_LOOP_COMMON_CONFIG" coding_worker_model 2>/dev/null || jq -r '.coding_worker_model // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+_cfg_coding_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" coding_worker_effort 2>/dev/null || jq -r '.coding_worker_effort // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+_cfg_reviewer_model="$(get_config_value "$_LOOP_COMMON_CONFIG" loop_reviewer_model 2>/dev/null || jq -r '.loop_reviewer_model // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+_cfg_reviewer_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" loop_reviewer_effort 2>/dev/null || jq -r '.loop_reviewer_effort // empty' "$LOOP_COMMON_PLUGIN_ROOT/config/default_config.json" 2>/dev/null || true)"
+
+# Default analyzer configuration (used by codex analyzing/review worker flows).
+# Hard fallbacks guard against jq being absent or config loading failing entirely;
+# the literals here must match the values in config/default_config.json.
+DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_analyzing_model:-gpt-5.2}}"
+DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_analyzing_effort:-xhigh}}"
+
+# Default worker configuration (used by /humanize:codex-worker).
+DEFAULT_CODEX_WORKER_MODEL="${DEFAULT_CODEX_WORKER_MODEL:-${_cfg_coding_model:-gpt-5.3-codex}}"
+DEFAULT_CODEX_WORKER_EFFORT="${DEFAULT_CODEX_WORKER_EFFORT:-${_cfg_coding_effort:-xhigh}}"
+DEFAULT_LOOP_REVIEWER_MODEL="${DEFAULT_LOOP_REVIEWER_MODEL:-${_cfg_reviewer_model:-gpt-5.2}}"
+DEFAULT_LOOP_REVIEWER_EFFORT="${DEFAULT_LOOP_REVIEWER_EFFORT:-${_cfg_reviewer_effort:-high}}"
+
+unset _cfg_analyzing_model _cfg_analyzing_effort _cfg_coding_model _cfg_coding_effort _cfg_reviewer_model _cfg_reviewer_effort
+unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
+
 source "$LOOP_COMMON_DIR/template-loader.sh"
 
 # Initialize template directory (can be overridden by sourcing script)
@@ -330,6 +378,8 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
+    STATE_DELEGATION_ENFORCEMENT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_DELEGATION_ENFORCEMENT}:" | sed "s/${FIELD_DELEGATION_ENFORCEMENT}: *//" | tr -d ' ' || true)
+    STATE_LOOP_REVIEWER_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_EFFORT}:" | sed "s/${FIELD_LOOP_REVIEWER_EFFORT}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -349,6 +399,8 @@ _parse_state_fields() {
 #   STATE_REVIEW_STARTED - "true" or "false"
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
 #   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
+#   STATE_AGENT_TEAMS - "true" or "false"
+#   STATE_DELEGATION_ENFORCEMENT - "warn" or "strict"
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -371,6 +423,7 @@ parse_state_file() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    STATE_DELEGATION_ENFORCEMENT="${STATE_DELEGATION_ENFORCEMENT:-warn}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -446,6 +499,7 @@ parse_state_file_strict() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    STATE_DELEGATION_ENFORCEMENT="${STATE_DELEGATION_ENFORCEMENT:-warn}"
 
     return 0
 }

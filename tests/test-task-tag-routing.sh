@@ -145,12 +145,12 @@ EOF
 
     local loop_dir="$repo_dir/.humanize/rlcr/2024-02-01_12-00-00"
     mkdir -p "$loop_dir"
+    # codex_model is intentionally omitted; the stop hook derives it from config defaults
     cat > "$loop_dir/state.md" << EOF
 ---
 current_round: 0
 max_iterations: 10
-codex_model: reviewer-model-placeholder
-codex_effort: high
+codex_effort: xhigh
 codex_timeout: 5400
 push_every_round: false
 plan_file: plans/plan.md
@@ -185,6 +185,11 @@ EOF
 # Round 0 Summary
 
 More work remains.
+
+## BitLesson Delta
+- Action: none
+- Lesson ID(s): NONE
+- Notes: No new lessons in this test fixture.
 EOF
 }
 
