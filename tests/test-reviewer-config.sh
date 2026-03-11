@@ -801,6 +801,27 @@ fi
 echo ""
 
 # ========================================
+# AC-7 Extended: Stop-hook reviewer effort enum validation
+# ========================================
+
+echo "--- AC-7 Extended: Stop-hook rejects non-enum effort from edited state ---"
+
+STOP_HOOK="$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"
+
+if [[ ! -f "$STOP_HOOK" ]]; then
+    skip "stop-hook effort enum test requires stop hook" "file not found"
+else
+    # Verify the stop hook source contains the enum validation pattern
+    if grep -q '\^(xhigh|high|medium|low)\$' "$STOP_HOOK"; then
+        pass "stop-hook effort enum: hook source contains enum validation"
+    else
+        fail "stop-hook effort enum: hook source contains enum validation" "enum pattern present" "not found"
+    fi
+fi
+
+echo ""
+
+# ========================================
 # AC-4 Extended: Real setup script execution
 # ========================================
 
@@ -839,10 +860,12 @@ PLAN_EOF
 
     # Run setup-rlcr-loop.sh with --codex-model flag (should NOT affect reviewer)
     # --base-branch avoids remote detection; --track-plan-file avoids gitignore requirement
-    output=$(cd "$EXEC_PROJECT" && timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || true
+    # CLAUDE_PROJECT_DIR must point at the temp repo to prevent the setup script
+    # from detecting the live RLCR session in the real workspace
+    output=$(cd "$EXEC_PROJECT" && CLAUDE_PROJECT_DIR="$EXEC_PROJECT" timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || true
 
-    # Find the generated state.md
-    STATE_FILE=$(find "$EXEC_PROJECT/.humanize/rlcr" -name "state.md" 2>/dev/null | head -1)
+    # Find the generated state.md (|| true prevents set -e abort when no match)
+    STATE_FILE=$(find "$EXEC_PROJECT/.humanize/rlcr" -name "state.md" 2>/dev/null | head -1 || true)
     if [[ -z "$STATE_FILE" ]]; then
         fail "setup execution: state.md was created" "non-empty path" "empty"
     else
