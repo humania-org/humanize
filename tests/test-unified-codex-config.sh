@@ -482,6 +482,9 @@ else
     setup_test_dir
     EXEC_PROJECT="$TEST_DIR/exec-project"
     init_test_git_repo "$EXEC_PROJECT"
+    # Ensure a 'master' branch exists so --base-branch master is valid
+    # (init_test_git_repo may create 'main' depending on git config)
+    (cd "$EXEC_PROJECT" && git branch master 2>/dev/null || true)
 
     # Create project config with codex overrides
     mkdir -p "$EXEC_PROJECT/.humanize"
