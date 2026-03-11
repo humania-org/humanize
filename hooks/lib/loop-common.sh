@@ -170,7 +170,7 @@ $_lc_nounset && set -u || set +u
 $_lc_pipefail && set -o pipefail || set +o pipefail
 unset _lc_errexit _lc_nounset _lc_pipefail
 
-_LOOP_COMMON_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+_LOOP_COMMON_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 # Config loading is best-effort: use || true so a config-load failure does not
 # abort sourcing before callers' dependency checks (jq, codex) are reached.
 # Stderr is NOT suppressed so malformed config warnings remain visible.

@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/lib/config-loader.sh"
 source "$SCRIPT_DIR/lib/model-router.sh"
 
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$PROJECT_ROOT")"
 BITLESSON_MODEL="$(get_config_value "$MERGED_CONFIG" "bitlesson_model")"
 BITLESSON_MODEL="${BITLESSON_MODEL:-haiku}"
