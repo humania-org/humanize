@@ -579,6 +579,108 @@ done
 echo ""
 
 # ========================================
+# PR loop respects config-backed codex_model (AC-5)
+# ========================================
+
+echo "--- PR loop config-backed defaults ---"
+
+SETUP_PR_LOOP="$PROJECT_ROOT/scripts/setup-pr-loop.sh"
+PR_STOP_HOOK="$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"
+
+if [[ ! -f "$LOOP_COMMON" ]]; then
+    skip "PR loop config tests require loop-common.sh" "file not found"
+elif [[ ! -f "$SETUP_PR_LOOP" ]]; then
+    skip "PR loop config tests require setup-pr-loop.sh" "file not found"
+else
+    # PR loop setup does NOT pre-set DEFAULT_CODEX_MODEL (should come from config)
+    assert_no_grep "setup-pr-loop.sh: does not pre-set DEFAULT_CODEX_MODEL" \
+        'DEFAULT_CODEX_MODEL=' "$SETUP_PR_LOOP"
+
+    # PR loop setup DOES pre-set DEFAULT_CODEX_EFFORT to medium
+    assert_grep "setup-pr-loop.sh: pre-sets DEFAULT_CODEX_EFFORT to medium" \
+        'DEFAULT_CODEX_EFFORT="medium"' "$SETUP_PR_LOOP"
+
+    # PR stop hook also does NOT pre-set DEFAULT_CODEX_MODEL
+    if [[ ! -f "$PR_STOP_HOOK" ]]; then
+        skip "pr-loop-stop-hook.sh tests require pr-loop-stop-hook.sh" "file not found"
+    else
+        assert_no_grep "pr-loop-stop-hook.sh: does not pre-set DEFAULT_CODEX_MODEL" \
+            'DEFAULT_CODEX_MODEL=' "$PR_STOP_HOOK"
+
+        assert_grep "pr-loop-stop-hook.sh: pre-sets DEFAULT_CODEX_EFFORT to medium" \
+            'DEFAULT_CODEX_EFFORT="medium"' "$PR_STOP_HOOK"
+    fi
+
+    # Behavioral: sourcing loop-common.sh with PR loop effort pre-set picks up config model
+    setup_test_dir
+    PR_CFG_PROJECT="$TEST_DIR/pr-cfg-project"
+    mkdir -p "$PR_CFG_PROJECT/.humanize"
+    printf '{"codex_model": "o3-mini", "codex_effort": "low"}' > "$PR_CFG_PROJECT/.humanize/config.json"
+
+    result=$(bash -c "
+        export DEFAULT_CODEX_EFFORT='medium'
+        export CLAUDE_PROJECT_DIR='$PR_CFG_PROJECT'
+        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
+        source '$LOOP_COMMON' 2>/dev/null
+        echo \"\$DEFAULT_CODEX_MODEL|\$DEFAULT_CODEX_EFFORT\"
+    " 2>/dev/null || echo "ERROR")
+
+    assert_eq "PR loop behavioral: config codex_model respected (o3-mini)" \
+        "o3-mini" "$(echo "$result" | cut -d'|' -f1)"
+
+    assert_eq "PR loop behavioral: pre-set effort kept over config (medium)" \
+        "medium" "$(echo "$result" | cut -d'|' -f2)"
+
+    # Without config, falls back to hardcoded default model but keeps medium effort
+    result=$(bash -c "
+        export DEFAULT_CODEX_EFFORT='medium'
+        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
+        source '$LOOP_COMMON' 2>/dev/null
+        echo \"\$DEFAULT_CODEX_MODEL|\$DEFAULT_CODEX_EFFORT\"
+    " 2>/dev/null || echo "ERROR")
+
+    assert_eq "PR loop behavioral: no config falls back to gpt-5.4" \
+        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
+
+    assert_eq "PR loop behavioral: no config keeps medium effort" \
+        "medium" "$(echo "$result" | cut -d'|' -f2)"
+fi
+
+echo ""
+
+# ========================================
+# ask-codex respects config-backed defaults (AC-5)
+# ========================================
+
+echo "--- ask-codex config-backed defaults ---"
+
+ASK_CODEX="$PROJECT_ROOT/scripts/ask-codex.sh"
+
+if [[ ! -f "$ASK_CODEX" ]]; then
+    skip "ask-codex config tests require ask-codex.sh" "file not found"
+else
+    # ask-codex does NOT pre-set DEFAULT_CODEX_MODEL or DEFAULT_CODEX_EFFORT
+    assert_no_grep "ask-codex.sh: does not pre-set DEFAULT_CODEX_MODEL" \
+        'DEFAULT_CODEX_MODEL=' "$ASK_CODEX"
+
+    assert_no_grep "ask-codex.sh: does not pre-set DEFAULT_CODEX_EFFORT" \
+        'DEFAULT_CODEX_EFFORT=' "$ASK_CODEX"
+
+    # ask-codex uses DEFAULT_CODEX_MODEL from loop-common.sh (config-backed)
+    assert_grep "ask-codex.sh: assigns CODEX_MODEL from DEFAULT_CODEX_MODEL" \
+        'CODEX_MODEL="\$DEFAULT_CODEX_MODEL"' "$ASK_CODEX"
+
+    assert_grep "ask-codex.sh: assigns CODEX_EFFORT from DEFAULT_CODEX_EFFORT" \
+        'CODEX_EFFORT="\$DEFAULT_CODEX_EFFORT"' "$ASK_CODEX"
+
+    # Help text mentions config-backed defaults
+    assert_grep "ask-codex.sh: help text mentions config-backed default" \
+        'default from config' "$ASK_CODEX"
+fi
+
+echo ""
+
+# ========================================
 # Summary
 # ========================================
 

@@ -91,7 +91,7 @@ BOT FLAGS (at least one required):
 OPTIONS:
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.4:medium)
+                         Codex model and reasoning effort (default from config, effort: medium)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 900)
   -h, --help             Show help message
@@ -119,7 +119,7 @@ The PR loop automates the process of handling GitHub PR reviews from remote bots
 
 OPTIONS:
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.4:high)
+                         Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
   --codex-timeout <SECONDS>
                          Timeout for the Codex query in seconds (default: 3600)
   -h, --help             Show help message
