@@ -364,8 +364,8 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
-    STATE_LOOP_REVIEWER_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_MODEL}:" | sed "s/${FIELD_LOOP_REVIEWER_MODEL}: *//" | tr -d ' ' || true)
-    STATE_LOOP_REVIEWER_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_EFFORT}:" | sed "s/${FIELD_LOOP_REVIEWER_EFFORT}: *//" | tr -d ' ' || true)
+    STATE_LOOP_REVIEWER_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_MODEL}:" | sed "s/${FIELD_LOOP_REVIEWER_MODEL}: *//; s/^\"//; s/\"\$//" | tr -d ' ' || true)
+    STATE_LOOP_REVIEWER_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_EFFORT}:" | sed "s/${FIELD_LOOP_REVIEWER_EFFORT}: *//; s/^\"//; s/\"\$//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)

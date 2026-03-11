@@ -158,6 +158,11 @@ These are independent from `--codex-model` (which controls the analyzer). To ove
 }
 ```
 
+Reviewer config is resolved at the stop hook with this precedence:
+1. `loop_reviewer_model`/`effort` from state.md (set at loop start)
+2. `codex_model`/`effort` from state.md (legacy fallback)
+3. Config-derived defaults from the 4-layer hierarchy above
+
 ## Monitoring
 
 Set up the monitoring helper for real-time progress tracking:

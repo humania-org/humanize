@@ -292,9 +292,9 @@ LEGACY_EOF
     result=$(bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/legacy-state.md'
-        # Simulate the stop hook fallback chain
-        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
+        # Simulate the stop hook fallback chain (final fallback: DEFAULT_LOOP_REVIEWER_*)
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
         echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
@@ -354,41 +354,25 @@ REVSTATE_EOF
     result=$(bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/reviewer-state.md'
-        # Replicate stop hook resolution
-        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
-        REVIEW_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        REVIEW_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
-        echo \"\$EXEC_MODEL|\$EXEC_EFFORT|\$REVIEW_MODEL|\$REVIEW_EFFORT\"
+        # Replicate stop hook resolution (final fallback: DEFAULT_LOOP_REVIEWER_*)
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
+        echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
     exec_model=$(echo "$result" | cut -d'|' -f1)
     exec_effort=$(echo "$result" | cut -d'|' -f2)
-    review_model=$(echo "$result" | cut -d'|' -f3)
-    review_effort=$(echo "$result" | cut -d'|' -f4)
 
     if [[ "$exec_model" == "gpt-5.2" ]]; then
-        pass "stop hook: codex exec uses reviewer model (gpt-5.2)"
+        pass "stop hook: reviewer model used for both exec and review (gpt-5.2)"
     else
-        fail "stop hook: codex exec uses reviewer model (gpt-5.2)" "gpt-5.2" "$exec_model"
+        fail "stop hook: reviewer model used for both exec and review (gpt-5.2)" "gpt-5.2" "$exec_model"
     fi
 
     if [[ "$exec_effort" == "xhigh" ]]; then
-        pass "stop hook: codex exec uses reviewer effort (xhigh)"
+        pass "stop hook: reviewer effort used for both exec and review (xhigh)"
     else
-        fail "stop hook: codex exec uses reviewer effort (xhigh)" "xhigh" "$exec_effort"
-    fi
-
-    if [[ "$review_model" == "gpt-5.2" ]]; then
-        pass "stop hook: codex review uses reviewer model (gpt-5.2)"
-    else
-        fail "stop hook: codex review uses reviewer model (gpt-5.2)" "gpt-5.2" "$review_model"
-    fi
-
-    if [[ "$review_effort" == "xhigh" ]]; then
-        pass "stop hook: codex review uses reviewer effort (xhigh)"
-    else
-        fail "stop hook: codex review uses reviewer effort (xhigh)" "xhigh" "$review_effort"
+        fail "stop hook: reviewer effort used for both exec and review (xhigh)" "xhigh" "$exec_effort"
     fi
 fi
 
@@ -498,8 +482,8 @@ BARE_EOF
     result=$(bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/bare-state.md'
-        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
         echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
@@ -507,15 +491,15 @@ BARE_EOF
     fb_effort=$(echo "$result" | cut -d'|' -f2)
 
     if [[ "$fb_model" == "gpt-5.4" ]]; then
-        pass "bare state: falls back to DEFAULT_CODEX_MODEL (gpt-5.4)"
+        pass "bare state: falls back to DEFAULT_LOOP_REVIEWER_MODEL (gpt-5.4)"
     else
-        fail "bare state: falls back to DEFAULT_CODEX_MODEL (gpt-5.4)" "gpt-5.4" "$fb_model"
+        fail "bare state: falls back to DEFAULT_LOOP_REVIEWER_MODEL (gpt-5.4)" "gpt-5.4" "$fb_model"
     fi
 
     if [[ "$fb_effort" == "high" ]]; then
-        pass "bare state: falls back to DEFAULT_CODEX_EFFORT (high)"
+        pass "bare state: falls back to DEFAULT_LOOP_REVIEWER_EFFORT (high)"
     else
-        fail "bare state: falls back to DEFAULT_CODEX_EFFORT (high)" "high" "$fb_effort"
+        fail "bare state: falls back to DEFAULT_LOOP_REVIEWER_EFFORT (high)" "high" "$fb_effort"
     fi
 
     # Case: reviewer_model set but reviewer_effort missing -> partial fallback
@@ -545,8 +529,8 @@ PARTIAL_EOF
     result=$(bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/partial-state.md'
-        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
         echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
@@ -592,8 +576,8 @@ PARTIAL2_EOF
     result=$(bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/partial2-state.md'
-        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}}\"
-        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_CODEX_EFFORT}}\"
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
         echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
@@ -690,6 +674,210 @@ if echo "$effort_block" | grep -q 'exit 1'; then
     pass "setup script: reviewer effort validation exits with code 1"
 else
     fail "setup script: reviewer effort validation exits with code 1"
+fi
+
+echo ""
+
+# ========================================
+# AC-8 Extended: Quoted YAML frontmatter
+# ========================================
+
+echo "--- AC-8 Extended: Quoted reviewer frontmatter ---"
+
+if [[ ! -f "$LOOP_COMMON" ]]; then
+    skip "AC-8 quoted tests require loop-common.sh" "file not found"
+else
+    setup_test_dir
+
+    # Create state file with quoted reviewer values (valid YAML)
+    cat > "$TEST_DIR/quoted-state.md" << 'QUOTED_EOF'
+---
+current_round: 1
+max_iterations: 42
+codex_model: gpt-5.4
+codex_effort: high
+codex_timeout: 5400
+push_every_round: false
+full_review_round: 5
+plan_file: plan.md
+plan_tracked: false
+start_branch: feature
+base_branch: main
+base_commit: abc123
+review_started: false
+ask_codex_question: true
+session_id: quoted-test
+agent_teams: false
+loop_reviewer_model: "gpt-5.2"
+loop_reviewer_effort: "low"
+---
+QUOTED_EOF
+
+    result=$(bash -c "
+        source '$LOOP_COMMON' 2>/dev/null
+        parse_state_file '$TEST_DIR/quoted-state.md'
+        echo \"\$STATE_LOOP_REVIEWER_MODEL|\$STATE_LOOP_REVIEWER_EFFORT\"
+    " 2>/dev/null || echo "ERROR")
+
+    qm=$(echo "$result" | cut -d'|' -f1)
+    qe=$(echo "$result" | cut -d'|' -f2)
+
+    if [[ "$qm" == "gpt-5.2" ]]; then
+        pass "quoted frontmatter: reviewer model quotes stripped (gpt-5.2)"
+    else
+        fail "quoted frontmatter: reviewer model quotes stripped (gpt-5.2)" "gpt-5.2" "$qm"
+    fi
+
+    if [[ "$qe" == "low" ]]; then
+        pass "quoted frontmatter: reviewer effort quotes stripped (low)"
+    else
+        fail "quoted frontmatter: reviewer effort quotes stripped (low)" "low" "$qe"
+    fi
+fi
+
+echo ""
+
+# ========================================
+# AC-5/6 Extended: Bare state with config override proves reviewer defaults used
+# ========================================
+
+echo "--- AC-5/6 Extended: Bare state uses config-derived reviewer defaults ---"
+
+if [[ ! -f "$LOOP_COMMON" ]]; then
+    skip "AC-5/6 extended test requires loop-common.sh" "file not found"
+else
+    setup_test_dir
+    OVERRIDE_PROJECT="$TEST_DIR/reviewer-override"
+    mkdir -p "$OVERRIDE_PROJECT/.humanize"
+    printf '{"loop_reviewer_model": "o1-preview", "loop_reviewer_effort": "medium"}' > "$OVERRIDE_PROJECT/.humanize/config.json"
+
+    # Create bare state file (no reviewer or codex fields)
+    cat > "$TEST_DIR/cfg-bare-state.md" << 'CFG_BARE_EOF'
+---
+current_round: 0
+max_iterations: 10
+codex_timeout: 3600
+push_every_round: false
+full_review_round: 5
+plan_file: plan.md
+plan_tracked: false
+start_branch: feature
+base_branch: main
+base_commit: abc123
+review_started: false
+ask_codex_question: true
+session_id: cfg-bare
+agent_teams: false
+---
+CFG_BARE_EOF
+
+    # Source loop-common.sh with project override, then test fallback chain
+    result=$(bash -c "
+        export CLAUDE_PROJECT_DIR='$OVERRIDE_PROJECT'
+        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
+        source '$LOOP_COMMON' 2>/dev/null
+        parse_state_file '$TEST_DIR/cfg-bare-state.md'
+        EXEC_MODEL=\"\${STATE_LOOP_REVIEWER_MODEL:-\${STATE_CODEX_MODEL:-\$DEFAULT_LOOP_REVIEWER_MODEL}}\"
+        EXEC_EFFORT=\"\${STATE_LOOP_REVIEWER_EFFORT:-\${STATE_CODEX_EFFORT:-\$DEFAULT_LOOP_REVIEWER_EFFORT}}\"
+        echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
+    " 2>/dev/null || echo "ERROR")
+
+    cfg_model=$(echo "$result" | cut -d'|' -f1)
+    cfg_effort=$(echo "$result" | cut -d'|' -f2)
+
+    if [[ "$cfg_model" == "o1-preview" ]]; then
+        pass "config override + bare state: reviewer model from config (o1-preview)"
+    else
+        fail "config override + bare state: reviewer model from config (o1-preview)" "o1-preview" "$cfg_model"
+    fi
+
+    if [[ "$cfg_effort" == "medium" ]]; then
+        pass "config override + bare state: reviewer effort from config (medium)"
+    else
+        fail "config override + bare state: reviewer effort from config (medium)" "medium" "$cfg_effort"
+    fi
+fi
+
+echo ""
+
+# ========================================
+# AC-4 Extended: Real setup script execution
+# ========================================
+
+echo "--- AC-4 Extended: Setup script execution test ---"
+
+SETUP_SCRIPT="$PROJECT_ROOT/scripts/setup-rlcr-loop.sh"
+
+if ! command -v jq >/dev/null 2>&1; then
+    skip "setup execution test requires jq" "jq not found"
+elif ! command -v codex >/dev/null 2>&1; then
+    skip "setup execution test requires codex" "codex not found"
+else
+    setup_test_dir
+    EXEC_PROJECT="$TEST_DIR/exec-project"
+    init_test_git_repo "$EXEC_PROJECT"
+
+    # Create project config with reviewer overrides (outside .humanize to avoid git issues)
+    mkdir -p "$EXEC_PROJECT/.humanize"
+    printf '{"loop_reviewer_model": "gpt-5.2", "loop_reviewer_effort": "low"}' > "$EXEC_PROJECT/.humanize/config.json"
+
+    # Create a plan file with enough lines (minimum 5 required) and commit it
+    cat > "$EXEC_PROJECT/plan.md" << 'PLAN_EOF'
+# Test Plan
+## Goal
+Test reviewer config
+## Tasks
+- Task 1: Add config keys
+- Task 2: Wire through pipeline
+PLAN_EOF
+    (cd "$EXEC_PROJECT" && git add plan.md && git commit -q -m "Add plan")
+
+    # Create a local bare remote to prevent network calls during base-branch detection
+    BARE_REMOTE="$TEST_DIR/remote.git"
+    git clone --bare "$EXEC_PROJECT" "$BARE_REMOTE" -q 2>/dev/null
+    (cd "$EXEC_PROJECT" && git remote remove origin 2>/dev/null; git remote add origin "$BARE_REMOTE") 2>/dev/null || true
+
+    # Run setup-rlcr-loop.sh with --codex-model flag (should NOT affect reviewer)
+    # --base-branch avoids remote detection; --track-plan-file avoids gitignore requirement
+    output=$(cd "$EXEC_PROJECT" && timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || true
+
+    # Find the generated state.md
+    STATE_FILE=$(find "$EXEC_PROJECT/.humanize/rlcr" -name "state.md" 2>/dev/null | head -1)
+    if [[ -z "$STATE_FILE" ]]; then
+        fail "setup execution: state.md was created" "non-empty path" "empty"
+    else
+        pass "setup execution: state.md was created"
+
+        # Check reviewer model in state.md
+        rev_model=$(grep '^loop_reviewer_model:' "$STATE_FILE" | sed 's/loop_reviewer_model: *//')
+        if [[ "$rev_model" == "gpt-5.2" ]]; then
+            pass "setup execution: state.md reviewer model from config (gpt-5.2)"
+        else
+            fail "setup execution: state.md reviewer model from config (gpt-5.2)" "gpt-5.2" "$rev_model"
+        fi
+
+        # Check reviewer effort in state.md
+        rev_effort=$(grep '^loop_reviewer_effort:' "$STATE_FILE" | sed 's/loop_reviewer_effort: *//')
+        if [[ "$rev_effort" == "low" ]]; then
+            pass "setup execution: state.md reviewer effort from config (low)"
+        else
+            fail "setup execution: state.md reviewer effort from config (low)" "low" "$rev_effort"
+        fi
+
+        # Check --codex-model did NOT change reviewer
+        codex_model=$(grep '^codex_model:' "$STATE_FILE" | sed 's/codex_model: *//')
+        if [[ "$codex_model" == "gpt-5.3" ]]; then
+            pass "setup execution: --codex-model set codex_model (gpt-5.3)"
+        else
+            fail "setup execution: --codex-model set codex_model (gpt-5.3)" "gpt-5.3" "$codex_model"
+        fi
+
+        if [[ "$rev_model" != "$codex_model" ]]; then
+            pass "setup execution: reviewer model independent from --codex-model"
+        else
+            fail "setup execution: reviewer model independent from --codex-model"
+        fi
+    fi
 fi
 
 echo ""
