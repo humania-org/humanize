@@ -126,7 +126,7 @@ Execute the validation script with the provided arguments:
 ```
 
 **Handle exit codes:**
-- Exit code 0: Continue to Phase 2
+- Exit code 0: Continue to Phase 2. Parse the `TEMPLATE_FILE:` line from stdout to get the template path.
 - Exit code 1: Report "Input file not found" and stop
 - Exit code 2: Report "Input file is empty" and stop
 - Exit code 3: Report "Output directory does not exist - please create it" and stop
@@ -134,6 +134,8 @@ Execute the validation script with the provided arguments:
 - Exit code 5: Report "No write permission to output directory" and stop
 - Exit code 6: Report "Invalid arguments" and show usage, then stop
 - Exit code 7: Report "Plan template file not found - plugin configuration error" and stop
+
+**Note:** The validation script is side-effect-free. It does NOT create the output file.
 
 ---
 
@@ -159,7 +161,11 @@ After IO validation passes, check if the draft is relevant to this repository.
    - Show the reason from the relevance check
    - Stop the command
 
-4. **If RELEVANT**: Continue to Phase 3
+4. **If RELEVANT**: Create the output plan file by copying the template and appending the draft:
+   ```bash
+   cp "$TEMPLATE_FILE" "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && echo "--- Original Design Draft Start ---" >> "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && cat "$INPUT_FILE" >> "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && echo "--- Original Design Draft End ---" >> "$OUTPUT_FILE"
+   ```
+   Then continue to Phase 3.
 
 ---
 
@@ -514,7 +520,7 @@ When `alternative_plan_language` is empty, absent, set to `"English"`, or set to
 
 ## Phase 8: Write and Complete
 
-The output file already contains the plan template structure and the original draft content (combined during IO validation). Now complete the plan through the following steps:
+The output file already contains the plan template structure and the original draft content (combined after the relevance check). Now complete the plan through the following steps:
 
 ### Step 1: Update Plan Content
 

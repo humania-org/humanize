@@ -653,12 +653,10 @@ if [[ ! "$CODEX_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     exit 1
 fi
 
-# Validate codex effort for YAML safety
-# Only alphanumeric, hyphen, underscore allowed
-if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-    echo "Error: Codex effort contains invalid characters" >&2
-    echo "  Effort: $CODEX_EFFORT" >&2
-    echo "  Only alphanumeric, hyphen, underscore allowed" >&2
+# Validate codex effort matches allowed values (consistent with stop-hook validation)
+if [[ ! "$CODEX_EFFORT" =~ ^(xhigh|high|medium|low)$ ]]; then
+    echo "Error: Invalid codex effort: $CODEX_EFFORT" >&2
+    echo "  Must be one of: xhigh, high, medium, low" >&2
     exit 1
 fi
 

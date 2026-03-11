@@ -174,17 +174,6 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
     exit 7
 fi
 
-# Copy template to output location
-cp "$TEMPLATE_FILE" "$OUTPUT_FILE"
-
-# Append separator and original draft content
-echo "" >> "$OUTPUT_FILE"
-echo "--- Original Design Draft Start ---" >> "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-cat "$INPUT_FILE" >> "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-echo "--- Original Design Draft End ---" >> "$OUTPUT_FILE"
-
-echo "Template and draft combined at: $OUTPUT_FILE"
+echo "TEMPLATE_FILE: $TEMPLATE_FILE"
 echo "Proceeding with draft analysis..."
 exit 0

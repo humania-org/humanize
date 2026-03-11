@@ -89,10 +89,15 @@ fi
 BITLESSON_PROVIDER="$(detect_provider "$BITLESSON_MODEL")"
 
 # ========================================
-# Conditional Dependency Check
+# Conditional Dependency Check (with fallback)
 # ========================================
 
-check_provider_dependency "$BITLESSON_PROVIDER"
+if ! check_provider_dependency "$BITLESSON_PROVIDER" 2>/dev/null; then
+    # Fall back to codex provider when the configured provider binary is missing
+    BITLESSON_MODEL="$DEFAULT_CODEX_MODEL"
+    BITLESSON_PROVIDER="codex"
+    check_provider_dependency "$BITLESSON_PROVIDER"
+fi
 
 if [[ ! -f "$BITLESSON_FILE" ]]; then
     echo "Error: BitLesson file not found: $BITLESSON_FILE" >&2

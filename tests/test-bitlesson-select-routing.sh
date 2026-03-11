@@ -236,10 +236,10 @@ else
 fi
 
 # ========================================
-# Test 7: Claude branch missing claude binary exits non-zero
+# Test 7: Claude model falls back to codex when claude binary is missing
 # ========================================
 echo ""
-echo "--- Test 7: haiku model with missing claude binary exits non-zero ---"
+echo "--- Test 7: haiku model falls back to codex when claude binary is missing ---"
 echo ""
 
 setup_test_dir
@@ -249,26 +249,27 @@ printf '{"bitlesson_model": "haiku"}' > "$TEST_DIR/.humanize/config.json"
 # Use a bin dir that contains a stub codex but NOT claude.
 NO_CLAUDE_BIN="$TEST_DIR/no-claude-bin"
 mkdir -p "$NO_CLAUDE_BIN"
-# Provide a stub codex so it does not interfere with the claude check
-cat > "$NO_CLAUDE_BIN/codex" <<'EOF'
+# Provide a stub codex that produces valid bitlesson output (proves fallback worked)
+cat > "$NO_CLAUDE_BIN/codex" <<'MOCK_EOF'
 #!/bin/bash
-exit 0
-EOF
+echo "LESSON_IDS: NONE"
+echo "RATIONALE: No relevant lessons for this task."
+MOCK_EOF
 chmod +x "$NO_CLAUDE_BIN/codex"
 
 exit_code=0
-stderr_out=""
-stderr_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+stdout_out=""
+stdout_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     PATH="$NO_CLAUDE_BIN:$SAFE_BASE_PATH" \
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>&1 >/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
 
-if [[ $exit_code -ne 0 ]] && echo "$stderr_out" | grep -qi "claude"; then
-    pass "Claude branch: missing claude binary exits non-zero with informative error"
+if [[ $exit_code -eq 0 ]] && echo "$stdout_out" | grep -q "LESSON_IDS: NONE"; then
+    pass "Claude model falls back to codex when claude binary is missing"
 else
-    fail "Claude branch: missing claude binary exits non-zero with informative error" "non-zero exit + 'claude' in stderr" "exit=$exit_code, stderr=$stderr_out"
+    fail "Claude model falls back to codex when claude binary is missing" "exit=0 + LESSON_IDS in stdout" "exit=$exit_code, stdout=$stdout_out"
 fi
 
 # ========================================
