@@ -708,27 +708,95 @@ else
         fail "PR loop runtime: --help shows config-backed default" "contains 'default from config'" "$(echo "$help_output" | grep codex-model)"
     fi
 
-    # Verify that the argument parser correctly captures --codex-model override
-    # by sourcing the config and simulating the parse (the full setup needs gh/PR)
-    result=$(bash -c "
-        export DEFAULT_CODEX_EFFORT='medium'
-        export CLAUDE_PROJECT_DIR='$PR_OVERRIDE_PROJECT'
-        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
-        source '$LOOP_COMMON' 2>/dev/null
-        CODEX_MODEL=\"\$DEFAULT_CODEX_MODEL\"
-        CODEX_EFFORT=\"\$DEFAULT_CODEX_EFFORT\"
-        # Simulate --codex-model flag parsing (same logic as setup-pr-loop.sh)
-        ARG='override-model:xhigh'
-        CODEX_MODEL=\"\${ARG%%:*}\"
-        CODEX_EFFORT=\"\${ARG#*:}\"
-        echo \"\$CODEX_MODEL|\$CODEX_EFFORT\"
-    " 2>/dev/null || echo "ERROR")
+    # End-to-end: run setup-pr-loop.sh with mock gh/codex and --codex-model override
+    if ! command -v jq >/dev/null 2>&1; then
+        skip "PR loop e2e test requires jq" "jq not found"
+    else
+        setup_test_dir
+        PR_E2E_PROJECT="$TEST_DIR/pr-e2e-project"
+        init_test_git_repo "$PR_E2E_PROJECT"
+        mkdir -p "$PR_E2E_PROJECT/.humanize"
+        printf '{"codex_model": "o3-mini", "codex_effort": "low"}' > "$PR_E2E_PROJECT/.humanize/config.json"
 
-    assert_eq "PR loop runtime: --codex-model overrides config model" \
-        "override-model" "$(echo "$result" | cut -d'|' -f1)"
+        # Create a local bare remote (setup-pr-loop.sh needs a git remote)
+        PR_BARE_REMOTE="$TEST_DIR/pr-remote.git"
+        git clone --bare "$PR_E2E_PROJECT" "$PR_BARE_REMOTE" -q 2>/dev/null
+        (cd "$PR_E2E_PROJECT" && git remote remove origin 2>/dev/null; git remote add origin "$PR_BARE_REMOTE") 2>/dev/null || true
 
-    assert_eq "PR loop runtime: --codex-model overrides config effort" \
-        "xhigh" "$(echo "$result" | cut -d'|' -f2)"
+        # Create mock gh that handles all setup-pr-loop.sh calls
+        PR_MOCK_BIN="$TEST_DIR/pr-mock-bin"
+        mkdir -p "$PR_MOCK_BIN"
+        cat > "$PR_MOCK_BIN/gh" << 'GH_MOCK_EOF'
+#!/bin/bash
+# Mock gh for setup-pr-loop.sh end-to-end test
+ALL_ARGS="$*"
+case "$1" in
+    auth) exit 0 ;;
+    repo)
+        if [[ "$ALL_ARGS" == *"owner,name"* ]]; then
+            echo "testowner/testrepo"; exit 0
+        elif [[ "$ALL_ARGS" == *"parent"* ]]; then
+            echo "null/"; exit 0
+        fi ;;
+    pr)
+        if [[ "$2" == "view" ]]; then
+            if [[ "$ALL_ARGS" == *"number,url"* ]]; then
+                printf '123\nhttps://github.com/testowner/testrepo/pull/123'; exit 0
+            elif [[ "$ALL_ARGS" == *"state"* ]]; then
+                echo "OPEN"; exit 0
+            elif [[ "$ALL_ARGS" == *"number"* ]]; then
+                echo "123"; exit 0
+            elif [[ "$ALL_ARGS" == *"headRefOid"* ]]; then
+                echo '{"sha":"abc123","date":"2026-01-01T00:00:00Z"}'; exit 0
+            fi
+        elif [[ "$2" == "comment" ]]; then
+            echo "https://github.com/testowner/testrepo/pull/123#comment-1"; exit 0
+        fi ;;
+    api)
+        if [[ "$2" == "user" ]]; then
+            echo '{"login":"testuser"}'; exit 0
+        elif [[ "$2" == *"/comments"* ]] || [[ "$2" == *"/reviews"* ]]; then
+            echo "[]"; exit 0
+        fi
+        echo "[]"; exit 0 ;;
+esac
+echo "Mock gh: unhandled: $ALL_ARGS" >&2; exit 1
+GH_MOCK_EOF
+        chmod +x "$PR_MOCK_BIN/gh"
+
+        # Create mock codex (not called during setup, but required by command -v check)
+        cat > "$PR_MOCK_BIN/codex" << 'CODEX_MOCK_EOF'
+#!/bin/bash
+exit 0
+CODEX_MOCK_EOF
+        chmod +x "$PR_MOCK_BIN/codex"
+
+        # Run setup-pr-loop.sh with --codex-model override
+        pr_setup_exit=0
+        pr_output=$(cd "$PR_E2E_PROJECT" && \
+            CLAUDE_PROJECT_DIR="$PR_E2E_PROJECT" \
+            XDG_CONFIG_HOME="$TEST_DIR/no-user-config" \
+            PATH="$PR_MOCK_BIN:$PATH" \
+            timeout 30 bash "$SETUP_PR_LOOP" --claude --codex-model override-model:xhigh 2>&1) || pr_setup_exit=$?
+
+        assert_eq "PR loop e2e: setup-pr-loop.sh exited successfully" \
+            "0" "$pr_setup_exit"
+
+        # Find the generated PR loop state.md
+        PR_STATE_FILE=$(find "$PR_E2E_PROJECT/.humanize/pr-loop" -name "state.md" 2>/dev/null | head -1 || true)
+        if [[ -z "$PR_STATE_FILE" ]]; then
+            fail "PR loop e2e: state.md was created" "non-empty path" "empty"
+        else
+            pass "PR loop e2e: state.md was created"
+
+            # Assert --codex-model override is stored in state, not config values
+            assert_eq "PR loop e2e: --codex-model set codex_model (override-model)" \
+                "override-model" "$(grep '^codex_model:' "$PR_STATE_FILE" | sed 's/codex_model: *//')"
+
+            assert_eq "PR loop e2e: --codex-model set codex_effort (xhigh)" \
+                "xhigh" "$(grep '^codex_effort:' "$PR_STATE_FILE" | sed 's/codex_effort: *//')"
+        fi
+    fi
 fi
 
 echo ""
