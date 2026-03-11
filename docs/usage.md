@@ -180,8 +180,6 @@ Codex model is resolved with this precedence:
 `loop_reviewer_model` or `loop_reviewer_effort`, they are silently ignored.
 Use `codex_model` and `codex_effort` instead.
 
-For BitLesson-specific configuration, workflow rules, and summary validation, see
-[Bitter Lesson Workflow](bitlesson.md).
 
 ## Monitoring
 
