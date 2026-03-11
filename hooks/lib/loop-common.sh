@@ -189,6 +189,22 @@ DEFAULT_LOOP_REVIEWER_MODEL="${DEFAULT_LOOP_REVIEWER_MODEL:-gpt-5.4}"
 DEFAULT_LOOP_REVIEWER_EFFORT="$(get_config_value "$_LOOP_COMMON_CONFIG" "loop_reviewer_effort" 2>/dev/null || true)"
 DEFAULT_LOOP_REVIEWER_EFFORT="${DEFAULT_LOOP_REVIEWER_EFFORT:-high}"
 
+# Detect whether user or project config explicitly overrides reviewer keys.
+# When not explicitly set, setup-rlcr-loop.sh omits reviewer fields from state.md
+# so the stop-hook fallback chain can reach codex_model/codex_effort (set by --codex-model).
+LOOP_REVIEWER_CONFIG_EXPLICIT="false"
+if command -v jq >/dev/null 2>&1; then
+    _lc_user_cfg="${XDG_CONFIG_HOME:-${HOME:-}/.config}/humanize/config.json"
+    _lc_project_cfg="${HUMANIZE_CONFIG:-${_LOOP_COMMON_PROJECT_ROOT}/.humanize/config.json}"
+    for _lc_cfg_file in "$_lc_user_cfg" "$_lc_project_cfg"; do
+        if [[ -f "$_lc_cfg_file" ]] && jq -e 'has("loop_reviewer_model") or has("loop_reviewer_effort")' "$_lc_cfg_file" >/dev/null 2>&1; then
+            LOOP_REVIEWER_CONFIG_EXPLICIT="true"
+            break
+        fi
+    done
+    unset _lc_user_cfg _lc_project_cfg _lc_cfg_file
+fi
+
 unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
 
 source "$LOOP_COMMON_DIR/template-loader.sh"

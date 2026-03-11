@@ -664,19 +664,20 @@ if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     exit 1
 fi
 
-# Validate reviewer model for YAML safety (same rules as codex model)
-if [[ ! "$LOOP_REVIEWER_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-    echo "Error: Reviewer model contains invalid characters" >&2
-    echo "  Model: $LOOP_REVIEWER_MODEL" >&2
-    echo "  Only alphanumeric, hyphen, underscore, dot allowed" >&2
-    exit 1
-fi
+# Validate reviewer model/effort only when explicitly configured
+if [[ "$LOOP_REVIEWER_CONFIG_EXPLICIT" == "true" ]]; then
+    if [[ ! "$LOOP_REVIEWER_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        echo "Error: Reviewer model contains invalid characters" >&2
+        echo "  Model: $LOOP_REVIEWER_MODEL" >&2
+        echo "  Only alphanumeric, hyphen, underscore, dot allowed" >&2
+        exit 1
+    fi
 
-# Validate reviewer effort value
-if [[ ! "$LOOP_REVIEWER_EFFORT" =~ ^(xhigh|high|medium|low)$ ]]; then
-    echo "Error: Reviewer effort must be one of: xhigh, high, medium, low" >&2
-    echo "  Got: $LOOP_REVIEWER_EFFORT" >&2
-    exit 1
+    if [[ ! "$LOOP_REVIEWER_EFFORT" =~ ^(xhigh|high|medium|low)$ ]]; then
+        echo "Error: Reviewer effort must be one of: xhigh, high, medium, low" >&2
+        echo "  Got: $LOOP_REVIEWER_EFFORT" >&2
+        exit 1
+    fi
 fi
 
 # ========================================
@@ -837,6 +838,19 @@ bash "$SCRIPT_DIR/bitlesson-init.sh" \
 # Determine initial review_started value based on skip-impl mode
 INITIAL_REVIEW_STARTED="$SKIP_IMPL"
 
+# Only write reviewer fields when user/project config explicitly sets them.
+# When omitted, the stop hook falls back to codex_model/codex_effort (set by --codex-model).
+REVIEWER_STATE_LINES=""
+if [[ "$LOOP_REVIEWER_CONFIG_EXPLICIT" == "true" ]]; then
+    REVIEWER_STATE_LINES="loop_reviewer_model: $LOOP_REVIEWER_MODEL
+loop_reviewer_effort: $LOOP_REVIEWER_EFFORT"
+fi
+
+# Skip-impl mode does not use BitLesson-aware summary templates,
+# so disable enforcement to avoid blocking the review-only workflow.
+BITLESSON_STATE_VALUE="true"
+[[ "$SKIP_IMPL" == "true" ]] && BITLESSON_STATE_VALUE="false"
+
 cat > "$LOOP_DIR/state.md" << EOF
 ---
 current_round: 0
@@ -855,9 +869,8 @@ review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
-loop_reviewer_model: $LOOP_REVIEWER_MODEL
-loop_reviewer_effort: $LOOP_REVIEWER_EFFORT
-bitlesson_required: true
+${REVIEWER_STATE_LINES:+$REVIEWER_STATE_LINES
+}bitlesson_required: $BITLESSON_STATE_VALUE
 bitlesson_file: $BITLESSON_FILE_REL
 bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -1033,7 +1046,7 @@ write_summary_template() {
 ## BitLesson Delta
 
 Action: none
-Lesson IDs applied: NONE
+Lesson ID(s): NONE
 Notes: [what changed and why]
 SUMMARY_TMPL_EOF
 }
@@ -1139,7 +1152,7 @@ Before executing each task or sub-task, you MUST:
 
 Include a \`## BitLesson Delta\` section in your summary with:
 - Action: none|add|update
-- Lesson IDs applied: NONE or comma-separated IDs
+- Lesson ID(s): NONE or comma-separated IDs
 - Notes: what changed and why (required if action is add or update)
 
 Reference: @$BITLESSON_FILE
@@ -1219,6 +1232,14 @@ fi  # End of skip-impl prompt handling
 # This trap is set here (not at script start) to avoid affecting internal pipelines.
 trap 'exit 0' PIPE
 
+if [[ "$LOOP_REVIEWER_CONFIG_EXPLICIT" == "true" ]]; then
+    REVIEWER_MODEL_DISPLAY="$LOOP_REVIEWER_MODEL"
+    REVIEWER_EFFORT_DISPLAY="$LOOP_REVIEWER_EFFORT"
+else
+    REVIEWER_MODEL_DISPLAY="$CODEX_MODEL (follows --codex-model)"
+    REVIEWER_EFFORT_DISPLAY="$CODEX_EFFORT (follows --codex-model)"
+fi
+
 if [[ "$SKIP_IMPL" == "true" ]]; then
     cat << EOF
 === start-rlcr-loop activated (SKIP-IMPL MODE) ===
@@ -1228,8 +1249,8 @@ Start Branch: $START_BRANCH
 Base Branch: $BASE_BRANCH
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
-Reviewer Model: $LOOP_REVIEWER_MODEL
-Reviewer Effort: $LOOP_REVIEWER_EFFORT
+Reviewer Model: $REVIEWER_MODEL_DISPLAY
+Reviewer Effort: $REVIEWER_EFFORT_DISPLAY
 Codex Timeout: ${CODEX_TIMEOUT}s
 Loop Directory: $LOOP_DIR
 
@@ -1257,8 +1278,8 @@ Base Branch: $BASE_BRANCH
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
-Reviewer Model: $LOOP_REVIEWER_MODEL
-Reviewer Effort: $LOOP_REVIEWER_EFFORT
+Reviewer Model: $REVIEWER_MODEL_DISPLAY
+Reviewer Effort: $REVIEWER_EFFORT_DISPLAY
 Codex Timeout: ${CODEX_TIMEOUT}s
 Full Review Round: $FULL_REVIEW_ROUND (Full Alignment Checks at rounds $((FULL_REVIEW_ROUND - 1)), $((2 * FULL_REVIEW_ROUND - 1)), $((3 * FULL_REVIEW_ROUND - 1)), ...)
 Ask User for Codex Questions: $ASK_CODEX_QUESTION
