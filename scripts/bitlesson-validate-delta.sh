@@ -167,7 +167,7 @@ EOF
         block_exit "$REASON" "Loop: BitLesson Delta inconsistent for action none (round $CURRENT_ROUND)"
     fi
 
-    if [[ "$CURRENT_ROUND" -gt 0 ]] && [[ "$CONCRETE_BITLESSON_COUNT" -eq 0 ]] && [[ "$BITLESSON_ALLOW_EMPTY_NONE" != "true" ]]; then
+    if [[ "$CONCRETE_BITLESSON_COUNT" -eq 0 ]] && [[ "$BITLESSON_ALLOW_EMPTY_NONE" != "true" ]]; then
         FALLBACK=$(cat <<'EOF'
 # BitLesson Recording Required
 

@@ -76,7 +76,7 @@ fi
 # These scripts should only be invoked by the hooks system, not via Bash.
 
 BLOCKED_HOOK_SCRIPTS="(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh|rlcr-stop-gate\.sh)"
-if echo "$COMMAND_LOWER" | grep -qE "(^|[;&|])[[:space:]]*(bash|sh|source|\.|/[^[:space:]]*).*$BLOCKED_HOOK_SCRIPTS"; then
+if echo "$COMMAND_LOWER" | grep -qE "(^|[;&|])[[:space:]]*(([^[:space:]]*/)?|(bash|sh|source|\.)[[:space:]].*)$BLOCKED_HOOK_SCRIPTS"; then
     stop_hook_direct_execution_blocked_message >&2
     exit 2
 fi
