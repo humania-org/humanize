@@ -73,7 +73,7 @@ get_rlcr_status() {
 
     # Pre-scan: if any state files have a session_id, ignore those without
     local has_sid_aware=false
-    if grep -rq '^session_id:' "$rlcr_dir"/*/*.md 2>/dev/null; then
+    if grep -rqE '^session_id: *.+' "$rlcr_dir"/*/*.md 2>/dev/null; then
         has_sid_aware=true
     fi
 

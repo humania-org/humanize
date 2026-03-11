@@ -584,7 +584,7 @@ if [[ "$GIT_IS_REPO" == "true" ]]; then
     # Check for uncommitted changes (staged or unstaged) using cached status.
     # Exclude .humanize/ untracked files from the dirty determination because
     # plugin state (bitlesson.md, config.json, rlcr/) is intentionally untracked.
-    GIT_STATUS_FOR_BLOCK=$(echo "$GIT_STATUS_CACHED" | grep -vE '^\?\? \.humanize' || true)
+    GIT_STATUS_FOR_BLOCK=$(echo "$GIT_STATUS_CACHED" | grep -vE '^\?\? \.humanize/' || true)
     if [[ -n "$GIT_STATUS_FOR_BLOCK" ]]; then
         GIT_ISSUES="uncommitted changes"
 
