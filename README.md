@@ -68,7 +68,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 - [Install for Codex](docs/install-for-codex.md) -- Codex skill runtime setup
 - [Install for Kimi](docs/install-for-kimi.md) -- Kimi CLI skill setup
 - [Configuration](docs/usage.md#configuration) -- Shared config hierarchy and override rules
-- [Bitter Lesson Workflow](docs/usage.md#bitlesson-workflow) -- Project memory, selector routing, and delta validation
+- [Bitter Lesson Workflow](docs/bitlesson.md) -- Project memory, selector routing, and delta validation
 
 ## License
 
