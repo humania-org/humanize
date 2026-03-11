@@ -498,9 +498,6 @@ Test unified codex config
 PLAN_EOF
     (cd "$EXEC_PROJECT" && git add plan.md && git commit -q -m "Add plan")
 
-    # Detect the default branch name (may be main or master depending on git config)
-    EXEC_DEFAULT_BRANCH=$(cd "$EXEC_PROJECT" && git rev-parse --abbrev-ref HEAD)
-
     # Create a local bare remote to prevent network calls
     BARE_REMOTE="$TEST_DIR/remote.git"
     git clone --bare "$EXEC_PROJECT" "$BARE_REMOTE" -q 2>/dev/null
@@ -508,7 +505,7 @@ PLAN_EOF
 
     # Run setup-rlcr-loop.sh with --codex-model override
     setup_exit=0
-    output=$(cd "$EXEC_PROJECT" && CLAUDE_PROJECT_DIR="$EXEC_PROJECT" timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch "$EXEC_DEFAULT_BRANCH" --track-plan-file plan.md 2>&1) || setup_exit=$?
+    output=$(cd "$EXEC_PROJECT" && CLAUDE_PROJECT_DIR="$EXEC_PROJECT" timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || setup_exit=$?
 
     assert_eq "setup execution: setup-rlcr-loop.sh exited successfully" \
         "0" "$setup_exit"
