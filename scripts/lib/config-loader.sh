@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Source guard: prevent double-sourcing
+[[ -n "${_CONFIG_LOADER_LOADED:-}" ]] && return 0 2>/dev/null || true
+_CONFIG_LOADER_LOADED=1
+
 set -euo pipefail
 
 _config_loader_warn() {
@@ -54,35 +58,6 @@ _config_loader_prepare_layer() {
         printf '{}' > "$output_file"
         return 0
     fi
-}
-
-_config_loader_extract_string() {
-    local config_json="${1:-}"
-    local key="${2:-}"
-    local shell_escaped=""
-    local decoded=""
-
-    if [[ -z "$key" ]]; then
-        return 1
-    fi
-
-    shell_escaped="$(
-        printf '%s' "$config_json" | jq -r --arg key "$key" '
-            if has($key) and .[$key] != null then
-                (.[$key] | tostring | @sh)
-            else
-                ""
-            end
-        '
-    )"
-
-    if [[ -z "$shell_escaped" ]]; then
-        return 0
-    fi
-
-    # shellcheck disable=SC2086
-    eval "decoded=$shell_escaped"
-    printf '%s' "$decoded"
 }
 
 load_merged_config() {

@@ -94,10 +94,27 @@ else
 fi
 
 # ========================================
-# Test 3: haiku routes to claude
+# Test 3: o4-mini routes to codex
 # ========================================
 echo ""
-echo "--- Test 3: haiku routes to claude ---"
+echo "--- Test 3: o4-mini routes to codex ---"
+echo ""
+
+result=""
+exit_code=0
+result=$(detect_provider "o4-mini" 2>/dev/null) || exit_code=$?
+
+if [[ $exit_code -eq 0 ]] && [[ "$result" == "codex" ]]; then
+    pass "detect_provider: o4-mini returns codex"
+else
+    fail "detect_provider: o4-mini returns codex" "exit 0 + codex" "exit=$exit_code, output=$result"
+fi
+
+# ========================================
+# Test 4: haiku routes to claude
+# ========================================
+echo ""
+echo "--- Test 4: haiku routes to claude ---"
 echo ""
 
 result=""
@@ -111,10 +128,10 @@ else
 fi
 
 # ========================================
-# Test 4: sonnet routes to claude
+# Test 5: sonnet routes to claude
 # ========================================
 echo ""
-echo "--- Test 4: sonnet routes to claude ---"
+echo "--- Test 5: sonnet routes to claude ---"
 echo ""
 
 result=""
@@ -128,10 +145,10 @@ else
 fi
 
 # ========================================
-# Test 5: opus routes to claude
+# Test 6: opus routes to claude
 # ========================================
 echo ""
-echo "--- Test 5: opus routes to claude ---"
+echo "--- Test 6: opus routes to claude ---"
 echo ""
 
 result=""
@@ -145,10 +162,10 @@ else
 fi
 
 # ========================================
-# Test 6: claude-sonnet-4-6 routes to claude
+# Test 7: claude-sonnet-4-6 routes to claude
 # ========================================
 echo ""
-echo "--- Test 6: claude-sonnet-4-6 routes to claude ---"
+echo "--- Test 7: claude-sonnet-4-6 routes to claude ---"
 echo ""
 
 result=""
@@ -162,10 +179,10 @@ else
 fi
 
 # ========================================
-# Test 7: claude-3-OPUS-20240229 routes to claude
+# Test 8: claude-3-OPUS-20240229 routes to claude
 # ========================================
 echo ""
-echo "--- Test 7: claude-3-OPUS-20240229 routes to claude ---"
+echo "--- Test 8: claude-3-OPUS-20240229 routes to claude ---"
 echo ""
 
 result=""
@@ -179,10 +196,10 @@ else
 fi
 
 # ========================================
-# Test 8: unknown model exits non-zero
+# Test 9: unknown model exits non-zero
 # ========================================
 echo ""
-echo "--- Test 8: unknown model exits non-zero ---"
+echo "--- Test 9: unknown model exits non-zero ---"
 echo ""
 
 exit_code=0
@@ -196,10 +213,10 @@ else
 fi
 
 # ========================================
-# Test 9: empty model exits non-zero
+# Test 10: empty model exits non-zero
 # ========================================
 echo ""
-echo "--- Test 9: empty model exits non-zero ---"
+echo "--- Test 10: empty model exits non-zero ---"
 echo ""
 
 exit_code=0

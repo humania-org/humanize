@@ -67,6 +67,11 @@ if [[ ! -f "$TEMPLATE_PATH" ]]; then
     exit 1
 fi
 
+if [[ "$BITLESSON_RELPATH" = /* ]] || [[ "$BITLESSON_RELPATH" =~ (^|/)\.\.(/|$) ]]; then
+    echo "Error: --bitlesson-relpath must be a relative path without '..': $BITLESSON_RELPATH" >&2
+    exit 1
+fi
+
 PROJECT_ROOT_ABS="$(cd "$PROJECT_ROOT" && pwd -P)"
 BITLESSON_FILE="$PROJECT_ROOT_ABS/$BITLESSON_RELPATH"
 

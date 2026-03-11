@@ -15,7 +15,7 @@ detect_provider() {
         return 1
     fi
 
-    if [[ "$model_name" == gpt-* ]] || [[ "$model_name" == o1-* ]] || [[ "$model_name" == o3-* ]]; then
+    if [[ "$model_name" == gpt-* ]] || [[ "$model_name" == o[0-9]* ]]; then
         echo "codex"
         return 0
     fi
@@ -25,7 +25,7 @@ detect_provider() {
         return 0
     fi
 
-    echo "Error: Unknown model name '$model_name'. Expected gpt-*/o1-*/o3-* (Codex) or claude-*/haiku/sonnet/opus (Claude)." >&2
+    echo "Error: Unknown model name '$model_name'. Expected gpt-*/o[N]-* (Codex) or claude-*/haiku/sonnet/opus (Claude)." >&2
     return 1
 }
 

@@ -135,7 +135,7 @@ if [[ -z "$BITLESSON_FILE_REL" ]] || \
     BITLESSON_FILE_REL=".humanize/bitlesson.md"
 fi
 BITLESSON_FILE="$PROJECT_ROOT/$BITLESSON_FILE_REL"
-if [[ -z "$BITLESSON_REQUIRED" && -f "$BITLESSON_FILE" ]]; then
+if [[ -z "$RAW_BITLESSON_REQUIRED" && -f "$BITLESSON_FILE" ]]; then
     BITLESSON_REQUIRED="true"
 fi
 BITLESSON_ALLOW_EMPTY_NONE="true"
@@ -511,6 +511,11 @@ if [[ "$GIT_IS_REPO" == "true" ]]; then
         case "$filename" in
             *" -> "*) filename="${filename##* -> }" ;;
         esac
+
+        # Resolve filename relative to PROJECT_ROOT (git status --porcelain
+        # returns project-relative paths, but the hook may run from a
+        # different working directory).
+        filename="$PROJECT_ROOT/$filename"
 
         # Skip deleted files
         if [ ! -f "$filename" ]; then
