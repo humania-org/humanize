@@ -255,8 +255,8 @@ for suite in "${TEST_SUITES[@]}"; do
         FAILED_SUITES+=("$suite")
         line=$(echo -e "${RED}FAILED${NC}: $suite (exit code: $exit_code, failed: $failed, ${elapsed_display})")
         printf '%d\t%s\n' "$elapsed_ms" "$line" >> "$SORT_FILE"
-        # Save failure detail for later display
-        echo "$output" | tail -30 > "$OUTPUT_DIR/${safe_name}.detail"
+        # Preserve the full suite log so CI surfaces the exact failing assertion.
+        printf '%s\n' "$output" > "$OUTPUT_DIR/${safe_name}.detail"
     else
         zsh_label=""
         needs_zsh "$suite" && zsh_label=" (zsh)"
