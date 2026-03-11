@@ -795,7 +795,7 @@ SKIP_IMPL_PLAN_EOF
     # Using relative path because git ls-files requires repo-relative paths
     PLAN_FILE=".humanize/rlcr/$TIMESTAMP/plan.md"
 else
-    ln -s "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
+    cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
 fi
 
 # Docs path default
@@ -1103,7 +1103,7 @@ Each task must have one routing tag from the plan: \`coding\` or \`analyze\`.
 - Tag \`coding\`: Claude executes the task directly.
 - Tag \`analyze\`: Claude must execute via \`/humanize:ask-codex\`, then integrate Codex output.
 - Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> claude\`, \`analyze -> codex\`).
-- If a task is missing a valid tag, do not guess silently; document it in Plan Evolution Log and block completion until clarified.
+- If a task has no explicit tag, default to \`coding\` (Claude executes directly).
 
 EOF
 

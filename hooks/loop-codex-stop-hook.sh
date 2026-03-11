@@ -135,7 +135,7 @@ if [[ -z "$BITLESSON_FILE_REL" ]] || \
     BITLESSON_FILE_REL=".humanize/bitlesson.md"
 fi
 BITLESSON_FILE="$PROJECT_ROOT/$BITLESSON_FILE_REL"
-if [[ "$BITLESSON_REQUIRED" != "true" && -f "$BITLESSON_FILE" ]]; then
+if [[ -z "$BITLESSON_REQUIRED" && -f "$BITLESSON_FILE" ]]; then
     BITLESSON_REQUIRED="true"
 fi
 BITLESSON_ALLOW_EMPTY_NONE="true"
