@@ -140,6 +140,17 @@ Humanize uses a 4-layer config hierarchy (lowest to highest priority):
 3. **Project config**: `.humanize/config.json`
 4. **CLI flags**: Command-line arguments (where available)
 
+Current built-in keys:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `codex_model` | `gpt-5.4` | Shared default model for Codex-backed review and analysis |
+| `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
+| `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
+| `agent_teams` | `false` | Project-level default for agent teams workflow |
+| `chinese_plan` | `false` | Project preference for Chinese plan generation |
+| `gen_plan_mode` | `discussion` | Default plan-generation mode |
+
 ### Codex Model Configuration
 
 All Codex-using features (RLCR loop, PR loop, ask-codex) share the same model configuration:
@@ -154,7 +165,8 @@ To override, add to `.humanize/config.json`:
 ```json
 {
   "codex_model": "gpt-5.2",
-  "codex_effort": "xhigh"
+  "codex_effort": "xhigh",
+  "bitlesson_model": "sonnet"
 }
 ```
 
@@ -167,6 +179,43 @@ Codex model is resolved with this precedence:
 **Migration note**: If your `.humanize/config.json` contains the legacy keys
 `loop_reviewer_model` or `loop_reviewer_effort`, they are silently ignored.
 Use `codex_model` and `codex_effort` instead.
+
+### BitLesson Configuration
+
+BitLesson is the repository's Bitter Lesson-style knowledge capture system for RLCR rounds.
+
+The selector reads `bitlesson_model` from the merged config. Provider routing is automatic:
+
+- `gpt-*`, `o1-*`, `o3-*` route to Codex
+- `claude-*`, `haiku`, `sonnet`, `opus` route to Claude
+
+If the configured provider binary is missing, the selector falls back to the default Codex model so the loop can still proceed.
+
+## BitLesson Workflow
+
+Each project keeps its BitLesson knowledge base at `.humanize/bitlesson.md`.
+
+When `start-rlcr-loop` begins:
+
+1. The file is initialized from `templates/bitlesson.md` if it does not already exist
+2. Each task or sub-task runs through `scripts/bitlesson-select.sh`
+3. The selected lesson IDs are applied during implementation, or `NONE` is recorded when nothing matches
+4. The stop gate validates a required `## BitLesson Delta` section in every round summary
+
+Required summary shape:
+
+```markdown
+## BitLesson Delta
+- Action: none|add|update
+- Lesson ID(s): <IDs or NONE>
+- Notes: <what changed and why>
+```
+
+Validation rules are strict:
+
+- `Action: none` must use `Lesson ID(s): NONE` or leave the field empty
+- `Action: add` and `Action: update` must reference concrete `BL-YYYYMMDD-short-name` IDs that exist in `.humanize/bitlesson.md`
+- `--require-bitlesson-entry-for-none` can be used to block empty knowledge bases from repeatedly reporting `none`
 
 ## Monitoring
 

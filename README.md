@@ -55,6 +55,26 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    humanize monitor rlcr
    ```
 
+## Config System
+
+Humanize now uses a shared config hierarchy instead of scattering defaults across scripts.
+
+Priority is:
+1. `config/default_config.json`
+2. `~/.config/humanize/config.json`
+3. `.humanize/config.json`
+4. CLI flags for commands that expose overrides
+
+This keeps RLCR, PR loop, and `ask-codex` aligned on the same Codex defaults, while still letting each project pin its own behavior. The current config surface covers shared review settings such as `codex_model` and `codex_effort`, plus workflow toggles like `bitlesson_model`, `agent_teams`, and plan-generation preferences.
+
+## BitLesson System
+
+Humanize also includes a BitLesson system, which is the repository's Bitter Lesson-style knowledge capture workflow.
+
+Each project keeps a local knowledge base at `.humanize/bitlesson.md`. The RLCR setup initializes that file from a strict template when it is missing. During each round, the loop reads the knowledge base, runs a selector for every task or sub-task, and requires the round summary to include a `## BitLesson Delta` section describing whether a reusable lesson was added, updated, or intentionally left unchanged.
+
+The goal is to turn repeated failure-and-fix cycles into explicit project memory instead of rediscovering the same operational lessons every round.
+
 ## Monitor Dashboard
 
 <p align="center">
