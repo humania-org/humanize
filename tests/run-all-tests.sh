@@ -82,6 +82,7 @@ TEST_SUITES=(
     "test-task-tag-routing.sh"
     "test-config-merge.sh"
     "test-config-error-handling.sh"
+    "test-unified-codex-config.sh"
     "test-pr-loop-1-scripts.sh"
     "test-pr-loop-2-hooks.sh"
     "test-pr-loop-3-stophook.sh"
