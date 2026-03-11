@@ -113,8 +113,8 @@ MAX_ITERATIONS="$STATE_MAX_ITERATIONS"
 PUSH_EVERY_ROUND="$STATE_PUSH_EVERY_ROUND"
 FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
 REVIEW_STARTED="$STATE_REVIEW_STARTED"
-CODEX_EXEC_MODEL="${STATE_LOOP_REVIEWER_MODEL:-${STATE_CODEX_MODEL:-$DEFAULT_LOOP_REVIEWER_MODEL}}"
-CODEX_EXEC_EFFORT="${STATE_LOOP_REVIEWER_EFFORT:-${STATE_CODEX_EFFORT:-$DEFAULT_LOOP_REVIEWER_EFFORT}}"
+CODEX_EXEC_MODEL="${STATE_CODEX_MODEL:-$DEFAULT_CODEX_MODEL}"
+CODEX_EXEC_EFFORT="${STATE_CODEX_EFFORT:-$DEFAULT_CODEX_EFFORT}"
 CODEX_REVIEW_MODEL="$CODEX_EXEC_MODEL"
 CODEX_REVIEW_EFFORT="$CODEX_EXEC_EFFORT"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
@@ -156,7 +156,7 @@ if [[ ! "$CODEX_EXEC_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     exit 0
 fi
 if [[ ! "$CODEX_EXEC_EFFORT" =~ ^(xhigh|high|medium|low)$ ]]; then
-    echo "Error: Invalid reviewer effort in state file: $CODEX_EXEC_EFFORT" >&2
+    echo "Error: Invalid codex effort in state file: $CODEX_EXEC_EFFORT" >&2
     echo "  Must be one of: xhigh, high, medium, low" >&2
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_UNEXPECTED"
     exit 0
@@ -1391,7 +1391,7 @@ CODEX_STDERR_FILE="$CACHE_DIR/round-${CURRENT_ROUND}-codex-run.log"
 # Save the command for debugging
 CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
 {
-    echo "# Reviewer invocation debug info"
+    echo "# Codex invocation debug info"
     echo "# Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
@@ -1402,16 +1402,16 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "$CODEX_PROMPT_CONTENT"
 } > "$CODEX_CMD_FILE"
 
-echo "Reviewer command saved to: $CODEX_CMD_FILE" >&2
+echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running summary review with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
 printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
-echo "Reviewer exit code: $CODEX_EXIT_CODE" >&2
-echo "Reviewer stdout saved to: $CODEX_STDOUT_FILE" >&2
-echo "Reviewer stderr saved to: $CODEX_STDERR_FILE" >&2
+echo "Codex exit code: $CODEX_EXIT_CODE" >&2
+echo "Codex stdout saved to: $CODEX_STDOUT_FILE" >&2
+echo "Codex stderr saved to: $CODEX_STDERR_FILE" >&2
 
 # ========================================
 # Check Codex Execution Result

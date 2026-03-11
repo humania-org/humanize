@@ -38,15 +38,14 @@ readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
-readonly FIELD_LOOP_REVIEWER_MODEL="loop_reviewer_model"
-readonly FIELD_LOOP_REVIEWER_EFFORT="loop_reviewer_effort"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
-# Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort).
+# Scripts can pre-set DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT before sourcing to override.
+# Config-backed defaults are loaded from the merge hierarchy after config-loader.sh is sourced.
+# Precedence: pre-set value > config value > hardcoded fallback (gpt-5.4/high)
 #
-# Default model for Codex operations (same model for both plugin and skill mode)
-DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-gpt-5.4}"
-DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-high}"
+# The actual assignment happens in the "Config-backed defaults" section below,
+# after config-loader.sh has been sourced and merged config is available.
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -183,27 +182,14 @@ _LOOP_COMMON_CONFIG="$(load_merged_config "$LOOP_COMMON_PLUGIN_ROOT" "$_LOOP_COM
 DEFAULT_BITLESSON_MODEL="$(get_config_value "$_LOOP_COMMON_CONFIG" "bitlesson_model" 2>/dev/null || true)"
 DEFAULT_BITLESSON_MODEL="${DEFAULT_BITLESSON_MODEL:-haiku}"
 
-# Load reviewer model/effort from merged config (independent from codex_model/codex_effort)
-DEFAULT_LOOP_REVIEWER_MODEL="$(get_config_value "$_LOOP_COMMON_CONFIG" "loop_reviewer_model" 2>/dev/null || true)"
-DEFAULT_LOOP_REVIEWER_MODEL="${DEFAULT_LOOP_REVIEWER_MODEL:-gpt-5.4}"
-DEFAULT_LOOP_REVIEWER_EFFORT="$(get_config_value "$_LOOP_COMMON_CONFIG" "loop_reviewer_effort" 2>/dev/null || true)"
-DEFAULT_LOOP_REVIEWER_EFFORT="${DEFAULT_LOOP_REVIEWER_EFFORT:-high}"
-
-# Detect whether user or project config explicitly overrides reviewer keys.
-# When not explicitly set, setup-rlcr-loop.sh omits reviewer fields from state.md
-# so the stop-hook fallback chain can reach codex_model/codex_effort (set by --codex-model).
-LOOP_REVIEWER_CONFIG_EXPLICIT="false"
-if command -v jq >/dev/null 2>&1; then
-    _lc_user_cfg="${XDG_CONFIG_HOME:-${HOME:-}/.config}/humanize/config.json"
-    _lc_project_cfg="${HUMANIZE_CONFIG:-${_LOOP_COMMON_PROJECT_ROOT}/.humanize/config.json}"
-    for _lc_cfg_file in "$_lc_user_cfg" "$_lc_project_cfg"; do
-        if [[ -f "$_lc_cfg_file" ]] && jq -e 'has("loop_reviewer_model") or has("loop_reviewer_effort")' "$_lc_cfg_file" >/dev/null 2>&1; then
-            LOOP_REVIEWER_CONFIG_EXPLICIT="true"
-            break
-        fi
-    done
-    unset _lc_user_cfg _lc_project_cfg _lc_cfg_file
-fi
+# Load codex model/effort from merged config so .humanize/config.json can set persistent
+# defaults for all Codex-using features (RLCR, PR loop, ask-codex).
+# Precedence: pre-set by caller (e.g. PR loop) > config value > hardcoded fallback (gpt-5.4/high)
+_cfg_codex_model="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_model" 2>/dev/null || true)"
+DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.4}}"
+_cfg_codex_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_effort" 2>/dev/null || true)"
+DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_codex_effort:-high}}"
+unset _cfg_codex_model _cfg_codex_effort
 
 unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
 
@@ -380,8 +366,6 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
-    STATE_LOOP_REVIEWER_MODEL=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_MODEL}:" | sed "s/${FIELD_LOOP_REVIEWER_MODEL}: *//; s/^\"//; s/\"\$//" | tr -d ' ' || true)
-    STATE_LOOP_REVIEWER_EFFORT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LOOP_REVIEWER_EFFORT}:" | sed "s/${FIELD_LOOP_REVIEWER_EFFORT}: *//; s/^\"//; s/\"\$//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -402,8 +386,6 @@ _parse_state_fields() {
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
 #   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
 #   STATE_AGENT_TEAMS - "true" or "false"
-#   STATE_LOOP_REVIEWER_MODEL - reviewer model name (empty if not set)
-#   STATE_LOOP_REVIEWER_EFFORT - reviewer effort level (empty if not set)
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {

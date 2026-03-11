@@ -1,6 +1,6 @@
 {
-  "loop_reviewer_model": "gpt-5.4",
-  "loop_reviewer_effort": "high",
+  "codex_model": "gpt-5.4",
+  "codex_effort": "high",
   "bitlesson_model": "haiku",
   "agent_teams": false,
   "chinese_plan": false,

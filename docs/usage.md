@@ -140,28 +140,33 @@ Humanize uses a 4-layer config hierarchy (lowest to highest priority):
 3. **Project config**: `.humanize/config.json`
 4. **CLI flags**: Command-line arguments (where available)
 
-### Reviewer Model Configuration
+### Codex Model Configuration
 
-The RLCR loop reviewer (used for round reviews and code reviews) has dedicated config keys:
+All Codex-using features (RLCR loop, PR loop, ask-codex) share the same model configuration:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `loop_reviewer_model` | `gpt-5.4` | Model for round reviews and code reviews |
-| `loop_reviewer_effort` | `high` | Reasoning effort (`xhigh`, `high`, `medium`, `low`) |
+| `codex_model` | `gpt-5.4` | Model used for Codex operations (reviews, analysis, queries) |
+| `codex_effort` | `high` | Reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 
-These are independent from `--codex-model` (which controls the analyzer). To override, add to `.humanize/config.json`:
+To override, add to `.humanize/config.json`:
 
 ```json
 {
-  "loop_reviewer_model": "gpt-5.2",
-  "loop_reviewer_effort": "xhigh"
+  "codex_model": "gpt-5.2",
+  "codex_effort": "xhigh"
 }
 ```
 
-Reviewer config is resolved at the stop hook with this precedence:
-1. `loop_reviewer_model`/`effort` from state.md (set at loop start)
-2. `codex_model`/`effort` from state.md (legacy fallback)
-3. Config-derived defaults from the 4-layer hierarchy above
+Codex model is resolved with this precedence:
+1. CLI `--codex-model` flag (highest priority)
+2. Feature-specific defaults (e.g., PR loop defaults to `medium` effort)
+3. Config-backed defaults from the 4-layer hierarchy above
+4. Hardcoded fallback (`gpt-5.4:high`)
+
+**Migration note**: If your `.humanize/config.json` contains the legacy keys
+`loop_reviewer_model` or `loop_reviewer_effort`, they are silently ignored.
+Use `codex_model` and `codex_effort` instead.
 
 ## Monitoring
 
