@@ -463,7 +463,7 @@ _humanize_monitor_codex() {
         # Move to top and draw directly (no pre-clearing to avoid flicker)
         tput cup 0 0
         printf "${bg}${bold}%-${term_width}s${reset}${clr_eol}\n" " Humanize Loop Monitor"
-        printf "${cyan}Session Started:${reset} ${start_display}${clr_eol}\n"
+        printf "${cyan}Session Started:${reset} %s${clr_eol}\n" "$start_display"
         # Format full_review_round display (show in parentheses if available)
         local full_review_display=""
         if [[ "$full_review_round" != "N/A" && -n "$full_review_round" ]]; then
@@ -480,7 +480,7 @@ _humanize_monitor_codex() {
             fi
             push_segment=" | Push Every Round: ${push_color}${push_display}${reset}"
         fi
-        printf "${green}Round:${reset}    ${bold}${current_round}${reset} / ${max_iterations}${full_review_display} | ${yellow}Model:${reset} ${codex_model} (${codex_effort})${push_segment}${clr_eol}\n"
+        printf "${green}Round:${reset}    ${bold}%s${reset} / %s%s | ${yellow}Model:${reset} %s (%s)${push_segment}${clr_eol}\n" "$current_round" "$max_iterations" "$full_review_display" "$codex_model" "$codex_effort"
 
         # Loop status line with color based on status
         # Colors: Active=yellow, Complete=green, Finalize=cyan, Stop states=red, Others=orange
@@ -575,9 +575,9 @@ _humanize_monitor_codex() {
         printf "${clr_eol}\n"
 
         # Use cyan for Goal, Plan, Log labels (context/reference lines)
-        printf "${cyan}Goal:${reset}     ${goal_display}${clr_eol}\n"
-        printf "${cyan}Plan:${reset}     ${plan_display}${clr_eol}\n"
-        printf "${cyan}Log:${reset}      ${log_file}${clr_eol}\n"
+        printf "${cyan}Goal:${reset}     %s${clr_eol}\n" "$goal_display"
+        printf "${cyan}Plan:${reset}     %s${clr_eol}\n" "$plan_display"
+        printf "${cyan}Log:${reset}      %s${clr_eol}\n" "$log_file"
         printf "%.s─" $(seq 1 $term_width)
         printf "${clr_eol}\n"
 
@@ -1312,8 +1312,8 @@ _humanize_monitor_pr() {
         tput cup 0 0
         local session_basename=$(basename "$session_dir")
         printf "${bg}${bold}%-${term_width}s${reset}${clr_eol}\n" " PR Loop Monitor"
-        printf "${cyan}Session:${reset} ${session_basename}    ${cyan}PR:${reset} #${pr_number}    ${cyan}Branch:${reset} ${start_branch}${clr_eol}\n"
-        printf "${green}Round:${reset}   ${bold}${current_round}${reset} / ${max_iterations}    ${yellow}Codex:${reset} ${codex_model} (${codex_effort})${clr_eol}\n"
+        printf "${cyan}Session:${reset} %s    ${cyan}PR:${reset} #%s    ${cyan}Branch:${reset} %s${clr_eol}\n" "$session_basename" "$pr_number" "$start_branch"
+        printf "${green}Round:${reset}   ${bold}%s${reset} / %s    ${yellow}Codex:${reset} %s (%s)${clr_eol}\n" "$current_round" "$max_iterations" "$codex_model" "$codex_effort"
 
         # Detect phase and determine status color
         local phase=""
@@ -1336,7 +1336,7 @@ _humanize_monitor_pr() {
         esac
 
         if [[ -n "$phase_display" ]]; then
-            printf "${magenta}Phase:${reset}   ${status_color}${phase_display}${reset}${clr_eol}\n"
+            printf "${magenta}Phase:${reset}   ${status_color}%s${reset}${clr_eol}\n" "$phase_display"
         else
             # Fallback to loop_status if phase detection not available
             case "$loop_status" in
@@ -1346,15 +1346,15 @@ _humanize_monitor_pr() {
                 max-iterations) status_color="${red}" ;;
                 *) status_color="${dim}" ;;
             esac
-            printf "${magenta}Status:${reset}  ${status_color}${loop_status}${reset}${clr_eol}\n"
+            printf "${magenta}Status:${reset}  ${status_color}%s${reset}${clr_eol}\n" "$loop_status"
         fi
 
         # Bot status
-        printf "${cyan}Configured Bots:${reset} ${configured_bots}${clr_eol}\n"
+        printf "${cyan}Configured Bots:${reset} %s${clr_eol}\n" "$configured_bots"
         if [[ "$active_bots" == "none" ]] || [[ -z "$active_bots" ]]; then
             printf "${green}Active Bots:${reset}     ${green}all approved${reset}${clr_eol}\n"
         else
-            printf "${yellow}Active Bots:${reset}     ${active_bots}${clr_eol}\n"
+            printf "${yellow}Active Bots:${reset}     %s${clr_eol}\n" "$active_bots"
         fi
 
         # Goal tracker issue stats
@@ -1364,7 +1364,7 @@ _humanize_monitor_pr() {
             local total_issues resolved_issues remaining_issues last_reviewer
             IFS='|' read -r total_issues resolved_issues remaining_issues last_reviewer <<< "$tracker_stats"
             if [[ "$total_issues" != "0" ]] || [[ "$resolved_issues" != "0" ]]; then
-                printf "${cyan}Issues:${reset}          Found: ${yellow}${total_issues}${reset}, Resolved: ${green}${resolved_issues}${reset}, Remaining: ${red}${remaining_issues}${reset}${clr_eol}\n"
+                printf "${cyan}Issues:${reset}          Found: ${yellow}%s${reset}, Resolved: ${green}%s${reset}, Remaining: ${red}%s${reset}${clr_eol}\n" "$total_issues" "$resolved_issues" "$remaining_issues"
             fi
         fi
 
@@ -1373,12 +1373,12 @@ _humanize_monitor_pr() {
         if [[ "$started_at" != "N/A" ]]; then
             start_display=$(echo "$started_at" | sed 's/T/ /; s/Z/ UTC/')
         fi
-        printf "${dim}Started:${reset} ${start_display}${clr_eol}\n"
+        printf "${dim}Started:${reset} %s${clr_eol}\n" "$start_display"
 
         # Currently monitoring
         local file_basename=""
         [[ -n "$monitored_file" ]] && file_basename=$(basename "$monitored_file")
-        printf "${dim}Watching:${reset} ${file_basename:-none}${clr_eol}\n"
+        printf "${dim}Watching:${reset} %s${clr_eol}\n" "${file_basename:-none}"
 
         # Separator
         printf "%-${term_width}s${clr_eol}\n" "$(printf '%*s' "$term_width" | tr ' ' '-')"
