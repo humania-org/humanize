@@ -4,6 +4,7 @@
 #
 # Covers:
 # - Untracked legacy .humanize-* directories do not trigger git-dirty blocks
+# - Untracked .humanizeconfig still triggers git-dirty blocks as a real file
 # - Legacy loops without bitlesson_required stay disabled even if bitlesson.md exists
 #
 
@@ -154,6 +155,24 @@ else
     fail \
         "Stop hook ignores untracked .humanize-old paths when checking git dirtiness" \
         "exit 0, Codex invoked, no uncommitted-changes block" \
+        "exit $RUN_EXIT_CODE, marker=$(test -f "$RUN_MARKER" && echo present || echo missing), output: $RUN_OUTPUT"
+fi
+
+echo "Test 1b: Untracked .humanizeconfig still blocks dirty checks"
+TEST1B_REPO="$TEST_DIR/test1b"
+create_stop_hook_fixture "$TEST1B_REPO"
+touch "$TEST1B_REPO/.humanizeconfig"
+run_stop_hook "$TEST1B_REPO"
+
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ ! -f "$RUN_MARKER" ]] && \
+   echo "$RUN_OUTPUT" | grep -q "Loop: Blocked - uncommitted changes" && \
+   echo "$RUN_OUTPUT" | grep -q "Special Case - \\.humanize directory detected" && \
+   echo "$RUN_OUTPUT" | grep -q "Note on Untracked Files"; then
+    pass "Stop hook treats .humanizeconfig as a normal untracked file"
+else
+    fail \
+        "Stop hook treats .humanizeconfig as a normal untracked file" \
+        "blocked before Codex with both humanize-runtime and generic untracked-file notes" \
         "exit $RUN_EXIT_CODE, marker=$(test -f "$RUN_MARKER" && echo present || echo missing), output: $RUN_OUTPUT"
 fi
 

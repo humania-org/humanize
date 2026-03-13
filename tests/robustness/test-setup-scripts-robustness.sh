@@ -422,6 +422,29 @@ else
     fail "Non-git directory" "rejection" "exit=$EXIT_CODE"
 fi
 
+# Test 16b: Untracked .humanizeconfig still blocks setup as a dirty working tree
+echo ""
+echo "Test 16b: Untracked .humanizeconfig is not ignored as runtime state"
+mkdir -p "$TEST_DIR/repo16b"
+init_basic_git_repo "$TEST_DIR/repo16b"
+create_minimal_plan "$TEST_DIR/repo16b"
+echo "plan.md" >> "$TEST_DIR/repo16b/.gitignore"
+git -C "$TEST_DIR/repo16b" add .gitignore && git -C "$TEST_DIR/repo16b" commit -q -m "Add gitignore"
+touch "$TEST_DIR/repo16b/.humanizeconfig"
+
+mkdir -p "$TEST_DIR/repo16b/bin"
+echo '#!/bin/bash
+exit 0' > "$TEST_DIR/repo16b/bin/codex"
+chmod +x "$TEST_DIR/repo16b/bin/codex"
+
+OUTPUT=$(PATH="$TEST_DIR/repo16b/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo16b" plan.md 2>&1) || EXIT_CODE=$?
+EXIT_CODE=${EXIT_CODE:-0}
+if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -q "Git working tree is not clean" && echo "$OUTPUT" | grep -q '\.humanizeconfig'; then
+    pass "Untracked .humanizeconfig still blocks setup as dirty"
+else
+    fail "Untracked .humanizeconfig blocks setup" "dirty working tree error mentioning .humanizeconfig" "exit=$EXIT_CODE, output=$OUTPUT"
+fi
+
 # Test 17: Git repo without commits rejected
 echo ""
 echo "Test 17: Git repo without commits rejected"

@@ -89,7 +89,7 @@ HOOK_NOHUP_PREFIX="nohup"
 HOOK_TRACE_PREFIX="(strace|ltrace)([[:space:]]+(${HOOK_TRACE_OPTION}))*([[:space:]]+--)?"
 HOOK_UTILITY_PREFIX="(${HOOK_TIMEOUT_PREFIX}|${HOOK_NICE_PREFIX}|${HOOK_NOHUP_PREFIX}|${HOOK_TRACE_PREFIX})"
 HOOK_WRAPPER_PREFIX_PATTERN="((${HOOK_ASSIGNMENT_PREFIX}|${HOOK_COMMAND_PREFIX}|${HOOK_ENV_PREFIX}|${HOOK_UTILITY_PREFIX})[[:space:]]+)*"
-HOOK_LAUNCH_PATTERN="(([^[:space:]]*/)?|(bash|sh|source|\.)[[:space:]].*)$BLOCKED_HOOK_SCRIPTS"
+HOOK_LAUNCH_PATTERN="(([^[:space:]]*/)?|(bash|sh|zsh|source|\.)[[:space:]].*)$BLOCKED_HOOK_SCRIPTS"
 if echo "$COMMAND_LOWER" | grep -qE "(^|[;&|])[[:space:]]*${HOOK_WRAPPER_PREFIX_PATTERN}${HOOK_LAUNCH_PATTERN}"; then
     stop_hook_direct_execution_blocked_message >&2
     exit 2

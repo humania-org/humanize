@@ -671,9 +671,9 @@ if [[ $GIT_STATUS_EXIT -eq 124 ]]; then
     echo "Error: Git operation timed out while checking working tree status" >&2
     exit 1
 fi
-# Filter out untracked .humanize* entries (runtime state, legacy folders, config, bitlesson).
-# These are gitignored and do not indicate a dirty working tree.
-GIT_STATUS_OUTPUT=$(echo "$GIT_STATUS_OUTPUT" | grep -vE '^\?\? \.humanize' || true)
+# Filter out untracked .humanize/ paths and .humanize-* dash-separated legacy variants.
+# These are gitignored runtime directories and do not indicate a dirty working tree.
+GIT_STATUS_OUTPUT=$(echo "$GIT_STATUS_OUTPUT" | grep -vE '^\?\? \.humanize[-/]' || true)
 if [[ -n "$GIT_STATUS_OUTPUT" ]]; then
     echo "Error: Git working tree is not clean" >&2
     echo "" >&2

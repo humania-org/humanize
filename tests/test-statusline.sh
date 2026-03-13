@@ -2,8 +2,8 @@
 #
 # Tests for scripts/statusline.sh
 #
-# Covers RLCR repo-root resolution plus mixed legacy/session-aware loop
-# selection for the statusline display.
+# Covers RLCR repo-root resolution, fast-mode precedence, and mixed
+# legacy/session-aware loop selection for the statusline display.
 #
 
 set -euo pipefail
@@ -45,6 +45,18 @@ assert_statusline_rlcr() {
     fi
 }
 
+assert_statusline_fast() {
+    local test_name="$1"
+    local expected_status="$2"
+    local plain_output="$3"
+
+    if echo "$plain_output" | grep -q "Fast: $expected_status"; then
+        pass "$test_name"
+    else
+        fail "$test_name" "output containing Fast: $expected_status" "$plain_output"
+    fi
+}
+
 echo "=========================================="
 echo "Statusline Tests"
 echo "=========================================="
@@ -72,6 +84,33 @@ PLAIN_OUTPUT=$(run_statusline_plain "$TEST_DIR/repo/subdir/nested")
 assert_statusline_rlcr \
     "statusline resolves RLCR state from git repo root when cwd is nested" \
     "Active" \
+    "$PLAIN_OUTPUT"
+
+# ========================================
+# Test: project-local fast mode overrides global fast mode
+# ========================================
+
+init_test_git_repo "$TEST_DIR/repo-fast-mode"
+mkdir -p "$TEST_DIR/repo-fast-mode/subdir"
+mkdir -p "$TEST_DIR/repo-fast-mode/.claude"
+mkdir -p "$TEST_DIR/home/.claude"
+
+cat > "$TEST_DIR/repo-fast-mode/.claude/settings.json" << 'EOF'
+{
+  "fastMode": false
+}
+EOF
+
+cat > "$TEST_DIR/home/.claude/settings.json" << 'EOF'
+{
+  "fastMode": true
+}
+EOF
+
+PLAIN_OUTPUT=$(run_statusline_plain "$TEST_DIR/repo-fast-mode/subdir")
+assert_statusline_fast \
+    "statusline prefers project-local fast mode over global settings" \
+    "Off" \
     "$PLAIN_OUTPUT"
 
 # ========================================

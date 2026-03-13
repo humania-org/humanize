@@ -216,9 +216,28 @@ get_session_display() {
     echo "$sid"
 }
 
-# Get fast mode status from user settings
+# Get fast mode status from project-local settings first, then user settings.
 get_fast_mode() {
-    local settings="$HOME/.claude/settings.json"
+    local git_root="${1:-}"
+    local settings
+    local val
+
+    if [[ -n "$git_root" ]]; then
+        settings="$git_root/.claude/settings.json"
+        if [[ -f "$settings" ]]; then
+            val=$(jq -r 'if has("fastMode") then .fastMode else empty end' "$settings" 2>/dev/null)
+            if [[ "$val" == "true" ]]; then
+                echo "On"
+                return
+            fi
+            if [[ "$val" == "false" ]]; then
+                echo "Off"
+                return
+            fi
+        fi
+    fi
+
+    settings="$HOME/.claude/settings.json"
     if [[ -f "$settings" ]]; then
         local val
         val=$(jq -r '.fastMode // false' "$settings" 2>/dev/null)
@@ -231,7 +250,8 @@ get_fast_mode() {
 }
 
 SESSION_DISPLAY=$(get_session_display "$SESSION_ID" "$TRANSCRIPT_PATH" "$CWD")
-FAST_MODE=$(get_fast_mode)
+REPO_ROOT=$(resolve_repo_root "$CWD")
+FAST_MODE=$(get_fast_mode "$REPO_ROOT")
 
 # Get git branch name for CWD
 if [[ -n "$CWD" && -d "$CWD" ]]; then
@@ -254,7 +274,6 @@ LINES_ADDED=${LINES_ADDED:-0}
 LINES_REMOVED=${LINES_REMOVED:-0}
 
 # Determine RLCR status
-REPO_ROOT=$(resolve_repo_root "$CWD")
 if [[ -n "$REPO_ROOT" && -d "$REPO_ROOT/.humanize" ]]; then
     RLCR_STATUS=$(get_rlcr_status "$REPO_ROOT/.humanize/rlcr" "$SESSION_ID")
 else
