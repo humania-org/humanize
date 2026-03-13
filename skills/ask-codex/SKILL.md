@@ -11,11 +11,29 @@ Send a question or task to Codex and return the response.
 
 ## How to Use
 
-Execute the ask-codex script with the user's arguments:
+Do not pass free-form user text to the shell unquoted. The question or task may contain spaces or shell metacharacters such as `(`, `)`, `;`, `#`, `*`, or `[`.
+
+If the user only supplied a question or task, execute:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "$ARGUMENTS"
+```
+
+If the user supplied flags such as `--codex-model` or `--codex-timeout`, reconstruct the command so those flags remain separate shell arguments and the remaining free-form question is passed as one quoted final argument.
+
+Example:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" --codex-model gpt-5.4:high "Review the following round summary (M4)..."
+```
+
+Never run this unsafe form:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" $ARGUMENTS
 ```
+
+because the shell will re-parse the question text and can fail before `ask-codex.sh` starts.
 
 ## Interpreting Output
 
@@ -35,4 +53,4 @@ Execute the ask-codex script with the user's arguments:
 ## Notes
 
 - The response is saved to `.humanize/skill/<timestamp>/output.md` for reference
-- Default model is `gpt-5.4:xhigh` with a 3600-second timeout
+- Default model is `gpt-5.4:high` with a 3600-second timeout

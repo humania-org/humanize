@@ -27,7 +27,7 @@ case "${1:-}" in
         echo "current_round: 1
 max_iterations: 5
 codex_model: test
-codex_effort: xhigh
+codex_effort: high
 started_at: 2026-01-16T00:00:00Z
 plan_file: test-plan.md" > .humanize/rlcr/2026-01-16_99-99-99/state.md
         echo "# Goal Tracker

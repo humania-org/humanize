@@ -115,7 +115,7 @@ install_runtime_bundle() {
 
     log "syncing runtime bundle into: $runtime_root"
 
-    for component in scripts hooks prompt-template; do
+    for component in scripts hooks prompt-template templates config agents; do
         sync_dir "$REPO_ROOT/$component" "$runtime_root/$component"
     done
 }

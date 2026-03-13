@@ -70,6 +70,18 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]] && [[ -z "$ACTIVE_PR_LOOP_DIR" ]]; then
 fi
 
 # ========================================
+# Block Direct Execution of Hook Scripts
+# ========================================
+# Prevents Claude from manually running stop hook or stop gate scripts.
+# These scripts should only be invoked by the hooks system, not via Bash.
+
+BLOCKED_HOOK_SCRIPTS="(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh|rlcr-stop-gate\.sh)"
+if echo "$COMMAND_LOWER" | grep -qE "(^|[;&|])[[:space:]]*(([^[:space:]]*/)?|(bash|sh|source|\.)[[:space:]].*)$BLOCKED_HOOK_SCRIPTS"; then
+    stop_hook_direct_execution_blocked_message >&2
+    exit 2
+fi
+
+# ========================================
 # RLCR Loop Specific Checks
 # ========================================
 # The following checks only apply when an RLCR loop is active

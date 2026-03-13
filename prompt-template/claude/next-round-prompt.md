@@ -12,6 +12,11 @@ This plan contains the full scope of work and requirements. Ensure your work ali
 For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList) to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Tasks for ALL discovered issues and attempt to resolve each one.
 
+Before executing each task in this round:
+1. Read @{{BITLESSON_FILE}}
+2. Run `bitlesson-selector` for each task/sub-task
+3. Follow selected lesson IDs (or `NONE`) during implementation
+
 ---
 Below is Codex's review result:
 <!-- CODEX's REVIEW RESULT START -->

@@ -25,7 +25,7 @@ Or use the unified installer directly:
 This will:
 - Sync `humanize`, `humanize-gen-plan`, and `humanize-rlcr` into `${CODEX_HOME:-~/.codex}/skills`
 - Copy runtime dependencies into `${CODEX_HOME:-~/.codex}/skills/humanize`
-- Use RLCR defaults: `codex exec` with `gpt-5.4:xhigh`, `codex review` with `gpt-5.4:high`
+- Use RLCR defaults: `codex exec` with `gpt-5.4:high`, `codex review` with `gpt-5.4:high`
 
 ## Verify
 

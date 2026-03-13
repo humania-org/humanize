@@ -720,10 +720,10 @@ set +e
 RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.4:high#comment" "plans/test-plan.md" 2>&1)
 EXIT_CODE=$?
 set -e
-if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "invalid characters"; then
+if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "Invalid codex effort"; then
     pass "Codex effort with hash rejected"
 else
-    fail "Codex effort validation" "exit 1 with invalid characters error" "$RESULT"
+    fail "Codex effort validation" "exit 1 with invalid codex effort error" "$RESULT"
 fi
 
 # Test 14: Accept valid codex model with dots and hyphens

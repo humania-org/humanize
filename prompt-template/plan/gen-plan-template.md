@@ -66,9 +66,55 @@ Example: "The implementation includes core feature X with basic validation"
 
 <Describe relative dependencies between components, not time estimates>
 
+## Task Breakdown
+
+Each task must include exactly one routing tag:
+- `coding`: implemented by Claude
+- `analyze`: executed via Codex (`/humanize:ask-codex`)
+
+| Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
+|---------|-------------|-----------|----------------------------|------------|
+| task1 | <...> | AC-1 | coding | - |
+| task2 | <...> | AC-2 | analyze | task1 |
+
+## Claude-Codex Deliberation
+
+### Agreements
+- <Point both sides agree on>
+
+### Resolved Disagreements
+- <Topic>: Claude vs Codex summary, chosen resolution, and rationale
+
+### Convergence Status
+- Final Status: `converged` or `partially_converged`
+
+## Pending User Decisions
+
+- DEC-1: <Decision topic>
+  - Claude Position: <...>
+  - Codex Position: <...>
+  - Tradeoff Summary: <...>
+  - Decision Status: `PENDING` or `<User's final decision>`
+
 ## Implementation Notes
 
 ### Code Style Requirements
 - Implementation code and comments must NOT contain plan-specific terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers
 - These terms are for plan documentation only, not for the resulting codebase
 - Use descriptive, domain-appropriate naming in code instead
+
+## Output File Convention
+
+This template is used to produce the main output file (e.g., `plan.md`).
+
+### Translated Language Variant
+
+When `alternative_plan_language` is set to a supported language name in `.humanize/config.json`, a translated variant of the output file is also written after the main file. The variant filename is constructed by inserting `_<code>` (the ISO 639-1 code from the built-in mapping table) immediately before the file extension:
+
+- `plan.md` becomes `plan_<code>.md` (e.g. `plan_zh.md` for Chinese, `plan_ko.md` for Korean)
+- `docs/my-plan.md` becomes `docs/my-plan_<code>.md`
+- `output` (no extension) becomes `output_<code>`
+
+The translated variant file contains a full translation of the main plan file's current content in the configured language. All identifiers (`AC-*`, task IDs, file paths, API names, command flags) remain unchanged, as they are language-neutral.
+
+When `alternative_plan_language` is empty, absent, set to `"English"`, or set to an unsupported language, no translated variant is written. If `.humanize/config.json` does not exist at startup, a default config with `alternative_plan_language=""` is created automatically.

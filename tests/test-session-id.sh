@@ -121,7 +121,7 @@ cat > "$TEST_DIR/project/.humanize/rlcr/2026-01-01_00-00-00/state.md" << 'EOF'
 current_round: 0
 max_iterations: 10
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 codex_timeout: 5400
 push_every_round: false
 full_review_round: 5

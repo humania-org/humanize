@@ -67,7 +67,7 @@ monitor_test_bash_deletion() {
 current_round: 1
 max_iterations: 5
 codex_model: o3
-codex_effort: xhigh
+codex_effort: high
 started_at: 2026-01-16T10:00:00Z
 plan_file: temp/plan.md
 plan_tracked: false
@@ -248,7 +248,7 @@ monitor_test_zsh_deletion() {
 current_round: 1
 max_iterations: 5
 codex_model: o3
-codex_effort: xhigh
+codex_effort: high
 started_at: 2026-01-16T11:00:00Z
 plan_file: temp/plan.md
 plan_tracked: false
@@ -389,7 +389,7 @@ monitor_test_bash_sigint() {
 current_round: 1
 max_iterations: 5
 codex_model: o3
-codex_effort: xhigh
+codex_effort: high
 started_at: 2026-01-16T12:00:00Z
 plan_file: temp/plan.md
 plan_tracked: false
@@ -570,7 +570,7 @@ monitor_test_zsh_sigint() {
 current_round: 1
 max_iterations: 5
 codex_model: o3
-codex_effort: xhigh
+codex_effort: high
 started_at: 2026-01-16T13:00:00Z
 plan_file: temp/plan.md
 plan_tracked: false

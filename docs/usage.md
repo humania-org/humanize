@@ -11,6 +11,35 @@ Humanize creates an iterative feedback loop with two phases:
 
 The loop continues until all acceptance criteria are met or no issues remain.
 
+## Begin with the End in Mind
+
+Before the RLCR loop starts any work, Humanize runs a **Plan Understanding Quiz** -- a brief pre-flight check that verifies you genuinely understand the plan you are about to execute.
+
+### Why This Exists
+
+The most expensive failure in AI-assisted development is not a bug. It is running a 40-round RLCR loop on a plan you never actually read. We call this **wishful coding**: treating a generated plan like a wish -- toss it in, hope for the best, check back later.
+
+The problem is structural. An RLCR loop is an amplifier: it will faithfully execute whatever plan you give it. If the plan is wrong, the loop makes it wrong faster and at scale. If the plan is right but you do not understand it, you cannot course-correct when Codex raises questions, and the loop drifts.
+
+Understanding your plan before execution is not optional overhead. It is the single highest-leverage thing you can do to ensure the loop succeeds.
+
+### How the Quiz Works
+
+When you run `start-rlcr-loop`, an independent agent analyzes the plan and generates two multiple-choice questions about the plan's technical implementation details:
+
+1. **What components are changing and how?** -- Tests whether you know the core mechanism.
+2. **How do the pieces connect?** -- Tests whether you understand the architecture being modified.
+
+If you answer both correctly, the loop proceeds immediately. If you miss one or both, Humanize explains what the plan actually does and offers a choice: proceed anyway, or stop and review.
+
+The quiz is advisory, not a gate. You always have the option to proceed. But that moment of friction -- the two seconds it takes to read the question and realize you do not know the answer -- is the entire point.
+
+### Skipping the Quiz
+
+- `--skip-quiz` -- Skip the quiz only. The rest of the RLCR loop behaves normally.
+- `--yolo` -- Skip the quiz AND let Claude answer Codex's open questions directly (`--claude-answer-codex`). This is full automation mode for users who have already reviewed the plan and want to hand over complete control.
+- Plans started via `gen-plan --auto-start-rlcr-if-converged` skip the quiz automatically, because the gen-plan convergence discussion already verified the user's understanding.
+
 ## Commands
 
 | Command | Purpose |
@@ -33,7 +62,7 @@ OPTIONS:
   --plan-file <path>     Explicit plan file path (alternative to positional arg)
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.4:xhigh)
+                         Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 5400)
   --track-plan-file      Indicate plan file should be tracked in git (must be clean)
@@ -50,17 +79,25 @@ OPTIONS:
   --agent-teams          Enable Claude Code Agent Teams mode for parallel development.
                          Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
                          Claude acts as team leader, splitting tasks among team members.
+  --yolo                 Skip Plan Understanding Quiz and let Claude answer Codex Open
+                         Questions directly. Alias for --skip-quiz --claude-answer-codex.
+  --skip-quiz            Skip the Plan Understanding Quiz only (without other changes).
   -h, --help             Show help message
 ```
 
 ### gen-plan
 
 ```
-/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md>
+/humanize:gen-plan --input <path/to/draft.md> --output <path/to/plan.md> [OPTIONS]
 
 OPTIONS:
   --input   Path to the input draft file (required)
   --output  Path to the output plan file (required)
+  --auto-start-rlcr-if-converged
+             Start the RLCR loop automatically when the plan is converged
+             (discussion mode only; ignored in --direct)
+  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
+  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
   -h, --help             Show help message
 
 The gen-plan command transforms rough draft documents into structured implementation plans.
@@ -71,6 +108,7 @@ Workflow:
 3. Analyzes draft for clarity, consistency, completeness, and functionality
 4. Engages user to resolve any issues found
 5. Generates a structured plan.md with acceptance criteria
+6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
 ```
 
 ### start-pr-loop
@@ -85,7 +123,7 @@ BOT FLAGS (at least one required):
 OPTIONS:
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.4:medium)
+                         Codex model and reasoning effort (default from config, effort: medium)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 900)
   -h, --help             Show help message
@@ -113,7 +151,7 @@ The PR loop automates the process of handling GitHub PR reviews from remote bots
 
 OPTIONS:
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default: gpt-5.4:xhigh)
+                         Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
   --codex-timeout <SECONDS>
                          Timeout for the Codex query in seconds (default: 3600)
   -h, --help             Show help message
@@ -125,6 +163,55 @@ for getting a second opinion, reviewing a design, or asking domain-specific ques
 
 Responses are saved to `.humanize/skill/<timestamp>/` with `input.md`, `output.md`,
 and `metadata.md` for reference.
+
+## Configuration
+
+Humanize uses a 4-layer config hierarchy (lowest to highest priority):
+1. **Plugin defaults**: `config/default_config.json`
+2. **User config**: `~/.config/humanize/config.json`
+3. **Project config**: `.humanize/config.json`
+4. **CLI flags**: Command-line arguments (where available)
+
+Current built-in keys:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `codex_model` | `gpt-5.4` | Shared default model for Codex-backed review and analysis |
+| `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
+| `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
+| `agent_teams` | `false` | Project-level default for agent teams workflow |
+| `chinese_plan` | `false` | Project preference for Chinese plan generation |
+| `gen_plan_mode` | `discussion` | Default plan-generation mode |
+
+### Codex Model Configuration
+
+All Codex-using features (RLCR loop, PR loop, ask-codex) share the same model configuration:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `codex_model` | `gpt-5.4` | Model used for Codex operations (reviews, analysis, queries) |
+| `codex_effort` | `high` | Reasoning effort (`xhigh`, `high`, `medium`, `low`) |
+
+To override, add to `.humanize/config.json`:
+
+```json
+{
+  "codex_model": "gpt-5.2",
+  "codex_effort": "xhigh",
+  "bitlesson_model": "sonnet"
+}
+```
+
+Codex model is resolved with this precedence:
+1. CLI `--codex-model` flag (highest priority)
+2. Feature-specific defaults (e.g., PR loop defaults to `medium` effort)
+3. Config-backed defaults from the 4-layer hierarchy above
+4. Hardcoded fallback (`gpt-5.4:high`)
+
+**Migration note**: If your `.humanize/config.json` contains the legacy keys
+`loop_reviewer_model` or `loop_reviewer_effort`, they are silently ignored.
+Use `codex_model` and `codex_effort` instead.
+
 
 ## Monitoring
 

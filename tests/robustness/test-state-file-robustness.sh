@@ -37,7 +37,7 @@ cat > "$TEST_DIR/state.md" << 'EOF'
 current_round: 5
 max_iterations: 10
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 codex_timeout: 5400
 push_every_round: false
 plan_file: plan.md
@@ -80,7 +80,7 @@ extra_field: some_value
 another_extra: 12345
 custom_metadata: true
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 codex_timeout: 5400
 ---
 
@@ -405,7 +405,7 @@ current_round: 3
 max_iterations: 20
 full_review_round: 7
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
@@ -430,7 +430,7 @@ cat > "$TEST_DIR/state-no-full-review.md" << 'EOF'
 current_round: 2
 max_iterations: 15
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
@@ -456,7 +456,7 @@ current_round: 1
 max_iterations: 10
 full_review_round: 2
 codex_model: gpt-5.4
-codex_effort: xhigh
+codex_effort: high
 plan_file: plan.md
 plan_tracked: false
 start_branch: main
