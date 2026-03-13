@@ -187,7 +187,12 @@ _cfg_codex_model="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_model" 2>/dev
 DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.4}}"
 _cfg_codex_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_effort" 2>/dev/null || true)"
 DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_codex_effort:-high}}"
-unset _cfg_codex_model _cfg_codex_effort
+
+# Load agent_teams from merged config (controls whether RLCR uses agent teams by default)
+# Precedence: pre-set by caller (e.g. --agent-teams flag) > config value > hardcoded fallback (false)
+_cfg_agent_teams="$(get_config_value "$_LOOP_COMMON_CONFIG" "agent_teams" 2>/dev/null || true)"
+DEFAULT_AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-${_cfg_agent_teams:-false}}"
+unset _cfg_codex_model _cfg_codex_effort _cfg_agent_teams
 
 unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
 

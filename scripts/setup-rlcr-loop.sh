@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
 
 # Source shared loop library (provides runtime-aware DEFAULT_CODEX_MODEL and other constants)
-# Callers can override by exporting DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT
+# Callers can override by exporting DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT/DEFAULT_AGENT_TEAMS
 # before invoking this script.
 HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
 source "$HOOKS_LIB_DIR/loop-common.sh"
@@ -49,7 +49,7 @@ FULL_REVIEW_ROUND="$DEFAULT_FULL_REVIEW_ROUND"
 SKIP_IMPL="false"
 SKIP_IMPL_NO_PLAN="false"
 ASK_CODEX_QUESTION="true"
-AGENT_TEAMS="false"
+AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-false}"
 BITLESSON_ALLOW_EMPTY_NONE="true"
 
 show_help() {
@@ -671,9 +671,9 @@ if [[ $GIT_STATUS_EXIT -eq 124 ]]; then
     echo "Error: Git operation timed out while checking working tree status" >&2
     exit 1
 fi
-# Filter out untracked .humanize/ entries (runtime state, config, bitlesson).
+# Filter out untracked .humanize* entries (runtime state, legacy folders, config, bitlesson).
 # These are gitignored and do not indicate a dirty working tree.
-GIT_STATUS_OUTPUT=$(echo "$GIT_STATUS_OUTPUT" | grep -vE '^\?\? \.humanize/' || true)
+GIT_STATUS_OUTPUT=$(echo "$GIT_STATUS_OUTPUT" | grep -vE '^\?\? \.humanize' || true)
 if [[ -n "$GIT_STATUS_OUTPUT" ]]; then
     echo "Error: Git working tree is not clean" >&2
     echo "" >&2
