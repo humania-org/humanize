@@ -835,6 +835,22 @@ assert_file_contains "$CLAUDE_INSTALL_DOC" "/humanize:refine-plan" "install-for-
 assert_file_contains "$CODEX_INSTALL_DOC" "humanize-refine-plan" "install-for-codex.md mentions humanize-refine-plan skill"
 assert_file_contains "$KIMI_INSTALL_DOC" "humanize-refine-plan" "install-for-kimi.md mentions humanize-refine-plan skill"
 
+# Kimi manual-install runtime bundle copy assertions (6 directories)
+for bundle_dir in scripts hooks prompt-template templates config agents; do
+    assert_file_contains "$KIMI_INSTALL_DOC" "cp -r $bundle_dir " \
+        "install-for-kimi.md manual install copies $bundle_dir/"
+done
+
+# Kimi manual-install user-invocable stripping loop includes humanize-refine-plan
+assert_file_contains_regex "$KIMI_INSTALL_DOC" \
+    'for skill in .* humanize-refine-plan .*; do' \
+    "install-for-kimi.md user-invocable stripping loop includes humanize-refine-plan"
+
+# Kimi uninstall section includes humanize-refine-plan
+assert_file_contains "$KIMI_INSTALL_DOC" \
+    "rm -rf ~/.config/agents/skills/humanize-refine-plan" \
+    "install-for-kimi.md uninstall removes humanize-refine-plan"
+
 PLUGIN_VERSION="$(json_first_string_value "$PLUGIN_JSON" "version")"
 MARKETPLACE_VERSION="$(json_first_string_value "$MARKETPLACE_JSON" "version")"
 README_VERSION="$(readme_current_version "$README_FILE")"
