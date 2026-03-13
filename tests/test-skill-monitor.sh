@@ -111,7 +111,7 @@ echo "=== Skill Monitor: Directory Checks ==="
 
 setup_test_env
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if [[ $rc -ne 0 ]] && echo "$output" | grep -q "directory not found"; then
+if [[ $rc -ne 0 ]] && grep -q "directory not found" <<< "$output"; then
     pass "Returns error when .humanize/skill does not exist"
 else
     fail "Should error when skill dir missing" "got: $output"
@@ -126,7 +126,7 @@ echo "=== Skill Monitor: Empty Directory ==="
 setup_test_env
 mkdir -p .humanize/skill
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if [[ $rc -ne 0 ]] && echo "$output" | grep -q "No skill invocations found"; then
+if [[ $rc -ne 0 ]] && grep -q "No skill invocations found" <<< "$output"; then
     pass "Returns error when no invocations exist"
 else
     fail "Should error when no invocations" "got: $output"
@@ -149,43 +149,43 @@ else
     fail "--once mode should succeed" "exit code: $rc"
 fi
 
-if echo "$output" | grep -q "Total Invocations: 1"; then
+if grep -q "Total Invocations: 1" <<< "$output"; then
     pass "Shows total invocation count"
 else
     fail "Should show total count" "got: $output"
 fi
 
-if echo "$output" | grep -q "Success: 1"; then
+if grep -q "Success: 1" <<< "$output"; then
     pass "Shows success count"
 else
     fail "Should show success count" "got: $output"
 fi
 
-if echo "$output" | grep -q "success"; then
+if grep -q "success" <<< "$output"; then
     pass "Shows success status for focused invocation"
 else
     fail "Should show success status" "got: $output"
 fi
 
-if echo "$output" | grep -q "gpt-5.4"; then
+if grep -q "gpt-5.4" <<< "$output"; then
     pass "Shows model name"
 else
     fail "Should show model" "got: $output"
 fi
 
-if echo "$output" | grep -q "15s"; then
+if grep -q "15s" <<< "$output"; then
     pass "Shows duration"
 else
     fail "Should show duration" "got: $output"
 fi
 
-if echo "$output" | grep -q "How should I structure the auth module"; then
+if grep -q "How should I structure the auth module" <<< "$output"; then
     pass "Shows question text"
 else
     fail "Should show question" "got: $output"
 fi
 
-if echo "$output" | grep -q "This is the response"; then
+if grep -q "This is the response" <<< "$output"; then
     pass "Shows output content"
 else
     fail "Should show output" "got: $output"
@@ -205,38 +205,38 @@ create_skill_invocation "2026-02-19_21-00-00-333-ccc" "timeout" "gpt-5.4" "high"
 create_skill_invocation "2026-02-19_21-30-00-444-ddd" "success" "gpt-5.4" "high" "20s" "Latest question"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "Total Invocations: 4"; then
+if grep -q "Total Invocations: 4" <<< "$output"; then
     pass "Counts all invocations"
 else
     fail "Should count all invocations" "got: $(echo "$output" | grep 'Total')"
 fi
 
-if echo "$output" | grep -q "Success: 2"; then
+if grep -q "Success: 2" <<< "$output"; then
     pass "Counts success invocations"
 else
     fail "Should count 2 successes" "got: $(echo "$output" | grep 'Success')"
 fi
 
-if echo "$output" | grep -q "Error: 1"; then
+if grep -q "Error: 1" <<< "$output"; then
     pass "Counts error invocations"
 else
     fail "Should count 1 error" "got: $(echo "$output" | grep 'Error')"
 fi
 
-if echo "$output" | grep -q "Timeout: 1"; then
+if grep -q "Timeout: 1" <<< "$output"; then
     pass "Counts timeout invocations"
 else
     fail "Should count 1 timeout" "got: $(echo "$output" | grep 'Timeout')"
 fi
 
 # Latest should be the newest (2026-02-19_21-30-00)
-if echo "$output" | grep "Focused:" | grep -q "2026-02-19_21-30-00"; then
+if grep "Focused:" <<< "$output" | grep -q "2026-02-19_21-30-00"; then
     pass "Shows the most recent invocation with content as focused"
 else
     fail "Should show newest with content as focused" "got: $(echo "$output" | grep 'Focused:')"
 fi
 
-if echo "$output" | grep -q "Latest question"; then
+if grep -q "Latest question" <<< "$output"; then
     pass "Shows question from latest invocation"
 else
     fail "Should show latest question" "got: $output"
@@ -254,13 +254,13 @@ create_skill_invocation "2026-02-19_21-00-00-111-aaa" "success" "gpt-5.4" "high"
 create_skill_invocation "2026-02-19_21-30-00-222-bbb" "running" "gpt-5.4" "high" "" "Running question"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "Running: 1"; then
+if grep -q "Running: 1" <<< "$output"; then
     pass "Counts running invocations"
 else
     fail "Should count 1 running" "got: $(echo "$output" | grep 'Running')"
 fi
 
-if echo "$output" | grep -q "running"; then
+if grep -q "running" <<< "$output"; then
     pass "Shows running status for focused invocation"
 else
     fail "Should show running status" "got: $output"
@@ -279,14 +279,14 @@ create_skill_invocation "2026-02-19_20-30-00-222-bbb" "error" "gpt-5.4" "high" "
 create_skill_invocation "2026-02-19_21-00-00-333-ccc" "success" "gpt-5.4" "high" "20s" "Question three"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "Recent Invocations"; then
+if grep -q "Recent Invocations" <<< "$output"; then
     pass "Shows recent invocations section"
 else
     fail "Should show recent section" "got: $output"
 fi
 
 # Check that invocations appear in the output
-if echo "$output" | grep -q "2026-02-19_21-00-00-333-ccc"; then
+if grep -q "2026-02-19_21-00-00-333-ccc" <<< "$output"; then
     pass "Lists invocations in recent section"
 else
     fail "Should list invocations" "got: $(echo "$output" | grep '2026-02-19')"
@@ -332,14 +332,14 @@ EOF
 echo "Performance analysis result" > "$local_dir/output.md"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "What are the performance bottlenecks"; then
+if grep -q "What are the performance bottlenecks" <<< "$output"; then
     pass "Extracts first line of question"
 else
     fail "Should extract question first line" "got: $output"
 fi
 
 # Should NOT contain the second line
-if ! echo "$output" | grep -q "Additional context"; then
+if ! grep -q "Additional context" <<< "$output"; then
     pass "Does not include subsequent lines from question"
 else
     fail "Should only show first line" "got: $output"
@@ -356,13 +356,13 @@ mkdir -p .humanize/skill
 create_skill_invocation "2026-02-19_21-00-00-111-aaa" "empty_response" "gpt-5.4" "high" "30s" "Why is the sky blue?"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "Empty: 1"; then
+if grep -q "Empty: 1" <<< "$output"; then
     pass "Counts empty response invocations"
 else
     fail "Should count 1 empty" "got: $(echo "$output" | grep 'Empty')"
 fi
 
-if echo "$output" | grep -q "No output available"; then
+if grep -q "No output available" <<< "$output"; then
     pass "Shows no output message for empty response"
 else
     fail "Should show no output message" "got: $output"
@@ -382,7 +382,7 @@ mkdir -p ".humanize/skill/not-a-skill-dir"
 echo "junk" > ".humanize/skill/not-a-skill-dir/input.md"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
-if echo "$output" | grep -q "Total Invocations: 1"; then
+if grep -q "Total Invocations: 1" <<< "$output"; then
     pass "Ignores non-timestamp directories"
 else
     fail "Should only count valid skill dirs" "got: $(echo "$output" | grep 'Total')"
