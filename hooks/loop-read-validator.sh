@@ -91,12 +91,26 @@ fi
 # Detect loop phase from state file
 STATE_FILE_TO_PARSE=$(resolve_active_state_file "$ACTIVE_LOOP_DIR")
 
-# In Methodology Analysis Phase, allow reading all round files (summaries and review results)
-# The analysis agent needs access to the full development history
+# In Methodology Analysis Phase, allow reading specific analysis-related files only
+# The Opus agent needs round summaries, review results, and its own artifacts
 if [[ "$STATE_FILE_TO_PARSE" == *"/methodology-analysis-state.md" ]]; then
-    # Only allow reads within the active loop directory
-    if [[ "$FILE_PATH" == "$ACTIVE_LOOP_DIR/"* ]]; then
-        exit 0
+    # Canonicalize to prevent path traversal (e.g., $LOOP_DIR/../secrets)
+    local_real_path=$(realpath "$FILE_PATH" 2>/dev/null || echo "")
+    local_real_loop=$(realpath "$ACTIVE_LOOP_DIR" 2>/dev/null || echo "")
+    if [[ -n "$local_real_path" ]] && [[ -n "$local_real_loop" ]] && \
+       [[ "$local_real_path" == "$local_real_loop/"* ]]; then
+        local_basename=$(basename "$local_real_path")
+        # Allowlist: only files the analysis agent needs
+        # - round-*-summary.md: development record summaries
+        # - round-*-review-result.md: Codex review feedback
+        # - methodology-analysis-report.md: the agent's own output
+        # - methodology-analysis-done.md: completion marker
+        # - methodology-analysis-state.md: state file (for parsing)
+        case "$local_basename" in
+            round-*-summary.md|round-*-review-result.md|methodology-analysis-report.md|methodology-analysis-done.md|methodology-analysis-state.md)
+                exit 0
+                ;;
+        esac
     fi
 fi
 
