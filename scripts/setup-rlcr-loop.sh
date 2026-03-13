@@ -51,6 +51,7 @@ SKIP_IMPL_NO_PLAN="false"
 ASK_CODEX_QUESTION="true"
 AGENT_TEAMS="false"
 BITLESSON_ALLOW_EMPTY_NONE="true"
+PRIVACY_MODE="false"
 
 show_help() {
     cat <<HELP_EOF
@@ -100,6 +101,7 @@ OPTIONS:
                        Allow BitLesson delta with action:none even with no new entries (default)
   --require-bitlesson-entry-for-none
                        Require at least one BitLesson entry when action is none
+  --privacy            Disable methodology analysis at loop exit (default: analysis enabled)
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -258,6 +260,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --require-bitlesson-entry-for-none)
             BITLESSON_ALLOW_EMPTY_NONE="false"
+            shift
+            ;;
+        --privacy)
+            PRIVACY_MODE="true"
             shift
             ;;
         -*)
@@ -857,6 +863,7 @@ review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
+privacy_mode: $PRIVACY_MODE
 bitlesson_required: $BITLESSON_STATE_VALUE
 bitlesson_file: $BITLESSON_FILE_REL
 bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE

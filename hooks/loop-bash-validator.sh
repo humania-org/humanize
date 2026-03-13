@@ -64,6 +64,100 @@ ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
 PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
 ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
 
+# ========================================
+# Methodology Analysis Phase Bash Restriction
+# ========================================
+# During methodology analysis, block file-modifying bash commands.
+# Only read-only operations and cancel-rlcr-loop.sh are allowed.
+# This prevents source code modifications after Codex has signed off.
+#
+# Accepted limitations:
+# - Read-only bash commands (cat, grep, find, etc.) are NOT blocked. Blocking
+#   them would break basic Claude operations. The analysis prompt directs Claude
+#   to derive user-facing content only from methodology-analysis-report.md.
+# - Spawned agents (different session_id) are not restricted by hooks; their
+#   sanitization is enforced by the analysis prompt. This is an inherent
+#   limitation of the hook architecture which cannot distinguish spawned agents
+#   from unrelated sessions.
+#
+# Use only the session-matched loop. Do NOT fall back to an unfiltered search,
+# as that would incorrectly restrict unrelated sessions opened in the same repo.
+_MA_BASH_DIR="$ACTIVE_LOOP_DIR"
+
+if [[ -n "$_MA_BASH_DIR" ]] && [[ -f "$_MA_BASH_DIR/methodology-analysis-state.md" ]]; then
+    # Allow cancel-rlcr-loop.sh only as the leading command (not as an argument
+    # to another command like cp/mv). Reject if chained with shell operators.
+    if echo "$COMMAND_LOWER" | grep -qE '^[[:space:]]*("?[^"]*/?)?cancel-rlcr-loop\.sh' && \
+       ! echo "$COMMAND_LOWER" | grep -qE '[;|&]'; then
+        exit 0
+    fi
+    # Block git commands that modify the working tree
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])git[[:space:]]+(commit|add|reset|checkout|merge|rebase|cherry-pick|am|apply|stash|push|restore|clean|rm|mv|switch|pull|clone|submodule|worktree)'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Git write commands are not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block file manipulation commands (touch, mv, cp, rm, mkdir, ln, etc.)
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])(tee|install|touch|mv|cp|rm|dd|truncate|chmod|chown|mkdir|rmdir|ln|mktemp)[[:space:]]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+File modification commands are not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block in-place file editing tools
+    if echo "$COMMAND_LOWER" | grep -qE 'sed[[:space:]]+-i|awk[[:space:]]+-i[[:space:]]+inplace|perl[[:space:]]+-[^[:space:]]*i'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+In-place file editing is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block common interpreters that could write files (defense-in-depth)
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])(python[23]?|ruby|node|perl|php)[[:space:]]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Running interpreters is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block shell script entry points (bash script.sh, sh script.sh, source, .)
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])(/usr/bin/env[[:space:]]+)?(bash|sh|zsh|/bin/bash|/bin/sh|/bin/zsh)[[:space:]]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Running shell scripts is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block build tools that execute arbitrary commands
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])(make|cmake|ninja|gradle|mvn|ant|cargo|go[[:space:]]+run|go[[:space:]]+generate|npm[[:space:]]+run|yarn[[:space:]]+run|npx|pnpm)[[:space:]]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Build tools are not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block source/dot commands (source script.sh, . script.sh)
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])(source|\.)[ 	]+[^[:space:]]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Sourcing scripts is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block direct script execution (./script.sh, ../script.sh, /path/to/script)
+    if echo "$COMMAND_LOWER" | grep -qE '(^|[[:space:];|&])\.{0,2}/[^[:space:]>|&;]*\.(sh|bash|py|rb|pl|js)'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+Direct script execution is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+    # Block output redirection to files (catches cat > file, echo > file, etc.)
+    # Strip safe redirections (/dev/ paths, fd duplication) then check for remaining >
+    _ma_stripped=$(echo "$COMMAND_LOWER" | sed 's|[0-9]*>[>]*[[:space:]]*/dev/[^[:space:]]*||g; s|[0-9]*>&[0-9]*||g')
+    if echo "$_ma_stripped" | grep -qE '[>]'; then
+        echo "# Bash Blocked During Methodology Analysis
+
+File redirection is not allowed during the methodology analysis phase." >&2
+        exit 2
+    fi
+fi
+
 # If no active loop of either type, allow all commands
 if [[ -z "$ACTIVE_LOOP_DIR" ]] && [[ -z "$ACTIVE_PR_LOOP_DIR" ]]; then
     exit 0
@@ -148,6 +242,15 @@ if [[ -n "$ACTIVE_LOOP_DIR" ]]; then
 # 1. command_modifies_file checks if DESTINATION contains state.md
 # 2. Additional check below catches if SOURCE contains state.md (e.g., mv state.md /tmp/foo)
 
+if command_modifies_file "$COMMAND_LOWER" "methodology-analysis-state\.md"; then
+    # Check for cancel signal file - allow authorized cancel operation
+    if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+        exit 0
+    fi
+    methodology_analysis_state_file_blocked_message >&2
+    exit 2
+fi
+
 if command_modifies_file "$COMMAND_LOWER" "finalize-state\.md"; then
     # Check for cancel signal file - allow authorized cancel operation
     if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
@@ -182,6 +285,7 @@ fi
 # This catches chained commands like: true; mv state.md /tmp/foo
 MV_CP_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']state\.md"
 MV_CP_FINALIZE_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']finalize-state\.md"
+MV_CP_METHODOLOGY_SOURCE_PATTERN="^[[:space:]]*(sudo([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(env[[:space:]]+[^;&|]*[[:space:]]+)?(command([[:space:]]+-?[^[:space:];&|]+)*[[:space:]]+)?(mv|cp)[[:space:]].*[[:space:]/\"']methodology-analysis-state\.md"
 
 # Replace shell operators with newlines, then check each segment
 # Order matters: |& before |, && before single &
@@ -295,7 +399,17 @@ while IFS= read -r SEGMENT; do
         t again
     ')
 
-    # Check for finalize-state.md as SOURCE first (more specific pattern)
+    # Check for methodology-analysis-state.md as SOURCE first (most specific pattern)
+    if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_METHODOLOGY_SOURCE_PATTERN"; then
+        # Check for cancel signal file - allow authorized cancel operation
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        methodology_analysis_state_file_blocked_message >&2
+        exit 2
+    fi
+
+    # Check for finalize-state.md as SOURCE (more specific than state.md)
     if echo "$SEGMENT_CLEANED" | grep -qE "$MV_CP_FINALIZE_SOURCE_PATTERN"; then
         # Check for cancel signal file - allow authorized cancel operation
         if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
@@ -319,6 +433,14 @@ done <<< "$COMMAND_SEGMENTS"
 # This catches bypass attempts like: sh -c 'mv state.md /tmp/foo'
 # Pattern: look for sh/bash with -c flag and state.md or finalize-state.md in the payload
 if echo "$COMMAND_LOWER" | grep -qE "(^|[[:space:]/])(sh|bash)[[:space:]]+-c[[:space:]]"; then
+    # Shell wrapper detected - check if payload contains mv/cp methodology-analysis-state.md (most specific)
+    if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*methodology-analysis-state\.md"; then
+        if is_cancel_authorized "$ACTIVE_LOOP_DIR" "$COMMAND_LOWER"; then
+            exit 0
+        fi
+        methodology_analysis_state_file_blocked_message >&2
+        exit 2
+    fi
     # Shell wrapper detected - check if payload contains mv/cp finalize-state.md (check first, more specific)
     if echo "$COMMAND_LOWER" | grep -qE "(mv|cp)[[:space:]].*finalize-state\.md"; then
         # Check for cancel signal file - allow authorized cancel operation

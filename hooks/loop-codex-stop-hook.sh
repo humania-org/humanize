@@ -50,6 +50,9 @@ source "$SCRIPT_DIR/lib/loop-common.sh"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
 
+# Source methodology analysis library
+source "$SCRIPT_DIR/lib/methodology-analysis.sh"
+
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
 
@@ -79,6 +82,9 @@ fi
 
 IS_FINALIZE_PHASE=false
 [[ "$STATE_FILE" == *"/finalize-state.md" ]] && IS_FINALIZE_PHASE=true
+
+IS_METHODOLOGY_ANALYSIS_PHASE=false
+[[ "$STATE_FILE" == *"/methodology-analysis-state.md" ]] && IS_METHODOLOGY_ANALYSIS_PHASE=true
 
 # ========================================
 # Parse State File (using shared function)
@@ -120,6 +126,7 @@ CODEX_REVIEW_EFFORT="high"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
 BITLESSON_REQUIRED="false"
 if [[ -n "$RAW_BITLESSON_REQUIRED" ]]; then
     BITLESSON_REQUIRED=$(echo "$RAW_BITLESSON_REQUIRED" | sed 's/^bitlesson_required:[[:space:]]*//' | tr -d ' "')
@@ -576,6 +583,28 @@ Split these into smaller modules before continuing."
 fi
 
 # ========================================
+# Methodology Analysis Phase Completion Handler
+# ========================================
+# When in methodology analysis phase, check if the analysis is done.
+# If done, rename state to the original exit reason's terminal state.
+# If not done, block and ask Claude to complete the analysis.
+# All other checks (summary, bitlesson, goal tracker, max iterations) are skipped.
+# IMPORTANT: This MUST run before the git-clean check, because methodology
+# artifacts (.humanize/rlcr/...) may make the working tree appear dirty
+# if .humanize is tracked, which would block exit before reaching this handler.
+
+if [[ "$IS_METHODOLOGY_ANALYSIS_PHASE" == "true" ]]; then
+    if complete_methodology_analysis; then
+        # Analysis complete, allow exit
+        exit 0
+    else
+        # Analysis not yet complete, block
+        block_methodology_analysis_incomplete
+        exit 0
+    fi
+fi
+
+# ========================================
 # Quick Check: Git Clean and Pushed?
 # ========================================
 # Before running expensive Codex review, check if all changes have been
@@ -823,6 +852,10 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 # - Review Phase: must continue until [P?] issues are cleared, regardless of iteration count
 if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "maxiter" "Reached max iterations ($MAX_ITERATIONS) without completion"; then
+        exit 0
+    fi
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
     exit 0
 fi
@@ -834,8 +867,12 @@ fi
 # No Codex review is performed - this is the final step after Codex already confirmed COMPLETE
 
 if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
-    echo "Finalize Phase complete. All checks passed. Loop finished!" >&2
-    # Rename finalize-state.md to complete-state.md
+    echo "Finalize Phase complete. All checks passed." >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "complete" "All acceptance criteria met and code review passed"; then
+        exit 0
+    fi
+    # Methodology analysis skipped or already done - proceed with normal exit
     mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
     echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
     exit 0
@@ -1547,6 +1584,9 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
         # Max iterations check
         if [[ $CURRENT_ROUND -ge $MAX_ITERATIONS ]]; then
             echo "Codex review passed but at max iterations ($MAX_ITERATIONS). Terminating as MAXITER." >&2
+            if enter_methodology_analysis_phase "maxiter" "Codex confirmed COMPLETE but at max iterations ($MAX_ITERATIONS)"; then
+                exit 0
+            fi
             end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
             exit 0
         fi
@@ -1640,6 +1680,10 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "stop" "Circuit breaker triggered - stagnation detected at round $CURRENT_ROUND"; then
+        exit 0
+    fi
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_STOP"
     exit 0
 fi
