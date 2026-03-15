@@ -44,12 +44,17 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
 
-2. **Run the loop**:
+2. **Refine an annotated plan** before implementation when reviewers add `CMT:` ... `ENDCMT` comments:
+   ```bash
+   /humanize:refine-plan --input docs/plan.md
+   ```
+
+3. **Run the loop**:
    ```bash
    /humanize:start-rlcr-loop docs/plan.md
    ```
 
-3. **Monitor progress**:
+4. **Monitor progress**:
    ```bash
    source <path/to/humanize>/scripts/humanize.sh
    humanize monitor rlcr

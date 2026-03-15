@@ -11,6 +11,21 @@ Humanize creates an iterative feedback loop with two phases:
 
 The loop continues until all acceptance criteria are met or no issues remain.
 
+## Typical Planning Flow
+
+1. Generate the initial implementation plan:
+   ```bash
+   /humanize:gen-plan --input draft.md --output docs/plan.md
+   ```
+2. If the plan is reviewed with `CMT:` ... `ENDCMT` annotations, refine it and generate a QA ledger:
+   ```bash
+   /humanize:refine-plan --input docs/plan.md
+   ```
+3. Start the RLCR loop on the refined plan:
+   ```bash
+   /humanize:start-rlcr-loop docs/plan.md
+   ```
+
 ## Commands
 
 | Command | Purpose |
@@ -68,6 +83,7 @@ OPTIONS:
   --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
   --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
   -h, --help             Show help message
+```
 
 The gen-plan command transforms rough draft documents into structured implementation plans.
 
@@ -78,7 +94,9 @@ Workflow:
 4. Engages user to resolve any issues found
 5. Generates a structured plan.md with acceptance criteria
 6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
-```
+
+If reviewers later annotate the generated plan with `CMT:` ... `ENDCMT` blocks, run
+`/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.
 
 ### refine-plan
 
