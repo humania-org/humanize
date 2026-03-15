@@ -40,6 +40,21 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 - `--yolo` -- Skip the quiz AND let Claude answer Codex's open questions directly (`--claude-answer-codex`). This is full automation mode for users who have already reviewed the plan and want to hand over complete control.
 - Plans started via `gen-plan --auto-start-rlcr-if-converged` skip the quiz automatically, because the gen-plan convergence discussion already verified the user's understanding.
 
+## Typical Planning Flow
+
+1. Generate the initial implementation plan:
+   ```bash
+   /humanize:gen-plan --input draft.md --output docs/plan.md
+   ```
+2. If the plan is reviewed with `CMT:` ... `ENDCMT` annotations, refine it and generate a QA ledger:
+   ```bash
+   /humanize:refine-plan --input docs/plan.md
+   ```
+3. Start the RLCR loop on the refined plan:
+   ```bash
+   /humanize:start-rlcr-loop docs/plan.md
+   ```
+
 ## Commands
 
 | Command | Purpose |
@@ -47,6 +62,7 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
+| `/refine-plan --input <annotated-plan.md>` | Refine an annotated plan and generate a QA ledger |
 | `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
 | `/cancel-pr-loop` | Cancel active PR loop |
 | `/ask-codex [question]` | One-shot consultation with Codex |
@@ -99,6 +115,7 @@ OPTIONS:
   --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
   --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
   -h, --help             Show help message
+```
 
 The gen-plan command transforms rough draft documents into structured implementation plans.
 
@@ -109,7 +126,88 @@ Workflow:
 4. Engages user to resolve any issues found
 5. Generates a structured plan.md with acceptance criteria
 6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
+
+If reviewers later annotate the generated plan with `CMT:` ... `ENDCMT` blocks, run
+`/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.
+
+### refine-plan
+
 ```
+/humanize:refine-plan --input <path/to/annotated-plan.md> [OPTIONS]
+
+OPTIONS:
+  --input <path>        Path to the annotated plan file (required)
+  --output <path>       Path to the refined plan output file
+                        Defaults to refining --input in place
+  --qa-dir <path>       Directory for QA document output
+                        Default: .humanize/plan_qa
+  --alt-language <LANG>
+                        Generate translated plan and QA variants
+                        Supported: zh, ko, ja, es, fr, de, pt, ru, ar
+                        Full language names are also accepted; en/English is a no-op
+  --discussion          Interactive mode for ambiguous comment classification
+  --direct              Non-interactive mode; makes minimal safe assumptions
+  -h, --help            Show help message
+```
+
+The refine-plan command reads an annotated `gen-plan` document, processes embedded review
+comments, removes those comment blocks from the final plan, and writes a QA ledger that records
+how each comment was handled.
+
+**Usage examples:**
+
+```bash
+# Refine a plan in place and write QA output to the default directory
+/humanize:refine-plan --input docs/plan.md
+
+# Write the refined plan to a new file and store QA output in a custom directory
+/humanize:refine-plan --input docs/plan.annotated.md --output docs/plan.refined.md --qa-dir docs/plan-qa
+
+# Run in direct mode and generate translated variants
+/humanize:refine-plan --input docs/plan.md --direct --alt-language zh
+```
+
+**Annotated comment block format:**
+
+`refine-plan` looks for reviewer comments wrapped in `CMT:` and `ENDCMT` markers. Both inline
+and multi-line comment blocks are supported:
+
+```markdown
+Text before CMT: clarify why AC-3 is split here ENDCMT text after
+```
+
+```markdown
+CMT:
+Please investigate whether this task should depend on task4 or task5.
+If the dependency is unclear, add a pending decision instead of guessing.
+ENDCMT
+```
+
+Rules:
+- At least one non-empty `CMT:` block must exist in the input file.
+- `CMT:` and `ENDCMT` markers inside fenced code blocks or HTML comments are ignored.
+- Empty comment blocks are removed but do not create QA ledger entries.
+- The input plan must still follow the `gen-plan` section schema.
+
+**QA output structure:**
+
+For an input plan named `plan.md`, the default QA output path is `.humanize/plan_qa/plan-qa.md`.
+The generated QA document includes:
+
+- `## Summary`: overall refinement outcome and comment counts
+- `## Comment Ledger`: one row per raw `CMT-N` block with classification, location, excerpt, and disposition
+- `## Answers`: responses to question comments and any clarifying edits
+- `## Research Findings`: repository research performed for `research_request` comments
+- `## Plan Changes Applied`: changes made for `change_request` comments and cross-reference updates
+- `## Remaining Decisions`: unresolved items or assumption-heavy decisions that still need user input
+- `## Refinement Metadata`: input/output paths, QA path, classification counts, modified sections, convergence status, and date
+
+Disposition values in the ledger are `answered`, `applied`, `researched`, `deferred`, or
+`resolved`.
+
+If `--alt-language` is set to a supported non-English language, the command also generates
+translated plan and QA variants by inserting `_<code>` before the file extension, such as
+`plan_zh.md` and `plan-qa_zh.md`.
 
 ### start-pr-loop
 
@@ -180,7 +278,7 @@ Current built-in keys:
 | `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 | `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
 | `agent_teams` | `false` | Project-level default for agent teams workflow |
-| `chinese_plan` | `false` | Project preference for Chinese plan generation |
+| `alternative_plan_language` | `""` | Optional translated plan variant language; supported values include `Chinese`, `Korean`, `Japanese`, `Spanish`, `French`, `German`, `Portuguese`, `Russian`, `Arabic`, or ISO codes like `zh` |
 | `gen_plan_mode` | `discussion` | Default plan-generation mode |
 
 ### Codex Model Configuration

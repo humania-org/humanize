@@ -25,7 +25,6 @@ This command MUST ONLY generate a plan document during the planning phases. It M
 Permitted writes (before any optional auto-start) are limited to:
 - The plan output file (`--output`)
 - Optional translated language variant (only when `ALT_PLAN_LANGUAGE` is configured)
-- `.humanize/config.json` (created with defaults only when the file does not already exist)
 
 If `--auto-start-rlcr-if-converged` is enabled, the command MAY immediately start the RLCR loop by running `/humanize:start-rlcr-loop <output-plan-path>`, but only in `discussion` mode when `PLAN_CONVERGENCE_STATUS=converged` and there are no pending user decisions. All coding happens in that subsequent command/loop, not during plan generation.
 
@@ -36,7 +35,7 @@ This command transforms a user's draft document into a well-structured implement
 > **Sequential Execution Constraint**: All phases below MUST execute strictly in order. Do NOT parallelize tool calls across different phases. Each phase must fully complete before the next one begins.
 
 1. **Execution Mode Setup**: Parse optional behaviors from command arguments
-2. **Load Project Config**: Read `.humanize/config.json` and extract `alternative_plan_language` setting
+2. **Load Project Config**: Resolve merged Humanize config defaults for `alternative_plan_language` and `gen_plan_mode`
 3. **IO Validation**: Validate input and output paths
 4. **Relevance Check**: Verify draft is relevant to the repository
 5. **Codex First-Pass Analysis**: Use one planning Codex before Claude synthesizes plan details
@@ -63,28 +62,42 @@ Parse `$ARGUMENTS` and set:
 
 ## Phase 0.5: Load Project Config
 
-After setting execution mode flags, load the project-level configuration:
+After setting execution mode flags, resolve configuration using `${CLAUDE_PLUGIN_ROOT}/scripts/lib/config-loader.sh`. Reuse that behavior; do not read `.humanize/config.json` directly.
 
-1. Attempt to read `.humanize/config.json` from the project root (the repository root where the command was invoked).
-2. If the file does not exist:
-   - Create the `.humanize/` directory if it does not already exist.
-   - Write a default `.humanize/config.json` with the following content:
-     ```json
-     {
-       "alternative_plan_language": "",
-       "gen_plan_mode": "discussion"
-     }
-     ```
-   - Log: `No .humanize/config.json found. Created default config at .humanize/config.json`
-   - If directory creation or file write fails, log a warning and continue with defaults (do not block execution).
-   - Continue with the default values (`ALT_PLAN_LANGUAGE=""`, `ALT_PLAN_LANG_CODE=""`, `GEN_PLAN_MODE=discussion`).
-3. If the file exists, parse it as JSON and resolve `alternative_plan_language`:
-   - **If `alternative_plan_language` is present** (even if empty string), use its value. If deprecated `chinese_plan` field is also present, log: `Warning: deprecated "chinese_plan" field ignored; "alternative_plan_language" takes precedence. Remove "chinese_plan" from .humanize/config.json.`
-   - **If `alternative_plan_language` is absent but `chinese_plan` is present** (backward compatibility):
-     - If `chinese_plan` is `true` (boolean), treat as `alternative_plan_language="Chinese"`. Log: `Warning: deprecated "chinese_plan" field detected. Replace with "alternative_plan_language": "Chinese" in .humanize/config.json.`
-     - Otherwise (`false`, absent, or any non-true value), treat as `alternative_plan_language=""` (disabled).
-   - **If neither field is present**, set `alternative_plan_language=""` (disabled).
-4. Resolve `ALT_PLAN_LANGUAGE` and `ALT_PLAN_LANG_CODE` from the effective `alternative_plan_language` value using the built-in mapping table below. Matching is **case-insensitive**.
+### Config Merge Semantics
+
+1. Source `${CLAUDE_PLUGIN_ROOT}/scripts/lib/config-loader.sh`.
+2. Call `load_merged_config "${CLAUDE_PLUGIN_ROOT}" "${PROJECT_ROOT}"` to obtain `MERGED_CONFIG_JSON`, where `PROJECT_ROOT` is the repository root where the command was invoked.
+3. `load_merged_config` merges these layers in order:
+   - Required default config: `${CLAUDE_PLUGIN_ROOT}/config/default_config.json`
+   - Optional user config: `${XDG_CONFIG_HOME:-$HOME/.config}/humanize/config.json`
+   - Optional project config: `${HUMANIZE_CONFIG:-$PROJECT_ROOT/.humanize/config.json}`
+4. Later layers override earlier layers. Malformed optional JSON objects are warnings and ignored. A malformed required default config, missing `jq`, or any other fatal `load_merged_config` failure is a configuration error and must stop the command.
+
+### Values to Extract
+
+Use `get_config_value` against `MERGED_CONFIG_JSON` to read:
+
+- `CONFIG_ALT_LANGUAGE_RAW` from `alternative_plan_language`
+- `CONFIG_GEN_PLAN_MODE_RAW` from `gen_plan_mode`
+- `CONFIG_CHINESE_PLAN_RAW` from `chinese_plan` (legacy fallback only)
+
+Also detect whether `alternative_plan_language` is explicitly present in `MERGED_CONFIG_JSON` so an empty string still counts as an explicit override:
+
+- `HAS_ALT_LANGUAGE_KEY=true` when `MERGED_CONFIG_JSON` contains the `alternative_plan_language` key
+- `HAS_ALT_LANGUAGE_KEY=false` otherwise
+
+### Alternative Language Resolution
+
+1. Resolve the effective `alternative_plan_language` value with this priority:
+   - Merged config `alternative_plan_language`, when `HAS_ALT_LANGUAGE_KEY=true` (even if the value is an empty string)
+   - Deprecated merged config `chinese_plan`, only when `HAS_ALT_LANGUAGE_KEY=false`
+   - Default disabled state
+2. Backward compatibility for deprecated `chinese_plan`:
+   - If `HAS_ALT_LANGUAGE_KEY=true` and `CONFIG_CHINESE_PLAN_RAW` is `true`, log: `Warning: deprecated "chinese_plan" field ignored; "alternative_plan_language" takes precedence. Remove "chinese_plan" from your humanize config.`
+   - If `HAS_ALT_LANGUAGE_KEY=false` and `CONFIG_CHINESE_PLAN_RAW` is `true`, treat the effective `alternative_plan_language` as `"Chinese"`. Log: `Warning: deprecated "chinese_plan" field detected. Replace it with "alternative_plan_language": "Chinese" in your humanize config.`
+   - Otherwise treat the effective `alternative_plan_language` as disabled.
+3. Resolve `ALT_PLAN_LANGUAGE` and `ALT_PLAN_LANG_CODE` from the effective `alternative_plan_language` value using the built-in mapping table below. Matching is **case-insensitive**.
 
    | Language   | Code | Suffix |
    |------------|------|--------|
@@ -98,20 +111,20 @@ After setting execution mode flags, load the project-level configuration:
    | Russian    | ru   | `_ru`  |
    | Arabic     | ar   | `_ar`  |
 
-   Matching accepts both the language name (e.g. `"Chinese"`) and the ISO 639-1 code (e.g. `"zh"`), both case-insensitive. Non-string JSON values are treated as absent. Leading/trailing whitespace is trimmed before matching.
+   Matching accepts both the language name (e.g. `"Chinese"`) and the ISO 639-1 code (e.g. `"zh"`), both case-insensitive. Leading/trailing whitespace is trimmed before matching.
 
    - If the value is empty or absent: set `ALT_PLAN_LANGUAGE=""` and `ALT_PLAN_LANG_CODE=""` (disabled).
    - If the value is `"English"` or `"en"` (case-insensitive): set `ALT_PLAN_LANGUAGE=""` and `ALT_PLAN_LANG_CODE=""` (no-op; the plan is already in English).
    - If the value matches a language name or code in the table: set `ALT_PLAN_LANGUAGE` to the matched language name and `ALT_PLAN_LANG_CODE` to the corresponding code.
    - If the value does NOT match any language name or code in the table: set `ALT_PLAN_LANGUAGE=""` and `ALT_PLAN_LANG_CODE=""` (disabled). Log: `Warning: unsupported alternative_plan_language "<value>". Supported values: Chinese (zh), Korean (ko), Japanese (ja), Spanish (es), French (fr), German (de), Portuguese (pt), Russian (ru), Arabic (ar). Translation variant will not be generated.`
-5. Also extract the `gen_plan_mode` field from the same config:
+4. Resolve `CONFIG_GEN_PLAN_MODE_RAW` from the merged config:
    - Valid values: `"discussion"` or `"direct"` (case-insensitive).
    - Invalid or absent values: treat as absent (fall back to default) and log a warning if the value is present but invalid.
-6. Resolve `GEN_PLAN_MODE` using the following priority (highest to lowest), with CLI flags taking priority over project config:
+5. Resolve `GEN_PLAN_MODE` using the following priority (highest to lowest), with CLI flags taking priority over merged config:
    - CLI flag: if `GEN_PLAN_MODE_DISCUSSION=true`, set `GEN_PLAN_MODE=discussion`; if `GEN_PLAN_MODE_DIRECT=true`, set `GEN_PLAN_MODE=direct`
-   - Config file `gen_plan_mode` field (if valid)
+   - Merged config `gen_plan_mode` field (if valid)
    - Default: `discussion`
-7. A malformed JSON file should be reported as a warning but must NOT stop execution; fall back to `ALT_PLAN_LANGUAGE=""`, `ALT_PLAN_LANG_CODE=""`, and `GEN_PLAN_MODE=discussion`.
+6. Malformed optional user or project config files should be reported as warnings by `load_merged_config` and must NOT stop execution. In those cases, continue with the remaining valid layers and the same effective defaults (`ALT_PLAN_LANGUAGE=""`, `ALT_PLAN_LANG_CODE=""`, and `GEN_PLAN_MODE=discussion`) when no higher-precedence value is available.
 
 `ALT_PLAN_LANGUAGE` and `ALT_PLAN_LANG_CODE` control whether a translated language variant of the output file is written in Phase 8. When `ALT_PLAN_LANGUAGE` is non-empty, a variant file with the `_<ALT_PLAN_LANG_CODE>` suffix is generated.
 
@@ -475,7 +488,7 @@ This template is used to produce the main output file (e.g., `plan.md`).
 
 ### Translated Language Variant
 
-When `alternative_plan_language` is set to a supported language name in `.humanize/config.json`, a translated variant of the output file is also written after the main file. The variant filename is constructed by inserting `_<code>` (the ISO 639-1 code from the built-in mapping table) immediately before the file extension:
+When `alternative_plan_language` resolves to a supported language name through merged config loading, a translated variant of the output file is also written after the main file. Humanize loads config from merged layers in this order: default config, optional user config, then optional project config; `alternative_plan_language` may be set at any of those layers. The variant filename is constructed by inserting `_<code>` (the ISO 639-1 code from the built-in mapping table) immediately before the file extension:
 
 - `plan.md` becomes `plan_<code>.md` (e.g. `plan_zh.md` for Chinese, `plan_ko.md` for Korean)
 - `docs/my-plan.md` becomes `docs/my-plan_<code>.md`
@@ -483,7 +496,7 @@ When `alternative_plan_language` is set to a supported language name in `.humani
 
 The translated variant file contains a full translation of the main plan file's current content in the configured language. All identifiers (`AC-*`, task IDs, file paths, API names, command flags) remain unchanged, as they are language-neutral.
 
-When `alternative_plan_language` is empty, absent, set to `"English"`, or set to an unsupported language, no translated variant is written. If `.humanize/config.json` does not exist at startup, a default config with `alternative_plan_language=""` is created automatically.
+When `alternative_plan_language` is empty, absent, set to `"English"`, or set to an unsupported language, no translated variant is written. Humanize does not auto-create `.humanize/config.json` when no project config file is present.
 ```
 
 ### Generation Rules

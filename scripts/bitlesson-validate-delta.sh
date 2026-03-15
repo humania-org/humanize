@@ -89,7 +89,96 @@ block_exit() {
     exit 0
 }
 
-if ! grep -qi '^##[[:space:]]*BitLesson Delta[[:space:]]*$' "$SUMMARY_FILE"; then
+extract_bitlesson_delta_block() {
+    local mode="$1"
+
+    awk -v mode="$mode" '
+        BEGIN {
+            in_delta = 0
+            found_delta = 0
+            in_fence = 0
+            fence_delim = ""
+            in_html_comment = 0
+        }
+
+        function update_fence_state(line) {
+            if (in_html_comment) {
+                return
+            }
+
+            if (!in_fence && line ~ /^```/) {
+                in_fence = 1
+                fence_delim = "```"
+                return
+            }
+
+            if (!in_fence && line ~ /^~~~/) {
+                in_fence = 1
+                fence_delim = "~~~"
+                return
+            }
+
+            if (in_fence && fence_delim == "```" && line ~ /^```/) {
+                in_fence = 0
+                fence_delim = ""
+                return
+            }
+
+            if (in_fence && fence_delim == "~~~" && line ~ /^~~~/) {
+                in_fence = 0
+                fence_delim = ""
+            }
+        }
+
+        function update_html_comment_state(line,    start_idx, end_idx) {
+            if (in_fence) {
+                return
+            }
+
+            start_idx = index(line, "<!--")
+            end_idx = index(line, "-->")
+
+            if (in_html_comment) {
+                if (end_idx > 0) {
+                    in_html_comment = 0
+                }
+                return
+            }
+
+            if (start_idx > 0 && (end_idx == 0 || end_idx < start_idx)) {
+                in_html_comment = 1
+            }
+        }
+
+        {
+            if (!in_fence && !in_html_comment &&
+                tolower($0) ~ /^##[[:space:]]*bitlesson delta[[:space:]]*$/) {
+                found_delta = 1
+                in_delta = 1
+                next
+            }
+
+            if (in_delta && !in_fence && !in_html_comment && /^##[[:space:]]+/) {
+                in_delta = 0
+            }
+
+            if (mode == "extract" && in_delta) {
+                print
+            }
+
+            update_fence_state($0)
+            update_html_comment_state($0)
+        }
+
+        END {
+            if (mode == "detect" && !found_delta) {
+                exit 1
+            }
+        }
+    ' "$SUMMARY_FILE"
+}
+
+if ! extract_bitlesson_delta_block detect >/dev/null; then
     FALLBACK=$(cat <<'EOF'
 # BitLesson Delta Missing
 
@@ -108,12 +197,7 @@ EOF
     block_exit "$REASON" "Loop: Summary missing BitLesson Delta section (round $CURRENT_ROUND)"
 fi
 
-BITLESSON_DELTA_BLOCK=$(awk '
-    BEGIN { in_delta=0 }
-    tolower($0) ~ /^##[[:space:]]*bitlesson delta[[:space:]]*$/ { in_delta=1; next }
-    in_delta && /^##[[:space:]]+/ { in_delta=0 }
-    in_delta { print }
-' "$SUMMARY_FILE")
+BITLESSON_DELTA_BLOCK=$(extract_bitlesson_delta_block extract)
 
 BITLESSON_ACTION_CANDIDATES=$(echo "$BITLESSON_DELTA_BLOCK" | sed -nE 's/^[[:space:]-]*Action:[[:space:]]*([A-Za-z]+)[[:space:]]*$/\1/p' | tr '[:upper:]' '[:lower:]')
 BITLESSON_ACTION_COUNT=$(echo "$BITLESSON_ACTION_CANDIDATES" | awk 'NF{c++} END{print c+0}')
@@ -192,6 +276,24 @@ EOF
         REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/bitlesson-delta-inconsistent.md" "$FALLBACK" \
             "ACTION=$BITLESSON_ACTION")
         block_exit "$REASON" "Loop: BitLesson Delta missing lesson IDs for action $BITLESSON_ACTION (round $CURRENT_ROUND)"
+    fi
+
+    BITLESSON_NOTES=$(echo "$BITLESSON_DELTA_BLOCK" | sed -nE 's/^[[:space:]-]*Notes:[[:space:]]*(.*)$/\1/p' | head -n1)
+    BITLESSON_NOTES=$(echo "$BITLESSON_NOTES" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    NOTES_PLACEHOLDER_REGEX='^(\[.*\]|<.*>)$'
+
+    if [[ -z "$BITLESSON_NOTES" ]] || [[ "$BITLESSON_NOTES" =~ $NOTES_PLACEHOLDER_REGEX ]]; then
+        FALLBACK=$(cat <<'EOF'
+# BitLesson Delta Missing Notes
+
+`Action: {{ACTION}}` requires a `Notes:` field explaining what changed and why.
+
+The Notes field must not be empty or contain placeholder text like `[what changed and why]`.
+EOF
+)
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/bitlesson-delta-missing-notes.md" "$FALLBACK" \
+            "ACTION=$BITLESSON_ACTION")
+        block_exit "$REASON" "Loop: BitLesson Delta missing Notes for action $BITLESSON_ACTION (round $CURRENT_ROUND)"
     fi
 
     if [[ ! -f "$BITLESSON_FILE" ]]; then

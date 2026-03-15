@@ -135,9 +135,6 @@ if [[ -z "$BITLESSON_FILE_REL" ]] || \
     BITLESSON_FILE_REL=".humanize/bitlesson.md"
 fi
 BITLESSON_FILE="$PROJECT_ROOT/$BITLESSON_FILE_REL"
-if [[ -z "$RAW_BITLESSON_REQUIRED" && -f "$BITLESSON_FILE" ]]; then
-    BITLESSON_REQUIRED="true"
-fi
 BITLESSON_ALLOW_EMPTY_NONE="true"
 if [[ -n "$RAW_BITLESSON_ALLOW_EMPTY_NONE" ]]; then
     BITLESSON_ALLOW_EMPTY_NONE=$(echo "$RAW_BITLESSON_ALLOW_EMPTY_NONE" | sed 's/^bitlesson_allow_empty_none:[[:space:]]*//' | tr -d ' "')
@@ -587,26 +584,29 @@ if [[ "$GIT_IS_REPO" == "true" ]]; then
     SPECIAL_NOTES=""
 
     # Check for uncommitted changes (staged or unstaged) using cached status.
-    # Exclude .humanize/ untracked files from the dirty determination because
-    # plugin state (bitlesson.md, config.json, rlcr/) is intentionally untracked.
-    GIT_STATUS_FOR_BLOCK=$(echo "$GIT_STATUS_CACHED" | grep -vE '^\?\? \.humanize/' || true)
+    # Exclude untracked .humanize/ paths and .humanize-* dash-separated legacy
+    # variants from the dirty determination because local plugin state under
+    # .humanize/ (.humanize/bitlesson.md, config.json, rlcr/) is intentionally
+    # untracked.
+    HUMANIZE_UNTRACKED_PATTERN='^\?\? \.humanize[-/]'
+    GIT_STATUS_FOR_BLOCK=$(echo "$GIT_STATUS_CACHED" | grep -vE "$HUMANIZE_UNTRACKED_PATTERN" || true)
     if [[ -n "$GIT_STATUS_FOR_BLOCK" ]]; then
         GIT_ISSUES="uncommitted changes"
 
         # Check for special cases in untracked files (use original status for notes)
         UNTRACKED=$(echo "$GIT_STATUS_CACHED" | grep '^??' || true)
 
-        # Check if .humanize* directories are untracked (includes .humanize/ and any legacy .humanize-* dirs)
-        if echo "$UNTRACKED" | grep -q '\.humanize'; then
+        # Check if .humanize/ or .humanize-* dash-separated legacy variants are untracked.
+        if echo "$UNTRACKED" | grep -qE "$HUMANIZE_UNTRACKED_PATTERN"; then
             HUMANIZE_LOCAL_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-humanize-local.md" 2>/dev/null)
             if [[ -z "$HUMANIZE_LOCAL_NOTE" ]]; then
-                HUMANIZE_LOCAL_NOTE="Note: .humanize* directories are intentionally untracked."
+                HUMANIZE_LOCAL_NOTE="Note: .humanize/ and .humanize-* directories are intentionally untracked."
             fi
             SPECIAL_NOTES="$SPECIAL_NOTES$HUMANIZE_LOCAL_NOTE"
         fi
 
         # Check for other untracked files (potential artifacts)
-        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -v '\.humanize' || true)
+        OTHER_UNTRACKED=$(echo "$UNTRACKED" | grep -vE "$HUMANIZE_UNTRACKED_PATTERN" || true)
         if [[ -n "$OTHER_UNTRACKED" ]]; then
             UNTRACKED_NOTE=$(load_template "$TEMPLATE_DIR" "block/git-not-clean-untracked.md" 2>/dev/null)
             if [[ -z "$UNTRACKED_NOTE" ]]; then
@@ -1126,23 +1126,6 @@ enter_finalize_phase() {
     echo "State file renamed to: $LOOP_DIR/finalize-state.md" >&2
 
     local finalize_summary_file="$LOOP_DIR/finalize-summary.md"
-    if [[ ! -f "$finalize_summary_file" ]]; then
-        cat > "$finalize_summary_file" << 'EOF'
-# Finalize Summary
-
-## Work Completed
-- [Describe what was implemented in this phase]
-
-## Files Changed
-- [List created/modified files]
-
-## Validation
-- [List tests/commands run and outcomes]
-
-## Remaining Items
-- [List unresolved items, if any]
-EOF
-    fi
     local finalize_prompt
 
     if [[ -n "$skip_reason" ]]; then

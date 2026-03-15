@@ -184,10 +184,31 @@ DEFAULT_BITLESSON_MODEL="${DEFAULT_BITLESSON_MODEL:-haiku}"
 # defaults for all Codex-using features (RLCR, PR loop, ask-codex).
 # Precedence: pre-set by caller (e.g. PR loop) > config value > hardcoded fallback (gpt-5.4/high)
 _cfg_codex_model="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_model" 2>/dev/null || true)"
+if [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "Warning: Invalid codex_model in merged config: $_cfg_codex_model" >&2
+    echo "  Ignoring configured codex_model; using caller preset or fallback" >&2
+    _cfg_codex_model=""
+elif [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^(gpt-|o[0-9]) ]]; then
+    echo "Warning: Unsupported codex_model in merged config: $_cfg_codex_model" >&2
+    echo "  Must start with a Codex model prefix: gpt- or o[0-9]" >&2
+    echo "  Ignoring configured codex_model; using caller preset or fallback" >&2
+    _cfg_codex_model=""
+fi
 DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.4}}"
 _cfg_codex_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_effort" 2>/dev/null || true)"
+if [[ -n "$_cfg_codex_effort" && ! "$_cfg_codex_effort" =~ ^(xhigh|high|medium|low)$ ]]; then
+    echo "Warning: Invalid codex_effort in merged config: $_cfg_codex_effort" >&2
+    echo "  Must be one of: xhigh, high, medium, low" >&2
+    echo "  Ignoring configured codex_effort; using caller preset or fallback" >&2
+    _cfg_codex_effort=""
+fi
 DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_codex_effort:-high}}"
-unset _cfg_codex_model _cfg_codex_effort
+
+# Load agent_teams from merged config (controls whether RLCR uses agent teams by default)
+# Precedence: pre-set by caller (e.g. --agent-teams flag) > config value > hardcoded fallback (false)
+_cfg_agent_teams="$(get_config_value "$_LOOP_COMMON_CONFIG" "agent_teams" 2>/dev/null || true)"
+DEFAULT_AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-${_cfg_agent_teams:-false}}"
+unset _cfg_codex_model _cfg_codex_effort _cfg_agent_teams
 
 unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
 

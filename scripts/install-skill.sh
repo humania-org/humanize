@@ -33,6 +33,7 @@ DRY_RUN="false"
 SKILL_NAMES=(
     "humanize"
     "humanize-gen-plan"
+    "humanize-refine-plan"
     "humanize-rlcr"
 )
 
@@ -68,6 +69,9 @@ validate_repo() {
     [[ -d "$REPO_ROOT/scripts" ]] || die "scripts directory not found under repo root: $REPO_ROOT"
     [[ -d "$REPO_ROOT/hooks" ]] || die "hooks directory not found under repo root: $REPO_ROOT"
     [[ -d "$REPO_ROOT/prompt-template" ]] || die "prompt-template directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/templates" ]] || die "templates directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/config" ]] || die "config directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/agents" ]] || die "agents directory not found under repo root: $REPO_ROOT"
     for skill in "${SKILL_NAMES[@]}"; do
         [[ -f "$REPO_ROOT/skills/$skill/SKILL.md" ]] || die "missing $REPO_ROOT/skills/$skill/SKILL.md"
     done

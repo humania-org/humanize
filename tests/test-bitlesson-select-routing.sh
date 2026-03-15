@@ -15,11 +15,11 @@ echo "Bitlesson Select Routing Tests"
 echo "=========================================="
 echo ""
 
-# Helper: create a mock bitlesson.md with required content
+# Helper: create a mock .humanize/bitlesson.md with required content
 create_mock_bitlesson() {
     local dir="$1"
-    mkdir -p "$dir"
-    cat > "$dir/bitlesson.md" <<'EOF'
+    mkdir -p "$dir/.humanize"
+    cat > "$dir/.humanize/bitlesson.md" <<'EOF'
 # BitLesson Knowledge Base
 ## Entries
 <!-- placeholder -->
@@ -32,7 +32,44 @@ create_mock_codex() {
     mkdir -p "$bin_dir"
     cat > "$bin_dir/codex" <<'EOF'
 #!/bin/bash
-# Mock codex that outputs valid bitlesson-selector format
+# Mock codex that only reads prompt content from stdin when invoked with trailing '-'
+if [[ "${*: -1}" != "-" ]]; then
+    echo "mock codex expected trailing '-' to read prompt from stdin" >&2
+    exit 9
+fi
+
+stdin_content=$(cat)
+if [[ -z "$stdin_content" ]]; then
+    echo "mock codex expected non-empty stdin prompt" >&2
+    exit 10
+fi
+
+cat <<'OUT'
+LESSON_IDS: NONE
+RATIONALE: No matching lessons found (mock codex).
+OUT
+EOF
+    chmod +x "$bin_dir/codex"
+}
+
+# Helper: create a mock codex binary that records stdin for assertions
+create_recording_mock_codex() {
+    local bin_dir="$1"
+    local stdin_file="$2"
+    mkdir -p "$bin_dir"
+    cat > "$bin_dir/codex" <<EOF
+#!/bin/bash
+if [[ "\${*: -1}" != "-" ]]; then
+    echo "mock codex expected trailing '-' to read prompt from stdin" >&2
+    exit 9
+fi
+
+cat > "$stdin_file"
+if [[ ! -s "$stdin_file" ]]; then
+    echo "mock codex expected non-empty stdin prompt" >&2
+    exit 10
+fi
+
 cat <<'OUT'
 LESSON_IDS: NONE
 RATIONALE: No matching lessons found (mock codex).
@@ -78,12 +115,47 @@ result=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
 
 if [[ $exit_code -eq 0 ]] && echo "$result" | grep -q "LESSON_IDS:"; then
     pass "Codex branch: gpt-* model routes to codex (produces LESSON_IDS output)"
 else
     fail "Codex branch: gpt-* model routes to codex" "LESSON_IDS: in output (exit 0)" "exit=$exit_code, output=$result"
+fi
+
+# ========================================
+# Test 1b: Codex branch passes '-' and consumes stdin prompt
+# ========================================
+echo ""
+echo "--- Test 1b: gpt-* codex path passes stdin prompt via trailing '-' ---"
+echo ""
+
+setup_test_dir
+create_mock_bitlesson "$TEST_DIR"
+BIN_DIR="$TEST_DIR/bin"
+STDIN_FILE="$TEST_DIR/codex-stdin.txt"
+create_recording_mock_codex "$BIN_DIR" "$STDIN_FILE"
+mkdir -p "$TEST_DIR/.humanize"
+printf '{"bitlesson_model": "gpt-4o"}' > "$TEST_DIR/.humanize/config.json"
+
+result=""
+exit_code=0
+result=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+    PATH="$BIN_DIR:$PATH" \
+    bash "$BITLESSON_SELECT" \
+    --task "Fix a bug" \
+    --paths "scripts/bitlesson-select.sh" \
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
+
+if [[ $exit_code -eq 0 ]] \
+    && [[ -s "$STDIN_FILE" ]] \
+    && grep -q "Sub-task description:" "$STDIN_FILE" \
+    && grep -q "Fix a bug" "$STDIN_FILE"; then
+    pass "Codex branch: selector passes trailing '-' and prompt content through stdin"
+else
+    fail "Codex branch: selector passes trailing '-' and prompt content through stdin" \
+        "exit=0 with recorded stdin prompt" \
+        "exit=$exit_code, output=$result, stdin=$(cat "$STDIN_FILE" 2>/dev/null || true)"
 fi
 
 # ========================================
@@ -107,7 +179,7 @@ result=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
 
 if [[ $exit_code -eq 0 ]] && echo "$result" | grep -q "LESSON_IDS:"; then
     pass "Claude branch: haiku model routes to claude (produces LESSON_IDS output)"
@@ -136,7 +208,7 @@ result=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     bash "$BITLESSON_SELECT" \
     --task "Refactor logic" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
 
 if [[ $exit_code -eq 0 ]] && echo "$result" | grep -q "LESSON_IDS:"; then
     pass "Claude branch: sonnet model routes to claude (produces LESSON_IDS output)"
@@ -165,7 +237,7 @@ result=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
     bash "$BITLESSON_SELECT" \
     --task "Write docs" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
 
 if [[ $exit_code -eq 0 ]] && echo "$result" | grep -q "LESSON_IDS:"; then
     pass "Claude branch: OPUS (uppercase) model routes to claude (case-insensitive match)"
@@ -191,7 +263,7 @@ stderr_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" 
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>&1 >/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>&1 >/dev/null) || exit_code=$?
 
 if [[ $exit_code -ne 0 ]] && echo "$stderr_out" | grep -qiE "unknown|error"; then
     pass "Unknown model: exits non-zero with clear error message"
@@ -227,7 +299,7 @@ stderr_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" 
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>&1 >/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>&1 >/dev/null) || exit_code=$?
 
 if [[ $exit_code -ne 0 ]] && echo "$stderr_out" | grep -qi "codex"; then
     pass "Codex branch: missing codex binary exits non-zero with informative error"
@@ -264,7 +336,7 @@ stdout_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" 
     bash "$BITLESSON_SELECT" \
     --task "Fix a bug" \
     --paths "scripts/bitlesson-select.sh" \
-    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+    --bitlesson-file "$TEST_DIR/.humanize/bitlesson.md" 2>/dev/null) || exit_code=$?
 
 if [[ $exit_code -eq 0 ]] && echo "$stdout_out" | grep -q "LESSON_IDS: NONE"; then
     pass "Claude model falls back to codex when claude binary is missing"

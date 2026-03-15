@@ -153,6 +153,39 @@ else
 fi
 
 # ========================================
+# Test: project config can enable agent_teams without CLI flag
+# ========================================
+
+setup_test_dir
+init_test_git_repo "$TEST_DIR/project"
+
+mkdir -p "$TEST_DIR/project/.humanize" "$TEST_DIR/project/temp"
+cat > "$TEST_DIR/project/temp/plan.md" << 'EOF'
+# Test Plan
+
+This is a test plan with enough content.
+Line 3 with meaningful content.
+Line 4 with more content.
+Line 5 final content line.
+EOF
+
+printf '{"agent_teams": true}' > "$TEST_DIR/project/.humanize/config.json"
+echo "temp/" > "$TEST_DIR/project/.gitignore"
+cd "$TEST_DIR/project"
+git add .gitignore
+git commit -q -m "Add gitignore"
+
+cd "$TEST_DIR/project"
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 CLAUDE_PROJECT_DIR="$TEST_DIR/project" bash "$SETUP_SCRIPT" temp/plan.md > /dev/null 2>&1 || true
+
+STATE_FILE=$(find "$TEST_DIR/project/.humanize/rlcr" -name "state.md" -type f 2>/dev/null | head -1)
+if [[ -n "$STATE_FILE" ]] && grep -q "^agent_teams: true" "$STATE_FILE"; then
+    pass "project config enables agent_teams without --agent-teams flag"
+else
+    fail "project config enables agent_teams without --agent-teams flag" "agent_teams: true" "$(grep 'agent_teams' "$STATE_FILE" 2>/dev/null || echo 'not found')"
+fi
+
+# ========================================
 # Test: parse_state_file reads agent_teams field
 # ========================================
 
