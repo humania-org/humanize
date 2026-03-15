@@ -488,7 +488,7 @@ This template is used to produce the main output file (e.g., `plan.md`).
 
 ### Translated Language Variant
 
-When `alternative_plan_language` resolves to a supported language name through merged config loading, a translated variant of the output file is also written after the main file. The variant filename is constructed by inserting `_<code>` (the ISO 639-1 code from the built-in mapping table) immediately before the file extension:
+When `alternative_plan_language` resolves to a supported language name through merged config loading, a translated variant of the output file is also written after the main file. Humanize loads config from merged layers in this order: default config, optional user config, then optional project config; `alternative_plan_language` may be set at any of those layers. The variant filename is constructed by inserting `_<code>` (the ISO 639-1 code from the built-in mapping table) immediately before the file extension:
 
 - `plan.md` becomes `plan_<code>.md` (e.g. `plan_zh.md` for Chinese, `plan_ko.md` for Korean)
 - `docs/my-plan.md` becomes `docs/my-plan_<code>.md`
@@ -496,7 +496,7 @@ When `alternative_plan_language` resolves to a supported language name through m
 
 The translated variant file contains a full translation of the main plan file's current content in the configured language. All identifiers (`AC-*`, task IDs, file paths, API names, command flags) remain unchanged, as they are language-neutral.
 
-When `alternative_plan_language` is empty, absent, set to `"English"`, or set to an unsupported language, no translated variant is written.
+When `alternative_plan_language` is empty, absent, set to `"English"`, or set to an unsupported language, no translated variant is written. Humanize does not auto-create `.humanize/config.json` when no project config file is present.
 ```
 
 ### Generation Rules

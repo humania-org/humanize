@@ -3,6 +3,6 @@
   "codex_effort": "high",
   "bitlesson_model": "haiku",
   "agent_teams": false,
-  "chinese_plan": false,
+  "alternative_plan_language": "",
   "gen_plan_mode": "discussion"
 }

@@ -228,7 +228,7 @@ Current built-in keys:
 | `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 | `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
 | `agent_teams` | `false` | Project-level default for agent teams workflow |
-| `chinese_plan` | `false` | Project preference for Chinese plan generation |
+| `alternative_plan_language` | `""` | Optional translated plan variant language; supported values include `Chinese`, `Korean`, `Japanese`, `Spanish`, `French`, `German`, `Portuguese`, `Russian`, `Arabic`, or ISO codes like `zh` |
 | `gen_plan_mode` | `discussion` | Default plan-generation mode |
 
 ### Codex Model Configuration
