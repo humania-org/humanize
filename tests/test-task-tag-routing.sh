@@ -28,14 +28,21 @@ create_mock_codex() {
     mkdir -p "$bin_dir"
     cat > "$bin_dir/codex" << MOCK_EOF
 #!/bin/bash
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'OUT'
 $exec_output
 OUT
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     echo "No issues found."
 else
-    echo "mock-codex: unsupported command \$1" >&2
+    echo "mock-codex: unsupported command \$*" >&2
     exit 1
 fi
 MOCK_EOF

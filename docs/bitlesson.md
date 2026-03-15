@@ -18,6 +18,10 @@ Provider routing is automatic:
 
 If the configured provider binary is missing, the selector falls back to the default Codex model so the loop can still proceed.
 
+On Codex-only installs, Humanize writes `provider_mode: "codex-only"` into the user config.
+When that mode is present, the selector forces BitLesson selection onto the Codex/OpenAI path
+before provider resolution, even if an older default such as `haiku` would otherwise route to Claude.
+
 ## Workflow
 
 Each project keeps its BitLesson knowledge base at `.humanize/bitlesson.md`.

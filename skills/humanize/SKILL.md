@@ -44,7 +44,7 @@ The RLCR (Ralph-Loop with Codex Review) loop has two phases:
 - Issues marked with `[P0-9]` severity markers
 - If issues found → AI fixes them and continues
 - If no issues → loop completes with Finalize Phase
-- In skill mode, always run `{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh` to enforce hook-equivalent transitions and blocking
+- On Codex CLI `0.114.0+` with `codex_hooks` enabled, Humanize installs a native `Stop` hook so exit gating runs automatically
 
 ### 2. PR Loop - Automated PR Review Handling
 
@@ -79,10 +79,7 @@ Transforms a rough draft document into a structured implementation plan with:
 "{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-rlcr-loop.sh" --skip-impl
 ```
 
-```bash
-# For each round, run the RLCR gate (required)
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh"
-```
+After each round, write the required summary and stop/exit normally. Humanize's native Codex `Stop` hook handles review gating automatically.
 
 **Common Options:**
 - `--max N` - Maximum iterations before auto-stop (default: 42)
@@ -206,7 +203,7 @@ The RLCR loop uses a Goal Tracker to prevent goal drift:
 2. **Maintain Goal Tracker**: Keep goal-tracker.md up-to-date with progress
 3. **Be thorough**: Include details about implementation, files changed, tests added
 4. **No cheating**: Don't try to exit by editing state files or running cancel commands
-5. **Run stop gate each round**: Use `scripts/rlcr-stop-gate.sh` instead of manual phase control
+5. **Use the native Stop hook on Codex**: After writing the required summary, stop/exit normally so Codex runs the Humanize Stop hook
 6. **Trust the process**: External review helps improve implementation quality
 
 ## Prerequisites

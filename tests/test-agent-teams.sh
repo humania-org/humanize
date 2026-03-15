@@ -499,11 +499,18 @@ setup_mock_codex_impl_feedback() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << MOCK_EOF
 #!/bin/bash
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $feedback
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     echo "No issues found."
 fi
 MOCK_EOF
@@ -517,9 +524,16 @@ setup_mock_codex_review_issues() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << MOCK_EOF
 #!/bin/bash
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     echo "Should not be called in review phase"
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     cat << 'REVIEWOUT'
 $review_output
 REVIEWOUT

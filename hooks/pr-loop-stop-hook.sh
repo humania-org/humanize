@@ -1334,12 +1334,15 @@ if [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "true" ]] || [[ "${HUMANIZE_CODEX_
     CODEX_AUTO_FLAG="--dangerously-bypass-approvals-and-sandbox"
 fi
 
+# Disable native hooks for nested Codex reviewer calls to prevent Stop-hook recursion.
+CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+
 CODEX_ARGS+=("$CODEX_AUTO_FLAG" "-C" "$PROJECT_ROOT")
 
 CODEX_PROMPT_CONTENT=$(cat "$CODEX_PROMPT_FILE")
 CODEX_EXIT_CODE=0
 
-printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$PR_CODEX_TIMEOUT" codex exec "${CODEX_ARGS[@]}" - \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$PR_CODEX_TIMEOUT" codex "${CODEX_DISABLE_HOOKS_ARGS[@]}" exec "${CODEX_ARGS[@]}" - \
     > "$CHECK_FILE" 2>/dev/null || CODEX_EXIT_CODE=$?
 
 if [[ $CODEX_EXIT_CODE -ne 0 ]]; then
