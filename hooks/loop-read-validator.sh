@@ -3,10 +3,11 @@
 # PreToolUse Hook: Validate Read access for RLCR loop and PR loop files
 #
 # Blocks Claude from reading:
-# - Wrong round's prompt/summary files (outdated information)
+# - Wrong round's prompt/summary/contract files (outdated information)
 # - Round files from wrong locations (not in .humanize/rlcr/)
 # - Round files from old session directories
 # - Todos files (should use native Task tools instead)
+# - goal-tracker.md from old RLCR sessions
 #
 # PR loop files (.humanize/pr-loop/) are generally allowed to read
 # to give Claude access to comments, prompts, and feedback.
@@ -66,15 +67,26 @@ if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
 fi
 
 # ========================================
-# Check for Round Files (summary/prompt)
+# Check for Restricted RLCR Files
 # ========================================
 
-if ! is_round_file_type "$FILE_PATH_LOWER" "summary" && ! is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
+IS_GOAL_TRACKER=$(is_goal_tracker_path "$FILE_PATH_LOWER" && echo "true" || echo "false")
+IS_ROUND_FILE=$(
+    if is_round_file_type "$FILE_PATH_LOWER" "summary" || \
+       is_round_file_type "$FILE_PATH_LOWER" "prompt" || \
+       is_round_file_type "$FILE_PATH_LOWER" "contract"; then
+        echo "true"
+    else
+        echo "false"
+    fi
+)
+
+IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || echo "false")
+if [[ "$IS_ROUND_FILE" != "true" ]] && ! { [[ "$IS_GOAL_TRACKER" == "true" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]]; }; then
     exit 0
 fi
 
 CLAUDE_FILENAME=$(basename "$FILE_PATH")
-IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || echo "false")
 
 # ========================================
 # Find Active Loop and Current Round
@@ -90,6 +102,10 @@ fi
 
 # Detect if we're in Finalize Phase (finalize-state.md exists)
 STATE_FILE_TO_PARSE=$(resolve_active_state_file "$ACTIVE_LOOP_DIR")
+IS_FINALIZE_PHASE=false
+if [[ "$STATE_FILE_TO_PARSE" == *"/finalize-state.md" ]]; then
+    IS_FINALIZE_PHASE=true
+fi
 
 # Parse state file using strict validation (fail closed on malformed state)
 if ! parse_state_file_strict "$STATE_FILE_TO_PARSE" 2>/dev/null; then
@@ -97,6 +113,35 @@ if ! parse_state_file_strict "$STATE_FILE_TO_PARSE" 2>/dev/null; then
     exit 1
 fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
+
+if [[ "$IS_FINALIZE_PHASE" == "true" ]] && is_round_file_type "$FILE_PATH_LOWER" "contract"; then
+    finalize_contract_blocked_message "read" >&2
+    exit 2
+fi
+
+# ========================================
+# Validate Goal Tracker Path
+# ========================================
+
+if [[ "$IS_GOAL_TRACKER" == "true" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]]; then
+    CORRECT_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
+    NORMALIZED_FILE_PATH=$(_normalize_path "$FILE_PATH")
+    NORMALIZED_CORRECT_PATH=$(_normalize_path "$CORRECT_PATH")
+
+    if [[ "$NORMALIZED_FILE_PATH" != "$NORMALIZED_CORRECT_PATH" ]]; then
+        FALLBACK="# Wrong Goal Tracker Path
+
+Read the active loop goal tracker instead: {{CORRECT_PATH}}"
+        load_and_render_safe "$TEMPLATE_DIR" "block/wrong-file-location.md" "$FALLBACK" \
+            "FILE_PATH=$FILE_PATH" \
+            "ACTIVE_LOOP_DIR=$ACTIVE_LOOP_DIR" \
+            "CURRENT_ROUND=$CURRENT_ROUND" \
+            "CORRECT_PATH=$CORRECT_PATH" >&2
+        exit 2
+    fi
+
+    exit 0
+fi
 
 # ========================================
 # Extract Round Number and File Type
@@ -113,6 +158,8 @@ if is_round_file_type "$FILE_PATH_LOWER" "summary"; then
     FILE_TYPE="summary"
 elif is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
     FILE_TYPE="prompt"
+elif is_round_file_type "$FILE_PATH_LOWER" "contract"; then
+    FILE_TYPE="contract"
 fi
 
 # ========================================

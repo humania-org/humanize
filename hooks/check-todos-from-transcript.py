@@ -15,9 +15,24 @@ Usage:
     echo '{"session_id": "...", "transcript_path": "/path/to/transcript.jsonl"}' | python3 check-todos-from-transcript.py
 """
 import json
+import re
 import sys
 from pathlib import Path
 from typing import List, Tuple
+
+
+LANE_PREFIX_PATTERN = re.compile(r"^\s*\[(mainline|blocking|queued)\](?:\s|$)", re.IGNORECASE)
+
+
+def classify_lane(*parts: str) -> str:
+    """Infer the task lane from content, defaulting to blocking for safety."""
+    for part in parts:
+        if not part:
+            continue
+        match = LANE_PREFIX_PATTERN.match(part)
+        if match:
+            return match.group(1).lower()
+    return "blocking"
 
 
 def extract_tool_calls_from_entry(entry: dict) -> List[Tuple[str, dict]]:
@@ -92,10 +107,14 @@ def find_incomplete_todos_from_transcript(transcript_path: Path) -> List[dict]:
         status = todo.get("status", "")
         content = todo.get("content", "")
         if status != "completed":
+            lane = classify_lane(content)
+            if lane == "queued":
+                continue
             incomplete.append({
                 "status": status,
                 "content": content,
                 "source": "todo",
+                "lane": lane,
             })
 
     return incomplete
@@ -134,11 +153,15 @@ def find_incomplete_tasks_from_directory(session_id: str, tasks_base_dir: str = 
                 description = task.get("description", "")
                 task_id = task_file.stem  # Filename without .json
                 content = subject or description or f"Task {task_id}"
+                lane = classify_lane(subject, description)
+                if lane == "queued":
+                    continue
                 incomplete.append({
                     "status": status,
                     "content": content,
                     "source": "task",
                     "task_id": task_id,
+                    "lane": lane,
                 })
         except (json.JSONDecodeError, OSError):
             # Skip malformed or unreadable task files
@@ -184,11 +207,13 @@ def main():
         status = item.get("status", "unknown")
         content = item.get("content", "")
         source = item.get("source", "unknown")
+        lane = item.get("lane", "blocking")
+        lane_marker = f"[{lane}]"
         if source == "task":
             task_id = item.get("task_id", "?")
-            output_lines.append(f"  - [{status}] (Task #{task_id}) {content}")
+            output_lines.append(f"  - [{status}] {lane_marker} (Task #{task_id}) {content}")
         else:
-            output_lines.append(f"  - [{status}] {content}")
+            output_lines.append(f"  - [{status}] {lane_marker} {content}")
 
     # Output marker and incomplete items both to stdout
     print("INCOMPLETE_TODOS")

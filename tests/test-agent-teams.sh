@@ -455,6 +455,9 @@ ask_codex_question: false
 full_review_round: 5
 session_id:
 agent_teams: $agent_teams
+mainline_stall_count: 0
+last_mainline_verdict: unknown
+drift_status: normal
 ---
 STATE_EOF
 
@@ -482,6 +485,16 @@ GT_EOF
 # Round Summary
 Implemented features as requested.
 SUM_EOF
+
+    cat > "$LOOP_DIR/round-${round}-contract.md" << CONTRACT_EOF
+# Round $round Contract
+
+- Mainline Objective: Continue the requested implementation round
+- Target ACs: AC-1
+- Blocking Side Issues In Scope: none
+- Queued Side Issues Out of Scope: none
+- Success Criteria: advance the mainline objective without drift
+CONTRACT_EOF
 
     # Set up isolated cache directory
     export XDG_CACHE_HOME="$TEST_DIR/.cache"
@@ -536,6 +549,8 @@ MOCK_EOF
 setup_stophook_test 3 "true" "false"
 setup_mock_codex_impl_feedback "## Review Feedback
 
+Mainline Progress Verdict: ADVANCED
+
 Some issues found:
 - Issue 1: Missing error handling
 
@@ -567,11 +582,53 @@ else
 fi
 
 # ========================================
+# Test: Drift recovery prompt still preserves agent-teams continuation
+# ========================================
+
+setup_stophook_test 3 "true" "false"
+perl -0pi -e 's/mainline_stall_count: 0/mainline_stall_count: 1/' "$LOOP_DIR/state.md"
+perl -0pi -e 's/last_mainline_verdict: unknown/last_mainline_verdict: stalled/' "$LOOP_DIR/state.md"
+setup_mock_codex_impl_feedback "## Review Feedback
+
+Mainline Progress Verdict: STALLED
+
+- Mainline gap: AC-1 still has no stable implementation
+- Blocking side issue: the team is repeating the same non-advancing fix pattern
+
+Recover the mainline before trying again.
+
+CONTINUE"
+
+HOOK_INPUT='{"stop_hook_active": false, "transcript": [], "session_id": ""}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$STOP_HOOK" 2>/dev/null)
+HOOK_EXIT=$?
+set -e
+
+NEXT_PROMPT="$LOOP_DIR/round-4-prompt.md"
+if [[ -f "$NEXT_PROMPT" ]]; then
+    if grep -q "Drift Recovery Mode" "$NEXT_PROMPT"; then
+        pass "drift recovery prompt generated for stalled mainline"
+    else
+        fail "drift recovery prompt generated for stalled mainline" "Drift Recovery Mode" "not found"
+    fi
+    if grep -qi "Agent Teams" "$NEXT_PROMPT"; then
+        pass "drift recovery prompt keeps agent-teams continuation"
+    else
+        fail "drift recovery prompt keeps agent-teams continuation" "agent-teams text in prompt" "not found"
+    fi
+else
+    fail "drift recovery prompt keeps agent-teams continuation" "round-4-prompt.md exists" "not found (hook exit=$HOOK_EXIT)"
+fi
+
+# ========================================
 # Test: Implementation phase with agent_teams=false has no continuation
 # ========================================
 
 setup_stophook_test 3 "false" "false"
 setup_mock_codex_impl_feedback "## Review Feedback
+
+Mainline Progress Verdict: ADVANCED
 
 Some issues found:
 - Issue 1: Missing error handling

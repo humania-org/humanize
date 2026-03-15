@@ -50,6 +50,16 @@ parse_result() {
     esac
 }
 
+parse_issue_result() {
+    local result="$1"
+    local field="$2"
+    case "$field" in
+        blocking_issues) echo "$result" | cut -d'|' -f1 ;;
+        queued_issues) echo "$result" | cut -d'|' -f2 ;;
+        open_issues) echo "$result" | cut -d'|' -f3 ;;
+    esac
+}
+
 # ========================================
 # Positive Tests - Valid Goal Tracker
 # ========================================
@@ -436,6 +446,55 @@ if [[ "$DEFERRED_TASKS" == "2" ]]; then
     pass "Counts 2 deferred tasks"
 else
     fail "Deferred tasks count" "2" "$DEFERRED_TASKS"
+fi
+
+# Test 15b: Distinguish blocking vs queued issues in new schema
+echo ""
+echo "Test 15b: Distinguish blocking vs queued issues"
+cat > "$TEST_DIR/goal-tracker-issue-breakdown.md" << 'EOF'
+# Goal Tracker
+
+### Acceptance Criteria
+
+- AC-1: Test
+
+---
+
+### Blocking Side Issues
+
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+| Failing review item | 2 | AC-1 | Fix immediately |
+
+### Queued Side Issues
+
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
+| Cleanup follow-up | 2 | Cosmetic only | Next refactor |
+| Extra test hardening | 3 | Current AC already met | Regression appears |
+EOF
+
+ISSUE_RESULT=$(humanize_parse_goal_tracker_issue_counts "$TEST_DIR/goal-tracker-issue-breakdown.md")
+BLOCKING_ISSUES=$(parse_issue_result "$ISSUE_RESULT" blocking_issues)
+QUEUED_ISSUES=$(parse_issue_result "$ISSUE_RESULT" queued_issues)
+OPEN_ISSUES=$(parse_issue_result "$ISSUE_RESULT" open_issues)
+if [[ "$BLOCKING_ISSUES" == "1" ]] && [[ "$QUEUED_ISSUES" == "2" ]] && [[ "$OPEN_ISSUES" == "3" ]]; then
+    pass "Separates blocking and queued issues in new schema"
+else
+    fail "Issue breakdown" "1 blocking, 2 queued, 3 total" "$ISSUE_RESULT"
+fi
+
+# Test 15c: Legacy open issues fallback maps to blocking count
+echo ""
+echo "Test 15c: Legacy open issues fallback maps to blocking count"
+ISSUE_RESULT=$(humanize_parse_goal_tracker_issue_counts "$TEST_DIR/goal-tracker-issues.md")
+BLOCKING_ISSUES=$(parse_issue_result "$ISSUE_RESULT" blocking_issues)
+QUEUED_ISSUES=$(parse_issue_result "$ISSUE_RESULT" queued_issues)
+OPEN_ISSUES=$(parse_issue_result "$ISSUE_RESULT" open_issues)
+if [[ "$BLOCKING_ISSUES" == "2" ]] && [[ "$QUEUED_ISSUES" == "0" ]] && [[ "$OPEN_ISSUES" == "2" ]]; then
+    pass "Legacy open issues fallback treated as blocking"
+else
+    fail "Legacy issue fallback" "2 blocking, 0 queued, 2 total" "$ISSUE_RESULT"
 fi
 
 # Test 16: File with only headers (no content)

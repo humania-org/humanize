@@ -181,6 +181,15 @@ Keep routing behavior stable.
 |------|-----------|--------|-----|-------|-------|
 | Keep routing note | AC-1 | in_progress | analyze | codex | -
 EOF
+    cat > "$loop_dir/round-0-contract.md" << 'EOF'
+# Round 0 Contract
+
+- Mainline Objective: Keep routing behavior stable while addressing the current review feedback.
+- Target ACs: AC-1
+- Blocking Side Issues In Scope: none
+- Queued Side Issues Out of Scope: none
+- Success Criteria: Follow-up prompt is generated with routing guidance intact.
+EOF
     cat > "$loop_dir/round-0-summary.md" << 'EOF'
 # Round 0 Summary
 
@@ -196,6 +205,8 @@ EOF
 setup_test_dir
 setup_stophook_repo "$TEST_DIR/hook-routing"
 create_mock_codex "$TEST_DIR/hook-routing/bin" "## Review Feedback
+
+Mainline Progress Verdict: STALLED
 
 Issue remains unresolved.
 

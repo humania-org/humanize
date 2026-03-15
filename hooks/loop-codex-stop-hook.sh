@@ -148,6 +148,9 @@ fi
 if [[ "$BITLESSON_ALLOW_EMPTY_NONE" != "true" && "$BITLESSON_ALLOW_EMPTY_NONE" != "false" ]]; then
     BITLESSON_ALLOW_EMPTY_NONE="true"
 fi
+MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
 if [[ ! "$CODEX_EXEC_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -188,6 +191,13 @@ if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (max_iterations not numeric), using default" >&2
     MAX_ITERATIONS=42
 fi
+
+if [[ ! "$MAINLINE_STALL_COUNT" =~ ^[0-9]+$ ]]; then
+    echo "Warning: Invalid mainline_stall_count '$MAINLINE_STALL_COUNT', defaulting to 0" >&2
+    MAINLINE_STALL_COUNT=0
+fi
+LAST_MAINLINE_VERDICT=$(normalize_mainline_progress_verdict "$LAST_MAINLINE_VERDICT")
+DRIFT_STATUS=$(normalize_drift_status "$DRIFT_STATUS")
 
 # ========================================
 # Quick-check 0: Schema Validation (v1.1.2+ fields)
@@ -682,8 +692,10 @@ fi
 # In Finalize Phase, expect finalize-summary.md instead of round-N-summary.md
 if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
     SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
+    ROUND_CONTRACT_FILE=""
 else
     SUMMARY_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
+    ROUND_CONTRACT_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-contract.md"
 fi
 
 if [[ ! -f "$SUMMARY_FILE" ]]; then
@@ -711,6 +723,36 @@ Please write your work summary to: {{SUMMARY_FILE}}"
             "systemMessage": $msg
         }'
     exit 0
+fi
+
+# Check Round Contract Exists
+# ========================================
+
+if [[ "$IS_FINALIZE_PHASE" != "true" ]]; then
+    if [[ ! -f "$ROUND_CONTRACT_FILE" ]]; then
+        FALLBACK="# Round Contract Missing
+
+Before trying to exit, write the current round contract to: {{ROUND_CONTRACT_FILE}}
+
+The round contract must restate:
+- The single mainline objective for this round
+- The target ACs
+- Which side issues are truly blocking
+- Which side issues are queued and out of scope
+- The success criteria for this round"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/round-contract-missing.md" "$FALLBACK" \
+            "ROUND_CONTRACT_FILE=$ROUND_CONTRACT_FILE")
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Round contract missing for round $CURRENT_ROUND" \
+            '{
+                "decision": "block",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
 fi
 
 # ========================================
@@ -742,7 +784,7 @@ GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
 # Skip this check in Finalize Phase, Review Phase, or when review_started is already true (skip-impl mode)
 # - Finalize Phase: goal tracker was already initialized before COMPLETE
-# - Review Phase (review_started=true): skip-impl mode skips implementation, no goal tracker needed
+# - Review Phase: later rounds may update only the mutable section, so Round 0 placeholder checks no longer apply
 if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     # Check if goal-tracker.md still contains placeholder text
     # Extract each section and check for generic placeholder pattern within that section
@@ -1235,6 +1277,79 @@ Follow the plan's per-task routing tags strictly:
 ROUTING_EOF
 }
 
+# Stop the loop when mainline progress has stalled for too many consecutive rounds.
+# Arguments: $1=stall_count, $2=last_verdict
+stop_for_mainline_drift() {
+    local stall_count="$1"
+    local last_verdict="$2"
+
+    upsert_state_fields "$STATE_FILE" \
+        "${FIELD_MAINLINE_STALL_COUNT}=${stall_count}" \
+        "${FIELD_LAST_MAINLINE_VERDICT}=${last_verdict}" \
+        "${FIELD_DRIFT_STATUS}=${DRIFT_STATUS_REPLAN_REQUIRED}"
+
+    local fallback="# Mainline Drift Circuit Breaker
+
+The RLCR loop has been stopped because the mainline failed to advance for {{STALL_COUNT}} consecutive implementation rounds.
+
+- Last mainline verdict: {{LAST_VERDICT}}
+- Drift status: replan_required
+
+This loop should not continue automatically. Revisit the original plan, recover the round contract, and restart with a narrower mainline objective."
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/mainline-drift-stop.md" "$fallback" \
+        "STALL_COUNT=$stall_count" \
+        "LAST_VERDICT=$last_verdict" \
+        "PLAN_FILE=$PLAN_FILE")
+
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_STOP"
+
+    jq -n \
+        --arg reason "$reason" \
+        --arg msg "Loop: Stopped - mainline drift circuit breaker triggered" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# Block exit when implementation review output omits the required mainline verdict.
+# Arguments: $1=review_result_file, $2=review_prompt_file
+block_missing_mainline_verdict() {
+    local review_result_file="$1"
+    local review_prompt_file="$2"
+
+    local fallback="# Mainline Verdict Missing
+
+The implementation review output is missing the required line:
+
+\`Mainline Progress Verdict: ADVANCED / STALLED / REGRESSED\`
+
+Humanize cannot safely update drift state or choose the correct next-round prompt without this verdict.
+
+Retry the exit so Codex reruns the implementation review.
+
+Files:
+- Review result: {{REVIEW_RESULT_FILE}}
+- Review prompt: {{REVIEW_PROMPT_FILE}}"
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/mainline-verdict-missing.md" "$fallback" \
+        "REVIEW_RESULT_FILE=$review_result_file" \
+        "REVIEW_PROMPT_FILE=$review_prompt_file")
+
+    jq -n \
+        --arg reason "$reason" \
+        --arg msg "Loop: Blocked - implementation review missing Mainline Progress Verdict" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
 # Continue review loop when issues are found
 # Arguments: $1=round_number, $2=review_content
 continue_review_loop_with_issues() {
@@ -1273,6 +1388,7 @@ continue_review_loop_with_issues() {
 - Notes: [what changed and why]
 EOF
     fi
+    local next_contract_file="$LOOP_DIR/round-${round}-contract.md"
 
     local fallback="# Code Review Findings
 
@@ -1284,14 +1400,35 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
 
 ## Instructions
 
-1. Address all issues marked with [P0-9] severity markers
-2. Focus on fixes only - do not add new features
-3. Commit your changes after fixing the issues
-4. Write your summary to: {{SUMMARY_FILE}}"
+1. Re-anchor on the original plan and current goal tracker before changing code
+2. Refresh the round contract at {{ROUND_CONTRACT_FILE}}
+3. Address only the issues that are truly blocking the current mainline objective or code-review acceptance
+4. Record non-blocking follow-up items as queued, not as the main goal
+5. Commit your changes after fixing the issues
+6. Write your summary to: {{SUMMARY_FILE}}"
 
     load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
         "REVIEW_CONTENT=$review_content" \
-        "SUMMARY_FILE=$next_summary_file" > "$next_prompt_file"
+        "SUMMARY_FILE=$next_summary_file" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "ROUND_CONTRACT_FILE=$next_contract_file" \
+        "CURRENT_ROUND=$round" > "$next_prompt_file"
+    if [[ "$BITLESSON_REQUIRED" == "true" ]] && ! grep -q 'bitlesson-selector' "$next_prompt_file"; then
+        cat >> "$next_prompt_file" << EOF
+
+## BitLesson Selection (REQUIRED FOR EACH FIX TASK)
+
+Before implementing each fix task, you MUST:
+
+1. Read @$BITLESSON_FILE
+2. Run \`bitlesson-selector\` for each fix task/sub-task to select relevant lesson IDs
+3. Follow the selected lesson IDs (or \`NONE\`) during implementation
+
+Reference: @$BITLESSON_FILE
+EOF
+    fi
     append_task_tag_routing_note "$next_prompt_file"
 
     jq -n \
@@ -1536,6 +1673,53 @@ REVIEW_CONTENT=$(cat "$REVIEW_RESULT_FILE")
 LAST_LINE=$(echo "$REVIEW_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
+NEXT_MAINLINE_STALL_COUNT="$MAINLINE_STALL_COUNT"
+NEXT_LAST_MAINLINE_VERDICT="$LAST_MAINLINE_VERDICT"
+NEXT_DRIFT_STATUS="$DRIFT_STATUS"
+DRIFT_REPLAN_REQUIRED=false
+MAINLINE_DRIFT_STOP=false
+
+if [[ "$REVIEW_STARTED" != "true" ]]; then
+    EXTRACTED_MAINLINE_VERDICT=$(extract_mainline_progress_verdict "$REVIEW_CONTENT")
+
+    if [[ "$LAST_LINE_TRIMMED" != "$MARKER_STOP" ]] && [[ "$EXTRACTED_MAINLINE_VERDICT" == "$MAINLINE_VERDICT_UNKNOWN" ]]; then
+        echo "Implementation review output is missing Mainline Progress Verdict. Blocking exit for safety." >&2
+        block_missing_mainline_verdict "$REVIEW_RESULT_FILE" "$REVIEW_PROMPT_FILE"
+    fi
+
+    case "$EXTRACTED_MAINLINE_VERDICT" in
+        "$MAINLINE_VERDICT_ADVANCED")
+            NEXT_MAINLINE_STALL_COUNT=0
+            NEXT_LAST_MAINLINE_VERDICT="$MAINLINE_VERDICT_ADVANCED"
+            NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+            ;;
+        "$MAINLINE_VERDICT_STALLED"|"$MAINLINE_VERDICT_REGRESSED")
+            NEXT_MAINLINE_STALL_COUNT=$((MAINLINE_STALL_COUNT + 1))
+            NEXT_LAST_MAINLINE_VERDICT="$EXTRACTED_MAINLINE_VERDICT"
+            if [[ "$NEXT_MAINLINE_STALL_COUNT" -ge 2 ]]; then
+                NEXT_DRIFT_STATUS="$DRIFT_STATUS_REPLAN_REQUIRED"
+                DRIFT_REPLAN_REQUIRED=true
+            else
+                NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+            fi
+            if [[ "$NEXT_MAINLINE_STALL_COUNT" -ge 3 ]]; then
+                MAINLINE_DRIFT_STOP=true
+            fi
+            ;;
+        *)
+            :
+            ;;
+    esac
+
+    if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
+        NEXT_MAINLINE_STALL_COUNT=0
+        NEXT_LAST_MAINLINE_VERDICT="$MAINLINE_VERDICT_ADVANCED"
+        NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+        DRIFT_REPLAN_REQUIRED=false
+        MAINLINE_DRIFT_STOP=false
+    fi
+fi
+
 # Handle COMPLETE - enter Review Phase or Finalize Phase
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
     # In review phase, COMPLETE signal is ignored - only absence of [P0-9] triggers finalize
@@ -1563,10 +1747,12 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
         else
             echo "Implementation complete. Entering Review Phase..." >&2
 
-            # Update state to indicate review phase has started
-            TEMP_FILE="${STATE_FILE}.tmp.$$"
-            sed "s/^review_started: .*/review_started: true/" "$STATE_FILE" > "$TEMP_FILE"
-            mv "$TEMP_FILE" "$STATE_FILE"
+            # Update state to indicate review phase has started and clear drift counters.
+            upsert_state_fields "$STATE_FILE" \
+                "${FIELD_REVIEW_STARTED}=true" \
+                "${FIELD_MAINLINE_STALL_COUNT}=0" \
+                "${FIELD_LAST_MAINLINE_VERDICT}=${MAINLINE_VERDICT_ADVANCED}" \
+                "${FIELD_DRIFT_STATUS}=${DRIFT_STATUS_NORMAL}"
             REVIEW_STARTED="true"
 
             # Create marker file to validate review phase was properly entered
@@ -1614,6 +1800,11 @@ Use \`/humanize:cancel-rlcr-loop\` to end this loop."
     run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Code review passed"
 fi
 
+if [[ "$MAINLINE_DRIFT_STOP" == "true" ]] && [[ "$LAST_LINE_TRIMMED" != "$MARKER_STOP" ]] && [[ "$LAST_LINE_TRIMMED" != "$MARKER_COMPLETE" ]]; then
+    echo "Mainline progress stalled for $NEXT_MAINLINE_STALL_COUNT consecutive rounds. Triggering drift circuit breaker." >&2
+    stop_for_mainline_drift "$NEXT_MAINLINE_STALL_COUNT" "$NEXT_LAST_MAINLINE_VERDICT"
+fi
+
 # Handle STOP - circuit breaker triggered
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
     echo "" >&2
@@ -1649,9 +1840,11 @@ fi
 # ========================================
 
 # Update state file for next round
-TEMP_FILE="${STATE_FILE}.tmp.$$"
-sed "s/^current_round: .*/current_round: $NEXT_ROUND/" "$STATE_FILE" > "$TEMP_FILE"
-mv "$TEMP_FILE" "$STATE_FILE"
+upsert_state_fields "$STATE_FILE" \
+    "${FIELD_CURRENT_ROUND}=${NEXT_ROUND}" \
+    "${FIELD_MAINLINE_STALL_COUNT}=${NEXT_MAINLINE_STALL_COUNT}" \
+    "${FIELD_LAST_MAINLINE_VERDICT}=${NEXT_LAST_MAINLINE_VERDICT}" \
+    "${FIELD_DRIFT_STATUS}=${NEXT_DRIFT_STATUS}"
 
 # Create next round prompt
 NEXT_PROMPT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-prompt.md"
@@ -1678,6 +1871,7 @@ if [[ ! -f "$NEXT_SUMMARY_FILE" ]]; then
 - Notes: [what changed and why]
 EOF
 fi
+NEXT_CONTRACT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-contract.md"
 
 # Build the next round prompt from templates
 NEXT_ROUND_FALLBACK="# Next Round Instructions
@@ -1692,12 +1886,60 @@ Before executing tasks in this round:
 ## Codex Review
 {{REVIEW_CONTENT}}
 
-Reference: {{PLAN_FILE}}, {{GOAL_TRACKER_FILE}}, {{BITLESSON_FILE}}"
-load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_FALLBACK" \
-    "PLAN_FILE=$PLAN_FILE" \
-    "REVIEW_CONTENT=$REVIEW_CONTENT" \
-    "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
-    "BITLESSON_FILE=$BITLESSON_FILE" > "$NEXT_PROMPT_FILE"
+Reference: {{PLAN_FILE}}, {{GOAL_TRACKER_FILE}}, {{ROUND_CONTRACT_FILE}}, {{BITLESSON_FILE}}"
+DRIFT_REPLAN_FALLBACK="# Drift Recovery Required
+
+The mainline has not advanced for {{STALL_COUNT}} consecutive implementation rounds.
+
+Last mainline verdict: {{LAST_MAINLINE_VERDICT}}
+
+Before writing code:
+- Re-read @{{PLAN_FILE}}
+- Re-read @{{GOAL_TRACKER_FILE}}
+- Re-read the recent round summaries and review results
+- Rewrite @{{ROUND_CONTRACT_FILE}} with a recovery-focused mainline objective
+
+Do not spend this round clearing queued work. Recover mainline progress first.
+
+## Codex Review
+{{REVIEW_CONTENT}}"
+
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
+    load_and_render_safe "$TEMPLATE_DIR" "claude/drift-replan-prompt.md" "$DRIFT_REPLAN_FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "REVIEW_CONTENT=$REVIEW_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "CURRENT_ROUND=$NEXT_ROUND" \
+        "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
+        "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
+else
+    load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "REVIEW_CONTENT=$REVIEW_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "CURRENT_ROUND=$NEXT_ROUND" \
+        "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
+        "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
+fi
+
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]] && [[ "$BITLESSON_REQUIRED" == "true" ]] && ! grep -q 'bitlesson-selector' "$NEXT_PROMPT_FILE"; then
+    cat >> "$NEXT_PROMPT_FILE" << EOF
+
+## BitLesson Selection (REQUIRED FOR EACH TASK)
+
+Before executing each task or sub-task, you MUST:
+
+1. Read @$BITLESSON_FILE
+2. Run \`bitlesson-selector\` for each task/sub-task to select relevant lesson IDs
+3. Follow the selected lesson IDs (or \`NONE\`) during implementation
+
+Reference: @$BITLESSON_FILE
+EOF
+fi
 
 if [[ "$AGENT_TEAMS" == "true" ]]; then
     ENFORCEMENT_BLOCK="**Delegation Warning**: Do NOT implement code yourself in Agent Teams mode; delegate all coding tasks to team members."
@@ -1814,6 +2056,9 @@ fi
 
 # Build system message
 SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Codex found issues to address"
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
+    SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Mainline drift detected, replan required"
+fi
 
 # Block exit and send review feedback
 jq -n \

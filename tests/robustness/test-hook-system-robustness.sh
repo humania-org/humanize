@@ -317,8 +317,10 @@ echo ""
 # Test 12: Bash validator blocks state.md modification attempts
 echo "Test 12: Bash validator blocks state.md modification"
 # Create RLCR state for the test
-mkdir -p "$TEST_DIR/.humanize/rlcr/2026-01-19_12-00-00"
-cat > "$TEST_DIR/.humanize/rlcr/2026-01-19_12-00-00/state.md" << 'EOF'
+HOOK_LOOP_DIR="$TEST_DIR/.humanize/rlcr/2026-01-19_12-00-00"
+OLD_LOOP_DIR="$TEST_DIR/.humanize/rlcr/2026-01-19_11-00-00"
+mkdir -p "$HOOK_LOOP_DIR"
+cat > "$HOOK_LOOP_DIR/state.md" << 'EOF'
 ---
 current_round: 1
 max_iterations: 42
@@ -332,6 +334,54 @@ codex_timeout: 1200
 review_started: false
 plan_tracked: false
 ---
+EOF
+cat > "$HOOK_LOOP_DIR/goal-tracker.md" << 'EOF'
+# Goal Tracker
+
+## IMMUTABLE SECTION
+
+### Ultimate Goal
+Keep mainline aligned.
+
+### Acceptance Criteria
+- AC-1: Mainline progress is visible every round.
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: 1 (Updated: Round 1)
+
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| [mainline] Keep AC-1 moving | AC-1 | pending | - |
+
+### Blocking Side Issues
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+
+### Queued Side Issues
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
+EOF
+mkdir -p "$OLD_LOOP_DIR"
+cat > "$OLD_LOOP_DIR/goal-tracker.md" << 'EOF'
+# Old Goal Tracker
+
+## IMMUTABLE SECTION
+
+### Ultimate Goal
+Old session tracker.
+
+### Acceptance Criteria
+- AC-1: Old session only.
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: 1 (Updated: Round 0)
 EOF
 # Try to modify state.md - this SHOULD be blocked
 JSON='{"tool_name":"Bash","tool_input":{"command":"echo hacked >> '"$TEST_DIR"'/.humanize/rlcr/2026-01-19_12-00-00/state.md"}}'
@@ -366,9 +416,143 @@ else
     fail "Goal-tracker.md modification" "exit 2 (blocked)" "exit $EXIT_CODE, result: $RESULT"
 fi
 
-# Test 12c: Unrelated dangerous commands are allowed through (sandbox handles security)
+# Test 12c: Write validator allows mutable goal-tracker updates after round 0
 echo ""
-echo "Test 12c: Unrelated dangerous commands allowed through (sandbox responsibility)"
+echo "Test 12c: Write validator allows mutable goal-tracker updates after round 0"
+cat > "$TEST_DIR/goal-tracker-updated.md" << 'EOF'
+# Goal Tracker
+
+## IMMUTABLE SECTION
+
+### Ultimate Goal
+Keep mainline aligned.
+
+### Acceptance Criteria
+- AC-1: Mainline progress is visible every round.
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: 1 (Updated: Round 1)
+
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| [mainline] Keep AC-1 moving | AC-1 | in_progress | re-anchored |
+
+### Blocking Side Issues
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+| failing test for AC-1 | 1 | AC-1 | fix before exit |
+
+### Queued Side Issues
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
+EOF
+UPDATED_CONTENT=$(jq -Rs . < "$TEST_DIR/goal-tracker-updated.md")
+JSON='{"tool_name":"Write","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","content":'"$UPDATED_CONTENT"'}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write allows mutable goal-tracker updates after round 0"
+else
+    fail "Goal-tracker mutable write" "exit 0" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12d: Write validator blocks immutable goal-tracker changes after round 0
+echo ""
+echo "Test 12d: Write validator blocks immutable goal-tracker changes after round 0"
+cat > "$TEST_DIR/goal-tracker-bad.md" << 'EOF'
+# Goal Tracker
+
+## IMMUTABLE SECTION
+
+### Ultimate Goal
+Change the goal entirely.
+
+### Acceptance Criteria
+- AC-1: Mainline progress is visible every round.
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: 1 (Updated: Round 1)
+EOF
+UPDATED_CONTENT=$(jq -Rs . < "$TEST_DIR/goal-tracker-bad.md")
+JSON='{"tool_name":"Write","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","content":'"$UPDATED_CONTENT"'}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Write blocks immutable goal-tracker changes after round 0"
+else
+    fail "Goal-tracker immutable write" "exit 2" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12e: Edit validator allows mutable goal-tracker edits after round 0
+echo ""
+echo "Test 12e: Edit validator allows mutable goal-tracker edits after round 0"
+JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","old_string":"| [mainline] Keep AC-1 moving | AC-1 | pending | - |","new_string":"| [mainline] Keep AC-1 moving | AC-1 | in_progress | re-anchored |"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit allows mutable goal-tracker updates after round 0"
+else
+    fail "Goal-tracker mutable edit" "exit 0" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12f: Edit validator blocks immutable goal-tracker edits after round 0
+echo ""
+echo "Test 12ea: Edit validator allows mutable deletions after round 0"
+JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","old_string":"| [mainline] Keep AC-1 moving | AC-1 | pending | - |","new_string":""}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit allows mutable goal-tracker deletions after round 0"
+else
+    fail "Goal-tracker mutable delete" "exit 0" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12f: Edit validator blocks immutable goal-tracker edits after round 0
+echo ""
+echo "Test 12f: Edit validator blocks immutable goal-tracker edits after round 0"
+JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","old_string":"Keep mainline aligned.","new_string":"Change the goal entirely."}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Edit blocks immutable goal-tracker updates after round 0"
+else
+    fail "Goal-tracker immutable edit" "exit 2" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12g: Read validator blocks old-session goal tracker
+echo ""
+echo "Test 12g: Read validator blocks old-session goal tracker"
+JSON='{"tool_name":"Read","tool_input":{"file_path":"'"$OLD_LOOP_DIR"'/goal-tracker.md"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "Read blocks old-session goal-tracker.md"
+else
+    fail "Goal-tracker old-session read" "exit 2" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12h: Unrelated dangerous commands are allowed through (sandbox handles security)
+echo ""
+echo "Test 12h: Unrelated dangerous commands allowed through (sandbox responsibility)"
 JSON='{"tool_name":"Bash","tool_input":{"command":"cat /tmp/test; rm -rf /"}}'
 set +e
 RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)

@@ -44,11 +44,28 @@ Include a brief Goal Alignment Summary in your review:
 ACs: X/Y addressed | Forgotten items: N | Unjustified deferrals: N
 ```
 
-## Part 3: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 3: Required Finding Classification
 
-## Part 4: Output Requirements
+You MUST classify your findings into these lanes:
+- **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
+- **Blocking Side Issues**: bugs or implementation issues that block the current mainline objective from succeeding safely
+- **Queued Side Issues**: valid non-blocking follow-up issues that should be documented but must NOT take over the next round
+
+Also include a one-line verdict:
+```
+Mainline Progress Verdict: ADVANCED / STALLED / REGRESSED
+```
+
+This verdict line is mandatory. If you omit it, the Humanize stop hook will block the round and require the review to be rerun.
+
+If Claude mostly worked on queued side issues and failed to advance the mainline, say so explicitly.
+
+## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
+
+## Part 5: Output Requirements
 
 - In short, your review comments can include: problems/findings/blockers; claims that don't match reality; implementation plans for deferred work (to be implemented now); implementation plans for unfinished work; goal alignment issues.
+- Your output should be structured so Claude can tell which items are mainline gaps, blocking side issues, and queued side issues.
 - If after your investigation the actual situation does not match what Claude claims to have completed, or there is pending work to be done, output your review comments to @{{REVIEW_RESULT_FILE}}.
 - **CRITICAL**: Only output "COMPLETE" as the last line if ALL tasks from the original plan are FULLY completed with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any task is deferred

@@ -38,6 +38,17 @@ readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
+readonly FIELD_MAINLINE_STALL_COUNT="mainline_stall_count"
+readonly FIELD_LAST_MAINLINE_VERDICT="last_mainline_verdict"
+readonly FIELD_DRIFT_STATUS="drift_status"
+
+readonly MAINLINE_VERDICT_ADVANCED="advanced"
+readonly MAINLINE_VERDICT_STALLED="stalled"
+readonly MAINLINE_VERDICT_REGRESSED="regressed"
+readonly MAINLINE_VERDICT_UNKNOWN="unknown"
+
+readonly DRIFT_STATUS_NORMAL="normal"
+readonly DRIFT_STATUS_REPLAN_REQUIRED="replan_required"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
 # Scripts can pre-set DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT before sourcing to override.
@@ -364,6 +375,9 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
+    STATE_MAINLINE_STALL_COUNT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAINLINE_STALL_COUNT}:" | sed "s/${FIELD_MAINLINE_STALL_COUNT}: *//" | tr -d ' ' || true)
+    STATE_LAST_MAINLINE_VERDICT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LAST_MAINLINE_VERDICT}:" | sed "s/${FIELD_LAST_MAINLINE_VERDICT}: *//" | tr -d ' ' || true)
+    STATE_DRIFT_STATUS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_DRIFT_STATUS}:" | sed "s/${FIELD_DRIFT_STATUS}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -384,6 +398,9 @@ _parse_state_fields() {
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
 #   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
 #   STATE_AGENT_TEAMS - "true" or "false"
+#   STATE_MAINLINE_STALL_COUNT - consecutive stalled/regressed implementation rounds
+#   STATE_LAST_MAINLINE_VERDICT - advanced/stalled/regressed/unknown
+#   STATE_DRIFT_STATUS - normal/replan_required
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -406,6 +423,9 @@ parse_state_file() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+    STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+    STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -481,8 +501,114 @@ parse_state_file_strict() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+    STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+    STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
 
     return 0
+}
+
+# Normalize mainline progress verdict to a safe enum.
+# Usage: normalize_mainline_progress_verdict "ADVANCED"
+normalize_mainline_progress_verdict() {
+    local verdict_lower
+    verdict_lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$verdict_lower" in
+        "$MAINLINE_VERDICT_ADVANCED"|"$MAINLINE_VERDICT_STALLED"|"$MAINLINE_VERDICT_REGRESSED")
+            echo "$verdict_lower"
+            ;;
+        *)
+            echo "$MAINLINE_VERDICT_UNKNOWN"
+            ;;
+    esac
+}
+
+# Normalize drift status to a safe enum.
+# Usage: normalize_drift_status "replan_required"
+normalize_drift_status() {
+    local status_lower
+    status_lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$status_lower" in
+        "$DRIFT_STATUS_REPLAN_REQUIRED")
+            echo "$DRIFT_STATUS_REPLAN_REQUIRED"
+            ;;
+        *)
+            echo "$DRIFT_STATUS_NORMAL"
+            ;;
+    esac
+}
+
+# Extract "Mainline Progress Verdict" from Codex review content.
+# Outputs one of: advanced, stalled, regressed, unknown
+# Usage: extract_mainline_progress_verdict "$review_content"
+extract_mainline_progress_verdict() {
+    local review_content="$1"
+    local verdict_line
+    local verdict_value
+
+    verdict_line=$(printf '%s\n' "$review_content" | grep -Ei 'Mainline Progress Verdict:[[:space:]]*(ADVANCED|STALLED|REGRESSED)([^A-Za-z]|$)' | tail -1 || true)
+    if [[ -z "$verdict_line" ]]; then
+        echo "$MAINLINE_VERDICT_UNKNOWN"
+        return
+    fi
+
+    verdict_value=$(printf '%s\n' "$verdict_line" | sed -E 's/.*Mainline Progress Verdict:[[:space:]]*(ADVANCED|STALLED|REGRESSED).*/\1/I')
+    normalize_mainline_progress_verdict "$verdict_value"
+}
+
+# Upsert simple YAML frontmatter fields in a state file.
+# Values must not contain newlines.
+# Usage: upsert_state_fields "/path/to/state.md" "field=value" "other=value"
+upsert_state_fields() {
+    local state_file="$1"
+    shift
+
+    local temp_file="${state_file}.tmp.$$"
+
+    awk -v assignments="$*" '
+        BEGIN {
+            count = split(assignments, pairs, " ");
+            for (i = 1; i <= count; i++) {
+                split(pairs[i], kv, "=");
+                keys[kv[1]] = kv[2];
+                order[i] = kv[1];
+            }
+            separator_count = 0;
+        }
+        {
+            if ($0 == "---") {
+                separator_count++;
+                if (separator_count == 2) {
+                    for (i = 1; i <= count; i++) {
+                        key = order[i];
+                        if (!(key in seen)) {
+                            print key ": " keys[key];
+                            seen[key] = 1;
+                        }
+                    }
+                }
+                print;
+                next;
+            }
+
+            handled = 0;
+            for (i = 1; i <= count; i++) {
+                key = order[i];
+                if ($0 ~ ("^" key ":")) {
+                    print key ": " keys[key];
+                    seen[key] = 1;
+                    handled = 1;
+                    break;
+                }
+            }
+
+            if (!handled) {
+                print;
+            }
+        }
+    ' "$state_file" > "$temp_file" && mv "$temp_file" "$state_file"
 }
 
 # Detect review issues from codex review log file
@@ -562,7 +688,7 @@ to_lower() {
 }
 
 # Check if a path (lowercase) matches a round file pattern
-# Usage: is_round_file "$lowercase_path" "summary|prompt|todos"
+# Usage: is_round_file "$lowercase_path" "summary|prompt|todos|contract"
 is_round_file_type() {
     local path_lower="$1"
     local file_type="$2"
@@ -579,7 +705,7 @@ extract_round_number() {
     filename_lower=$(to_lower "$filename")
 
     # Use sed for portable regex extraction (works in both bash and zsh)
-    echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\)\.md$/\1/p'
+    echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\|contract\)\.md$/\1/p'
 }
 
 # Check if a file is in the allowlist for the active loop
@@ -643,6 +769,21 @@ You cannot modify finalize-state.md. This file is managed by the loop system dur
     load_and_render_safe "$TEMPLATE_DIR" "block/finalize-state-file-modification.md" "$fallback"
 }
 
+# Standard message for blocking round contract access during Finalize Phase
+# Usage: finalize_contract_blocked_message "read"
+finalize_contract_blocked_message() {
+    local action="$1"
+    local fallback="# Finalize Contract Access Blocked
+
+There is no active round contract during the Finalize Phase.
+
+Do not {{ACTION}} historical round contract files.
+Use finalize-summary.md for finalize-only notes and goal-tracker.md for current state."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/finalize-contract-access.md" "$fallback" \
+        "ACTION=$action"
+}
+
 # Standard message for blocking summary file modifications via Bash
 # Usage: summary_bash_blocked_message "$correct_summary_path"
 summary_bash_blocked_message() {
@@ -669,6 +810,79 @@ Do not use Bash commands to modify goal-tracker.md. Use the Write or Edit tool i
 is_goal_tracker_path() {
     local path_lower="$1"
     echo "$path_lower" | grep -qE 'goal-tracker\.md$'
+}
+
+# Extract the immutable section from a goal-tracker content stream.
+# Supports both current trackers (with --- separator) and older trackers
+# that jump directly from IMMUTABLE SECTION to MUTABLE SECTION.
+extract_goal_tracker_immutable_from_stream() {
+    awk '
+        /^## IMMUTABLE SECTION[[:space:]]*$/ { capture=1 }
+        capture && /^## MUTABLE SECTION[[:space:]]*$/ { exit }
+        capture && /^---[[:space:]]*$/ { exit }
+        capture { print }
+    '
+}
+
+# Extract the immutable section from an on-disk goal-tracker file.
+# Usage: extract_goal_tracker_immutable_from_file "/path/to/goal-tracker.md"
+extract_goal_tracker_immutable_from_file() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        return 1
+    fi
+    extract_goal_tracker_immutable_from_stream < "$tracker_file"
+}
+
+# Extract the immutable section from an in-memory goal-tracker string.
+# Usage: extract_goal_tracker_immutable_from_text "$content"
+extract_goal_tracker_immutable_from_text() {
+    local tracker_content="$1"
+    printf '%s' "$tracker_content" | extract_goal_tracker_immutable_from_stream
+}
+
+# Check whether a proposed goal-tracker update preserves the immutable section.
+# Usage: goal_tracker_mutable_update_allowed "/path/to/current.md" "$new_content"
+goal_tracker_mutable_update_allowed() {
+    local tracker_file="$1"
+    local updated_content="$2"
+
+    local current_immutable=""
+    local updated_immutable=""
+    current_immutable=$(extract_goal_tracker_immutable_from_file "$tracker_file" 2>/dev/null || true)
+    updated_immutable=$(extract_goal_tracker_immutable_from_text "$updated_content" 2>/dev/null || true)
+
+    [[ -n "$current_immutable" ]] || return 1
+    [[ "$current_immutable" == "$updated_immutable" ]]
+}
+
+# Render the post-edit contents for a literal Edit operation.
+# Returns non-zero if the edit preview cannot be produced.
+# Usage: preview_edit_result "/path/to/file" "$old_string" "$new_string" "true|false"
+preview_edit_result() {
+    local file_path="$1"
+    local old_string="$2"
+    local new_string="$3"
+    local replace_all="${4:-false}"
+
+    command -v perl >/dev/null 2>&1 || return 1
+
+    FILE_PATH="$file_path" \
+    OLD_STRING="$old_string" \
+    NEW_STRING="$new_string" \
+    REPLACE_ALL="$replace_all" \
+    perl -0pe '
+        BEGIN {
+            $old = $ENV{"OLD_STRING"};
+            $new = $ENV{"NEW_STRING"};
+            $replace_all = $ENV{"REPLACE_ALL"} eq "true";
+        }
+        if ($replace_all) {
+            s/\Q$old\E/$new/g;
+        } else {
+            s/\Q$old\E/$new/;
+        }
+    ' "$file_path"
 }
 
 # Check if a path (lowercase) targets state.md
@@ -1275,17 +1489,24 @@ command_modifies_file() {
 }
 
 # Standard message for blocking goal-tracker modifications after Round 0
-# Usage: goal_tracker_blocked_message "$current_round" "$summary_file_path"
+# Usage: goal_tracker_blocked_message "$current_round" "$correct_goal_tracker_path"
 goal_tracker_blocked_message() {
     local current_round="$1"
-    local summary_file="$2"
-    local fallback="# Goal Tracker Modification Blocked (Round {{CURRENT_ROUND}})
+    local correct_path="$2"
+    local fallback="# Goal Tracker Update Blocked (Round {{CURRENT_ROUND}})
 
-After Round 0, only Codex can modify the Goal Tracker. Include a Goal Tracker Update Request in your summary: {{SUMMARY_FILE}}"
+After Round 0, you may update only the **MUTABLE SECTION** of the active goal tracker.
+
+Use Write or Edit on: {{CORRECT_PATH}}
+
+Rules:
+- Keep the **IMMUTABLE SECTION** unchanged
+- Do not modify `goal-tracker.md` via Bash
+- Do not write to an old loop session's tracker"
 
     load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \
         "CURRENT_ROUND=$current_round" \
-        "SUMMARY_FILE=$summary_file"
+        "CORRECT_PATH=$correct_path"
 }
 
 # End the loop by renaming state.md to indicate exit reason

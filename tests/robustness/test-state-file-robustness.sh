@@ -473,6 +473,55 @@ else
     fail "Parses state with min full_review_round" "return 0" "returned non-zero"
 fi
 
+# Test 22: State file with drift-tracking fields
+echo ""
+echo "Test 22: State file with drift-tracking fields"
+cat > "$TEST_DIR/state-drift-fields.md" << 'EOF'
+---
+current_round: 4
+max_iterations: 12
+review_started: false
+base_branch: main
+mainline_stall_count: 2
+last_mainline_verdict: stalled
+drift_status: replan_required
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-drift-fields.md"; then
+    if [[ "$STATE_MAINLINE_STALL_COUNT" == "2" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "stalled" ]] && [[ "$STATE_DRIFT_STATUS" == "replan_required" ]]; then
+        pass "Parses drift-tracking fields correctly"
+    else
+        fail "Parses drift-tracking fields" "stall=2 verdict=stalled drift=replan_required" \
+            "stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+    fi
+else
+    fail "Parses state with drift-tracking fields" "return 0" "returned non-zero"
+fi
+
+# Test 23: Missing drift-tracking fields use safe defaults
+echo ""
+echo "Test 23: Missing drift-tracking fields use safe defaults"
+cat > "$TEST_DIR/state-no-drift-fields.md" << 'EOF'
+---
+current_round: 1
+max_iterations: 8
+review_started: false
+base_branch: main
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-no-drift-fields.md"; then
+    if [[ "$STATE_MAINLINE_STALL_COUNT" == "0" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "unknown" ]] && [[ "$STATE_DRIFT_STATUS" == "normal" ]]; then
+        pass "Uses safe defaults for drift-tracking fields"
+    else
+        fail "Default drift-tracking fields" "stall=0 verdict=unknown drift=normal" \
+            "stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+    fi
+else
+    fail "Parses state without drift-tracking fields" "return 0" "returned non-zero"
+fi
+
 # ========================================
 # Summary
 # ========================================

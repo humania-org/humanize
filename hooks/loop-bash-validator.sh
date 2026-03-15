@@ -6,7 +6,7 @@
 # - cat/echo/printf > file.md (redirection)
 # - tee file.md
 # - sed -i file.md (in-place edit)
-# - goal-tracker.md modifications after Round 0
+# - goal-tracker.md modifications via Bash
 # - PR loop state.md modifications
 # - PR loop read-only file modifications (pr-comment, prompt, codex-prompt, etc.)
 #
@@ -359,12 +359,11 @@ fi
 # Round > 0: prompt to put request in summary
 
 if command_modifies_file "$COMMAND_LOWER" "goal-tracker\.md"; then
+    GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
     if [[ "$CURRENT_ROUND" -eq 0 ]]; then
-        GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
         goal_tracker_bash_blocked_message "$GOAL_TRACKER_PATH" >&2
     else
-        SUMMARY_FILE="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
-        goal_tracker_blocked_message "$CURRENT_ROUND" "$SUMMARY_FILE" >&2
+        goal_tracker_blocked_message "$CURRENT_ROUND" "$GOAL_TRACKER_PATH" >&2
     fi
     exit 2
 fi
@@ -387,6 +386,23 @@ fi
 if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-summary\.md"; then
     CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
     summary_bash_blocked_message "$CORRECT_PATH" >&2
+    exit 2
+fi
+
+# ========================================
+# Block Round Contract File Modifications (All Rounds)
+# ========================================
+# Round contracts should be written using Write or Edit tools so round scoping
+# stays aligned with the current loop state.
+
+if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-contract\.md"; then
+    CORRECT_PATH="$ACTIVE_LOOP_DIR/round-${CURRENT_ROUND}-contract.md"
+    FALLBACK="# Round Contract Bash Write Blocked
+
+Do not use Bash commands to modify round contract files.
+Use the Write or Edit tool instead: {{CORRECT_PATH}}"
+    load_and_render_safe "$TEMPLATE_DIR" "block/round-contract-bash-write.md" "$FALLBACK" \
+        "CORRECT_PATH=$CORRECT_PATH" >&2
     exit 2
 fi
 

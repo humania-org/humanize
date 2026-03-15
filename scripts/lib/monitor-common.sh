@@ -384,6 +384,41 @@ get_pr_loop_phase_display() {
 # Goal Tracker Parsing
 # ========================================
 
+# Parse issue breakdown from goal-tracker.md
+# Returns: blocking_issues|queued_issues|open_issues
+# Usage: parse_goal_tracker_issue_counts "/path/to/goal-tracker.md"
+parse_goal_tracker_issue_counts() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "0|0|0"
+        return
+    fi
+
+    _count_table_rows() {
+        local start_pattern="$1"
+        local end_pattern="$2"
+        local row_count
+        row_count=$(sed -n "/${start_pattern}/,/${end_pattern}/p" "$tracker_file" | grep -cE '^\|' || true)
+        row_count=${row_count:-0}
+        echo $((row_count > 2 ? row_count - 2 : 0))
+    }
+
+    local blocking_issues
+    local queued_issues
+    local open_issues
+
+    blocking_issues=$(_count_table_rows '### Blocking Side Issues' '^###')
+    queued_issues=$(_count_table_rows '### Queued Side Issues' '^###')
+    open_issues=$((blocking_issues + queued_issues))
+
+    if [[ "$open_issues" -eq 0 ]]; then
+        open_issues=$(_count_table_rows '### Open Issues' '^###')
+        blocking_issues="$open_issues"
+    fi
+
+    echo "${blocking_issues}|${queued_issues}|${open_issues}"
+}
+
 # Parse goal-tracker.md and return summary values
 # Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
 # Usage: parse_goal_tracker "/path/to/goal-tracker.md"
@@ -448,9 +483,19 @@ parse_goal_tracker() {
     local deferred_tasks
     deferred_tasks=$(_count_table_rows '### Explicitly Deferred' '^###')
 
-    # Count Open Issues
+    # Count Open Issues (new schema prefers Blocking/Queued Side Issues; old schema used Open Issues)
+    local issue_parts_raw
     local open_issues
-    open_issues=$(_count_table_rows '### Open Issues' '^###')
+    issue_parts_raw=$(parse_goal_tracker_issue_counts "$tracker_file")
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        local -a issue_parts
+        issue_parts=("${(@s:|:)issue_parts_raw}")
+        open_issues="${issue_parts[3]}"
+    else
+        local -a issue_parts
+        IFS='|' read -r -a issue_parts <<< "$issue_parts_raw"
+        open_issues="${issue_parts[2]}"
+    fi
 
     # Extract Ultimate Goal summary
     local goal_summary

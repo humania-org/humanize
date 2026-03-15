@@ -33,6 +33,39 @@ humanize_split_to_array() {
     fi
 }
 
+# Parse issue breakdown from goal-tracker.md
+# Returns: blocking_issues|queued_issues|open_issues
+humanize_parse_goal_tracker_issue_counts() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "0|0|0"
+        return
+    fi
+
+    _count_table_data_rows() {
+        local row_count
+        row_count=$(sed -n "/$1/,/$2/p" "$tracker_file" | grep -cE '^\|' || true)
+        row_count=${row_count:-0}
+        echo $((row_count > 2 ? row_count - 2 : 0))
+    }
+
+    local blocking_issues
+    local queued_issues
+    local open_issues
+
+    blocking_issues=$(_count_table_data_rows '### Blocking Side Issues' '^###')
+    queued_issues=$(_count_table_data_rows '### Queued Side Issues' '^###')
+    open_issues=$((blocking_issues + queued_issues))
+
+    # Legacy schema only had Open Issues; treat them as blocking for safety.
+    if [[ "$open_issues" -eq 0 ]]; then
+        open_issues=$(_count_table_data_rows '### Open Issues' '^###')
+        blocking_issues="$open_issues"
+    fi
+
+    echo "${blocking_issues}|${queued_issues}|${open_issues}"
+}
+
 # Parse goal-tracker.md and return summary values
 # Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
 humanize_parse_goal_tracker() {
@@ -105,9 +138,10 @@ humanize_parse_goal_tracker() {
     local deferred_tasks
     deferred_tasks=$(_count_table_data_rows '### Explicitly Deferred' '^###')
 
-    # Count Open Issues
-    local open_issues
-    open_issues=$(_count_table_data_rows '### Open Issues' '^###')
+    # Count Open Issues (new schema prefers Blocking/Queued Side Issues; old schema used Open Issues)
+    local -a issue_parts
+    humanize_split_to_array issue_parts "$(humanize_parse_goal_tracker_issue_counts "$tracker_file")"
+    local open_issues="${issue_parts[2]}"
 
     # Extract Ultimate Goal summary (first content line after heading)
     local goal_summary
@@ -364,8 +398,11 @@ _humanize_monitor_codex() {
         local review_started=$(grep -E "^review_started:" "$state_file" 2>/dev/null | sed 's/review_started: *//' | tr -d ' ')
         local agent_teams=$(grep -E "^agent_teams:" "$state_file" 2>/dev/null | sed 's/agent_teams: *//' | tr -d ' ')
         local push_every_round=$(grep -E "^push_every_round:" "$state_file" 2>/dev/null | sed 's/push_every_round: *//' | tr -d ' ')
+        local mainline_stall_count=$(grep -E "^mainline_stall_count:" "$state_file" 2>/dev/null | sed 's/mainline_stall_count: *//' | tr -d ' ')
+        local last_mainline_verdict=$(grep -E "^last_mainline_verdict:" "$state_file" 2>/dev/null | sed 's/last_mainline_verdict: *//' | tr -d ' ')
+        local drift_status=$(grep -E "^drift_status:" "$state_file" 2>/dev/null | sed 's/drift_status: *//' | tr -d ' ')
 
-        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}|${agent_teams:-}|${push_every_round:-}"
+        echo "${current_round:-N/A}|${max_iterations:-N/A}|${full_review_round:-N/A}|${codex_model:-N/A}|${codex_effort:-N/A}|${started_at:-N/A}|${plan_file:-N/A}|${ask_codex_question:-false}|${review_started:-false}|${agent_teams:-}|${push_every_round:-}|${mainline_stall_count:-0}|${last_mainline_verdict:-unknown}|${drift_status:-normal}"
     }
 
     # Internal wrappers that call top-level functions
@@ -405,6 +442,9 @@ _humanize_monitor_codex() {
         local review_started="${state_parts[8]:-false}"
         local agent_teams="${state_parts[9]:-}"
         local push_every_round="${state_parts[10]:-}"
+        local mainline_stall_count="${state_parts[11]:-0}"
+        local last_mainline_verdict="${state_parts[12]:-unknown}"
+        local drift_status="${state_parts[13]:-normal}"
 
         # Parse goal-tracker.md
         local -a goal_parts
@@ -416,6 +456,10 @@ _humanize_monitor_codex() {
         local deferred_tasks="${goal_parts[4]}"
         local open_issues="${goal_parts[5]}"
         local goal_summary="${goal_parts[6]}"
+        local -a issue_parts
+        _split_to_array issue_parts "$(humanize_parse_goal_tracker_issue_counts "$goal_tracker_file")"
+        local blocking_issues="${issue_parts[0]}"
+        local queued_issues="${issue_parts[1]}"
 
         # Parse git status
         local -a git_parts
@@ -548,18 +592,35 @@ _humanize_monitor_codex() {
             fi
             team_mode_segment=" | Team Mode: ${team_color}${team_display}${reset}"
         fi
-        printf "${magenta}Status:${reset}   ${status_line} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${team_mode_segment}${clr_eol}\n"
+        local drift_segment=""
+        local drift_color="${dim}"
+        if [[ "$drift_status" == "replan_required" ]]; then
+            drift_color="${red}"
+        elif [[ "${mainline_stall_count:-0}" -gt 0 ]]; then
+            drift_color="${yellow}"
+        fi
+        if [[ -n "$drift_status" ]]; then
+            drift_segment=" | Drift: ${drift_color}${drift_status}${reset} (${mainline_stall_count}, ${last_mainline_verdict})"
+        fi
+        printf "${magenta}Status:${reset}   ${status_line} | Codex Ask Question: ${ask_q_color}${ask_q_display}${reset}${team_mode_segment}${drift_segment}${clr_eol}\n"
 
         # Progress line (color based on completion status)
         local ac_color="${green}"
         [[ "$completed_acs" -lt "$total_acs" ]] && ac_color="${yellow}"
-        local issue_color="${dim}"
-        [[ "$open_issues" -gt 0 ]] && issue_color="${red}"
+        local issue_total_color="${dim}"
+        [[ "$queued_issues" -gt 0 ]] && issue_total_color="${yellow}"
+        [[ "$blocking_issues" -gt 0 ]] && issue_total_color="${red}"
 
         # Use magenta for Progress and Git labels (status/data lines)
         printf "${magenta}Progress:${reset} ${ac_color}ACs: ${completed_acs}/${total_acs}${reset}  Tasks: ${active_tasks} active, ${completed_tasks} done"
         [[ "$deferred_tasks" -gt 0 ]] && printf "  ${yellow}${deferred_tasks} deferred${reset}"
-        [[ "$open_issues" -gt 0 ]] && printf "  ${issue_color}Issues: ${open_issues}${reset}"
+        if [[ "$open_issues" -gt 0 ]]; then
+            printf "  ${issue_total_color}Issues: ${open_issues}${reset}"
+            [[ "$blocking_issues" -gt 0 ]] && printf " (${red}%s blocking${reset}" "$blocking_issues"
+            [[ "$queued_issues" -gt 0 ]] && printf "%s${yellow}%s queued${reset}" \
+                "$([[ "$blocking_issues" -gt 0 ]] && echo ", " || echo "(")" "$queued_issues"
+            printf ")"
+        fi
         printf "${clr_eol}\n"
 
         # Git status line (same color as Progress)

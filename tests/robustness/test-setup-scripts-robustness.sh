@@ -1046,6 +1046,32 @@ else
     fail "--skip-impl goal-tracker" "goal-tracker.md exists" "not found"
 fi
 
+# Test 44b: --skip-impl creates round-0-contract.md
+echo ""
+echo "Test 44b: --skip-impl creates round-0-contract.md"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/round-0-contract.md" ]]; then
+    if grep -qi "Mainline Objective" "$LOOP_DIR/round-0-contract.md"; then
+        pass "--skip-impl creates round-0-contract.md with mainline objective"
+    else
+        fail "--skip-impl round contract content" "Mainline Objective text" "$(cat "$LOOP_DIR/round-0-contract.md")"
+    fi
+else
+    fail "--skip-impl round contract" "round-0-contract.md exists" "not found"
+fi
+
+# Test 44c: --skip-impl prompt references the round contract
+echo ""
+echo "Test 44c: --skip-impl prompt references round-0-contract.md"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/round-0-prompt.md" ]]; then
+    if grep -q "round-0-contract.md" "$LOOP_DIR/round-0-prompt.md"; then
+        pass "--skip-impl prompt references round-0-contract.md"
+    else
+        fail "--skip-impl prompt contract reference" "prompt mentions round-0-contract.md" "$(cat "$LOOP_DIR/round-0-prompt.md")"
+    fi
+else
+    fail "--skip-impl prompt contract reference" "round-0-prompt.md exists" "not found"
+fi
+
 # Test 45: --skip-impl with plan file still works
 echo ""
 echo "Test 45: --skip-impl with plan file still works"
@@ -1072,6 +1098,44 @@ else
     else
         pass "--skip-impl with plan file works"
     fi
+fi
+
+LOOP_DIR_45=$(find "$TEST_DIR/repo45/.humanize/rlcr" -maxdepth 1 -type d -name "20*" 2>/dev/null | head -1)
+
+echo ""
+echo "Test 45b: --skip-impl with plan file preserves plan goal in goal-tracker"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/goal-tracker.md" ]]; then
+    if grep -q "Test the setup script robustness" "$LOOP_DIR_45/goal-tracker.md"; then
+        pass "--skip-impl with plan preserves plan goal anchor"
+    else
+        fail "--skip-impl plan goal anchor" "goal-tracker contains plan goal" "$(cat "$LOOP_DIR_45/goal-tracker.md")"
+    fi
+else
+    fail "--skip-impl plan goal anchor" "goal-tracker.md exists" "not found"
+fi
+
+echo ""
+echo "Test 45c: --skip-impl with plan file prompt references original plan"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/round-0-prompt.md" ]]; then
+    if grep -q "@plan.md" "$LOOP_DIR_45/round-0-prompt.md"; then
+        pass "--skip-impl with plan prompt references original plan"
+    else
+        fail "--skip-impl plan prompt anchor" "round-0-prompt references @plan.md" "$(cat "$LOOP_DIR_45/round-0-prompt.md")"
+    fi
+else
+    fail "--skip-impl plan prompt anchor" "round-0-prompt.md exists" "not found"
+fi
+
+echo ""
+echo "Test 45d: --skip-impl with plan file contract references original plan alignment"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/round-0-contract.md" ]]; then
+    if grep -qi "aligned with @plan.md" "$LOOP_DIR_45/round-0-contract.md"; then
+        pass "--skip-impl with plan contract references original plan"
+    else
+        fail "--skip-impl plan contract anchor" "round-0-contract references @plan.md" "$(cat "$LOOP_DIR_45/round-0-contract.md")"
+    fi
+else
+    fail "--skip-impl plan contract anchor" "round-0-contract.md exists" "not found"
 fi
 
 # ========================================
