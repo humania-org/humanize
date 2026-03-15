@@ -6,6 +6,8 @@ temp
 
 # Humanize state directories (runtime-generated, project-local)
 .humanize/
+.claude-flow/
+.swarm/
 
 # Python cache
 __pycache__/

@@ -26,6 +26,25 @@ create_mock_bitlesson() {
 EOF
 }
 
+create_real_bitlesson() {
+    local dir="$1"
+    mkdir -p "$dir"
+    cat > "$dir/bitlesson.md" <<'EOF'
+# BitLesson Knowledge Base
+## Entries
+
+## Lesson: Avoid tracker drift
+Lesson ID: BL-20260315-tracker-drift
+Scope: goal-tracker.md
+Problem Description: Tracker diverges from actual task status.
+Root Cause: Status rows are not updated after verification.
+Solution: Update tracker rows immediately after each verification step.
+Constraints: Keep tracker edits minimal.
+Validation Evidence: Verified in test fixture.
+Source Rounds: 0
+EOF
+}
+
 # Helper: create a mock codex binary that outputs valid bitlesson-selector format
 create_mock_codex() {
     local bin_dir="$1"
@@ -65,7 +84,7 @@ echo "--- Test 1: gpt-* model routes to codex ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 BIN_DIR="$TEST_DIR/bin"
 create_mock_codex "$BIN_DIR"
 mkdir -p "$TEST_DIR/.humanize"
@@ -94,7 +113,7 @@ echo "--- Test 2: haiku model routes to claude ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 BIN_DIR="$TEST_DIR/bin"
 create_mock_claude "$BIN_DIR"
 mkdir -p "$TEST_DIR/.humanize"
@@ -123,7 +142,7 @@ echo "--- Test 3: sonnet model routes to claude ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 BIN_DIR="$TEST_DIR/bin"
 create_mock_claude "$BIN_DIR"
 mkdir -p "$TEST_DIR/.humanize"
@@ -152,7 +171,7 @@ echo "--- Test 4: OPUS (uppercase) model routes to claude ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 BIN_DIR="$TEST_DIR/bin"
 create_mock_claude "$BIN_DIR"
 mkdir -p "$TEST_DIR/.humanize"
@@ -181,7 +200,7 @@ echo "--- Test 5: Unknown model exits non-zero with error ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
 printf '{"bitlesson_model": "unknown-xyz-model"}' > "$TEST_DIR/.humanize/config.json"
 
@@ -207,7 +226,7 @@ echo "--- Test 6: gpt-* model with missing codex binary exits non-zero ---"
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
 printf '{"bitlesson_model": "gpt-4o"}' > "$TEST_DIR/.humanize/config.json"
 # Use a bin dir that contains a stub claude but NOT codex.
@@ -243,7 +262,7 @@ echo "--- Test 7: haiku model falls back to codex when claude binary is missing 
 echo ""
 
 setup_test_dir
-create_mock_bitlesson "$TEST_DIR"
+create_real_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
 printf '{"bitlesson_model": "haiku"}' > "$TEST_DIR/.humanize/config.json"
 # Use a bin dir that contains a stub codex but NOT claude.
@@ -275,5 +294,103 @@ fi
 # ========================================
 # Summary
 # ========================================
+
+echo ""
+echo "--- Test 8: codex-only provider mode forces codex routing ---"
+echo ""
+
+setup_test_dir
+create_real_bitlesson "$TEST_DIR"
+mkdir -p "$TEST_DIR/.humanize"
+printf '{"bitlesson_model": "haiku", "codex_model": "gpt-5.4", "provider_mode": "codex-only"}' > "$TEST_DIR/.humanize/config.json"
+FALLBACK_BIN="$TEST_DIR/fallback-bin"
+create_mock_codex "$FALLBACK_BIN"
+
+exit_code=0
+stdout_out=""
+stdout_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+    PATH="$FALLBACK_BIN:$PATH" \
+    bash "$BITLESSON_SELECT" \
+    --task "Initialize tracker" \
+    --paths "plans/plan.md" \
+    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+
+if [[ $exit_code -eq 0 ]] && echo "$stdout_out" | grep -q "mock codex"; then
+    pass "codex-only provider mode forces codex routing"
+else
+    fail "codex-only provider mode forces codex routing" "exit=0 + mock codex rationale" "exit=$exit_code, stdout=$stdout_out"
+fi
+
+echo ""
+echo "--- Test 9: Placeholder BitLesson file short-circuits to NONE ---"
+echo ""
+
+setup_test_dir
+create_mock_bitlesson "$TEST_DIR"
+mkdir -p "$TEST_DIR/.humanize"
+printf '{"bitlesson_model": "gpt-5.4"}' > "$TEST_DIR/.humanize/config.json"
+
+exit_code=0
+stdout_out=""
+stdout_out=$(CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+    PATH="$SAFE_BASE_PATH" \
+    bash "$BITLESSON_SELECT" \
+    --task "Any task" \
+    --paths "README.md" \
+    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+
+if [[ $exit_code -eq 0 ]] && echo "$stdout_out" | grep -q "LESSON_IDS: NONE" && echo "$stdout_out" | grep -q "no recorded lessons"; then
+    pass "Placeholder BitLesson file returns NONE without invoking a model"
+else
+    fail "Placeholder BitLesson file returns NONE without invoking a model" "exit=0 + NONE rationale" "exit=$exit_code, stdout=$stdout_out"
+fi
+
+echo ""
+echo "--- Test 10: Codex selector disables hooks and avoids full-auto ---"
+echo ""
+
+setup_test_dir
+create_real_bitlesson "$TEST_DIR"
+mkdir -p "$TEST_DIR/.humanize"
+printf '{"bitlesson_model": "gpt-5.4"}' > "$TEST_DIR/.humanize/config.json"
+CAPTURE_BIN="$TEST_DIR/capture-bin"
+mkdir -p "$CAPTURE_BIN"
+cat > "$CAPTURE_BIN/codex" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$@" > "${TEST_CAPTURE_ARGS:?}"
+cat > /dev/null
+cat <<'OUT'
+LESSON_IDS: BL-20260315-tracker-drift
+RATIONALE: The tracker lesson directly matches the task.
+OUT
+EOF
+chmod +x "$CAPTURE_BIN/codex"
+
+CAPTURE_ARGS="$TEST_DIR/codex-args.txt"
+exit_code=0
+stdout_out=""
+stdout_out=$(TEST_CAPTURE_ARGS="$CAPTURE_ARGS" CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+    PATH="$CAPTURE_BIN:$SAFE_BASE_PATH" \
+    bash "$BITLESSON_SELECT" \
+    --task "Update the goal tracker after verification" \
+    --paths "goal-tracker.md" \
+    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+
+captured_args="$(cat "$CAPTURE_ARGS")"
+
+if [[ $exit_code -eq 0 ]] \
+    && echo "$stdout_out" | grep -q "BL-20260315-tracker-drift" \
+    && echo "$captured_args" | grep -q -- '--disable' \
+    && echo "$captured_args" | grep -q -- 'codex_hooks' \
+    && echo "$captured_args" | grep -q -- '--skip-git-repo-check' \
+    && echo "$captured_args" | grep -q -- '--ephemeral' \
+    && echo "$captured_args" | grep -q -- 'read-only' \
+    && ! echo "$captured_args" | grep -q -- '--full-auto'; then
+    pass "Codex selector runs as a direct helper without hooks or full-auto"
+else
+    fail "Codex selector runs as a direct helper without hooks or full-auto" \
+        "exit=0 + direct-helper args" \
+        "exit=$exit_code, stdout=$stdout_out, args=$captured_args"
+fi
 
 print_test_summary "Bitlesson Select Routing Test Summary"

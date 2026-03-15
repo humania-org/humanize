@@ -24,6 +24,8 @@ HOOK_SCRIPT="$HUMANIZE_ROOT/hooks/loop-codex-stop-hook.sh"
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 TRANSCRIPT_PATH="${CLAUDE_TRANSCRIPT_PATH:-}"
 PRINT_JSON="false"
+HOOK_MODEL="${CODEX_MODEL:-humanize-skill-gate}"
+HOOK_PERMISSION_MODE="${CODEX_PERMISSION_MODE:-default}"
 
 usage() {
     cat <<'EOF'
@@ -88,10 +90,15 @@ HOOK_INPUT=$(jq -n \
     --arg session_id "$SESSION_ID" \
     --arg transcript_path "$TRANSCRIPT_PATH" \
     --arg cwd "$PROJECT_ROOT" \
+    --arg model "$HOOK_MODEL" \
+    --arg permission_mode "$HOOK_PERMISSION_MODE" \
     '{
         hook_event_name: "Stop",
         stop_hook_active: false,
         cwd: $cwd,
+        model: $model,
+        permission_mode: $permission_mode,
+        last_assistant_message: null,
         session_id: ($session_id | select(length > 0)),
         transcript_path: ($transcript_path | select(length > 0))
     }')

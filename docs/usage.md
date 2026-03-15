@@ -179,6 +179,7 @@ Current built-in keys:
 | `codex_model` | `gpt-5.4` | Shared default model for Codex-backed review and analysis |
 | `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 | `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
+| `provider_mode` | unset | Optional runtime mode hint such as `codex-only` |
 | `agent_teams` | `false` | Project-level default for agent teams workflow |
 | `chinese_plan` | `false` | Project preference for Chinese plan generation |
 | `gen_plan_mode` | `discussion` | Default plan-generation mode |
@@ -201,6 +202,10 @@ To override, add to `.humanize/config.json`:
   "bitlesson_model": "sonnet"
 }
 ```
+
+On Codex installs, Humanize also seeds `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json`
+with a Codex/OpenAI `bitlesson_model` and `provider_mode: "codex-only"` when those keys
+are unset, so BitLesson selection stays on the Codex/OpenAI path without probing Claude.
 
 Codex model is resolved with this precedence:
 1. CLI `--codex-model` flag (highest priority)

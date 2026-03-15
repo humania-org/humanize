@@ -57,11 +57,18 @@ setup_mock_codex() {
     cat > "$TEST_DIR/bin/codex" << EOF
 #!/bin/bash
 # Mock codex - outputs the provided content
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Handle codex review command
     cat << 'REVIEWOUT'
 $review_output
@@ -82,11 +89,18 @@ setup_mock_codex_with_tracking() {
 #!/bin/bash
 # Track that codex was called
 echo "CODEX_WAS_CALLED" > "$TEST_DIR/codex_called.marker"
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     cat << 'REVIEWOUT'
 $review_output
 REVIEWOUT
@@ -106,11 +120,18 @@ setup_mock_codex_review_failure() {
     cat > "$TEST_DIR/bin/codex" << EOF
 #!/bin/bash
 # Mock codex - fails on review command
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $exec_output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Simulate failure with non-zero exit
     echo "Error: Codex review failed" >&2
     exit $review_exit_code
@@ -128,11 +149,18 @@ setup_mock_codex_review_empty_stdout() {
     cat > "$TEST_DIR/bin/codex" << EOF
 #!/bin/bash
 # Mock codex - produces empty stdout on review
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $exec_output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Exit successfully but produce no output
     exit 0
 fi

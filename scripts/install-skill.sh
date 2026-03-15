@@ -16,6 +16,7 @@
 #   --skills-dir PATH       Legacy alias for target skills dir (kept for compatibility)
 #   --kimi-skills-dir PATH  Kimi skills dir (default: ~/.config/agents/skills)
 #   --codex-skills-dir PATH Codex skills dir (default: ${CODEX_HOME:-~/.codex}/skills)
+#   --codex-config-dir PATH Codex config dir for hooks/config.toml (default: ${CODEX_HOME:-~/.codex})
 #   --dry-run               Print actions without writing
 #   -h, --help              Show help
 #
@@ -24,9 +25,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILLS_SOURCE_ROOT=""
+RUNTIME_SOURCE_ROOT=""
 TARGET="kimi"
 KIMI_SKILLS_DIR="${HOME}/.config/agents/skills"
 CODEX_SKILLS_DIR="${CODEX_HOME:-${HOME}/.codex}/skills"
+CODEX_CONFIG_DIR="${CODEX_HOME:-${HOME}/.codex}"
+HUMANIZE_USER_CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/humanize"
+COMMAND_BIN_DIR="${HUMANIZE_COMMAND_BIN_DIR:-${HOME}/.local/bin}"
 LEGACY_SKILLS_DIR=""
 DRY_RUN="false"
 
@@ -49,6 +55,8 @@ Options:
   --skills-dir PATH       Legacy alias for target skills dir (compat)
   --kimi-skills-dir PATH  Kimi skills dir (default: ~/.config/agents/skills)
   --codex-skills-dir PATH Codex skills dir (default: ${CODEX_HOME:-~/.codex}/skills)
+  --codex-config-dir PATH Codex config dir for hooks/config.toml (default: ${CODEX_HOME:-~/.codex})
+  --command-bin-dir PATH  Install helper command shims here (default: ~/.local/bin)
   --dry-run               Print actions without writing
   -h, --help              Show help
 EOF
@@ -64,13 +72,45 @@ die() {
 }
 
 validate_repo() {
-    [[ -d "$REPO_ROOT/skills" ]] || die "skills directory not found under repo root: $REPO_ROOT"
-    [[ -d "$REPO_ROOT/scripts" ]] || die "scripts directory not found under repo root: $REPO_ROOT"
-    [[ -d "$REPO_ROOT/hooks" ]] || die "hooks directory not found under repo root: $REPO_ROOT"
-    [[ -d "$REPO_ROOT/prompt-template" ]] || die "prompt-template directory not found under repo root: $REPO_ROOT"
+    [[ -n "$SKILLS_SOURCE_ROOT" ]] || die "internal error: SKILLS_SOURCE_ROOT not set"
+    [[ -n "$RUNTIME_SOURCE_ROOT" ]] || die "internal error: RUNTIME_SOURCE_ROOT not set"
+    [[ -d "$SKILLS_SOURCE_ROOT" ]] || die "skills source directory not found: $SKILLS_SOURCE_ROOT"
+    [[ -d "$RUNTIME_SOURCE_ROOT/scripts" ]] || die "scripts directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
+    [[ -d "$RUNTIME_SOURCE_ROOT/hooks" ]] || die "hooks directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
+    [[ -d "$RUNTIME_SOURCE_ROOT/prompt-template" ]] || die "prompt-template directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
     for skill in "${SKILL_NAMES[@]}"; do
-        [[ -f "$REPO_ROOT/skills/$skill/SKILL.md" ]] || die "missing $REPO_ROOT/skills/$skill/SKILL.md"
+        [[ -f "$SKILLS_SOURCE_ROOT/$skill/SKILL.md" ]] || die "missing $SKILLS_SOURCE_ROOT/$skill/SKILL.md"
     done
+}
+
+resolve_source_layout() {
+    local candidate_root="$1"
+    local runtime_root="$candidate_root"
+    local skills_root
+
+    # Source checkout layout:
+    #   <repo>/skills/<skill>/SKILL.md
+    #   <repo>/scripts
+    if [[ -d "$candidate_root/skills" ]] && [[ -d "$candidate_root/scripts" ]]; then
+        SKILLS_SOURCE_ROOT="$candidate_root/skills"
+        RUNTIME_SOURCE_ROOT="$candidate_root"
+        return 0
+    fi
+
+    # Installed runtime layout:
+    #   <skills-dir>/humanize/scripts/install-skill.sh
+    #   <skills-dir>/humanize-gen-plan/SKILL.md
+    #   <skills-dir>/humanize-rlcr/SKILL.md
+    if [[ -d "$runtime_root/scripts" ]] && [[ -d "$runtime_root/hooks" ]] && [[ -d "$runtime_root/prompt-template" ]]; then
+        skills_root="$(cd "$runtime_root/.." && pwd)"
+        if [[ -f "$skills_root/humanize/SKILL.md" ]] && [[ -f "$skills_root/humanize-gen-plan/SKILL.md" ]] && [[ -f "$skills_root/humanize-rlcr/SKILL.md" ]]; then
+            SKILLS_SOURCE_ROOT="$skills_root"
+            RUNTIME_SOURCE_ROOT="$runtime_root"
+            return 0
+        fi
+    fi
+
+    die "could not resolve Humanize source layout from: $candidate_root"
 }
 
 sync_dir() {
@@ -103,7 +143,7 @@ sync_dir() {
 sync_one_skill() {
     local skill="$1"
     local target_dir="$2"
-    local src="$REPO_ROOT/skills/$skill"
+    local src="$SKILLS_SOURCE_ROOT/$skill"
     local dst="$target_dir/$skill"
     sync_dir "$src" "$dst"
 }
@@ -116,7 +156,7 @@ install_runtime_bundle() {
     log "syncing runtime bundle into: $runtime_root"
 
     for component in scripts hooks prompt-template templates config agents; do
-        sync_dir "$REPO_ROOT/$component" "$runtime_root/$component"
+        sync_dir "$RUNTIME_SOURCE_ROOT/$component" "$runtime_root/$component"
     done
 }
 
@@ -186,6 +226,7 @@ strip_user_invocable_for_runtime() {
 sync_target() {
     local label="$1"
     local target_dir="$2"
+    local selected_skills=("${SKILL_NAMES[@]}")
 
     log "target: $label"
     log "skills dir: $target_dir"
@@ -194,13 +235,147 @@ sync_target() {
         mkdir -p "$target_dir"
     fi
 
-    for skill in "${SKILL_NAMES[@]}"; do
+    for skill in "${selected_skills[@]}"; do
         log "syncing [$label] skill: $skill"
         sync_one_skill "$skill" "$target_dir"
     done
     install_runtime_bundle "$target_dir"
     hydrate_skill_runtime_root "$target_dir"
     strip_user_invocable_for_runtime "$target_dir"
+}
+
+install_codex_native_hooks() {
+    local target_dir="$1"
+    local runtime_root="$target_dir/humanize"
+    local hooks_installer="$REPO_ROOT/scripts/install-codex-hooks.sh"
+    local args=(
+        --codex-config-dir "$CODEX_CONFIG_DIR"
+        --runtime-root "$runtime_root"
+    )
+
+    [[ -x "$hooks_installer" ]] || die "missing Codex hooks installer: $hooks_installer"
+    [[ "$DRY_RUN" == "true" ]] && args+=(--dry-run)
+
+    log "installing native Codex hooks into: $CODEX_CONFIG_DIR"
+    "$hooks_installer" "${args[@]}"
+}
+
+install_codex_user_config() {
+    local runtime_root="$1"
+    local install_target="$2"
+    local user_config_dir="${HUMANIZE_USER_CONFIG_DIR}"
+    local user_config_file="$user_config_dir/config.json"
+    local default_config_file="$runtime_root/config/default_config.json"
+
+    [[ -f "$default_config_file" ]] || die "missing default config: $default_config_file"
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        die "python3 is required to update Humanize user config for Codex installs"
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log "DRY-RUN seed Codex-friendly BitLesson config in $user_config_file"
+        return
+    fi
+
+    mkdir -p "$user_config_dir"
+
+    python3 - "$default_config_file" "$user_config_file" "$install_target" <<'PY'
+import json
+import pathlib
+import sys
+
+default_config = pathlib.Path(sys.argv[1])
+user_config = pathlib.Path(sys.argv[2])
+install_target = sys.argv[3]
+
+defaults = json.loads(default_config.read_text(encoding="utf-8"))
+default_codex_model = defaults.get("codex_model") or "gpt-5.4"
+
+if user_config.exists():
+    try:
+        data = json.loads(user_config.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"malformed existing user config: {user_config}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    if not isinstance(data, dict):
+        print(f"existing user config is not a JSON object: {user_config}", file=sys.stderr)
+        sys.exit(2)
+else:
+    data = {}
+
+if not data.get("bitlesson_model"):
+    data["bitlesson_model"] = data.get("codex_model") or default_codex_model
+
+if install_target == "codex" and not data.get("provider_mode"):
+    data["provider_mode"] = "codex-only"
+
+user_config.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+    case "$?" in
+        0)
+            log "ensured BitLesson uses a Codex/OpenAI model in $user_config_file"
+            ;;
+        2)
+            die "failed to update $user_config_file because it is malformed; fix it manually and rerun install"
+            ;;
+        *)
+            die "failed to update Humanize user config at $user_config_file"
+            ;;
+    esac
+}
+
+install_bitlesson_selector_shim() {
+    local primary_runtime_root="$1"
+    local secondary_runtime_root="${2:-}"
+    local shim_path="$COMMAND_BIN_DIR/bitlesson-selector"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log "DRY-RUN install bitlesson-selector shim into $shim_path"
+        return
+    fi
+
+    mkdir -p "$COMMAND_BIN_DIR"
+
+    cat > "$shim_path" <<EOF
+#!/bin/bash
+set -euo pipefail
+
+candidate_paths=(
+  "$primary_runtime_root/scripts/bitlesson-select.sh"
+EOF
+
+    if [[ -n "$secondary_runtime_root" ]]; then
+        cat >> "$shim_path" <<EOF
+  "$secondary_runtime_root/scripts/bitlesson-select.sh"
+EOF
+    fi
+
+    cat >> "$shim_path" <<'EOF'
+)
+
+for candidate in "${candidate_paths[@]}"; do
+    if [[ -x "$candidate" ]]; then
+        exec "$candidate" "$@"
+    fi
+done
+
+echo "Error: Humanize bitlesson selector runtime not found. Re-run install-skill.sh." >&2
+exit 1
+EOF
+
+    chmod +x "$shim_path"
+    log "installed bitlesson-selector shim into: $shim_path"
+}
+
+install_kimi_target() {
+    sync_target "kimi" "$KIMI_SKILLS_DIR"
+}
+
+install_codex_target() {
+    sync_target "codex" "$CODEX_SKILLS_DIR"
+    install_codex_user_config "$CODEX_SKILLS_DIR/humanize" "$TARGET"
+    install_codex_native_hooks "$CODEX_SKILLS_DIR"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -233,6 +408,16 @@ while [[ $# -gt 0 ]]; do
             CODEX_SKILLS_DIR="$2"
             shift 2
             ;;
+        --codex-config-dir)
+            [[ -n "${2:-}" ]] || die "--codex-config-dir requires a value"
+            CODEX_CONFIG_DIR="$2"
+            shift 2
+            ;;
+        --command-bin-dir)
+            [[ -n "${2:-}" ]] || die "--command-bin-dir requires a value"
+            COMMAND_BIN_DIR="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN="true"
             shift
@@ -247,6 +432,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+resolve_source_layout "$REPO_ROOT"
 validate_repo
 
 if [[ -n "$LEGACY_SKILLS_DIR" ]]; then
@@ -267,18 +453,23 @@ if [[ "$TARGET" == "kimi" || "$TARGET" == "both" ]]; then
 fi
 if [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]; then
     log "codex skills dir: $CODEX_SKILLS_DIR"
+    log "codex config dir: $CODEX_CONFIG_DIR"
 fi
+log "command bin dir: $COMMAND_BIN_DIR"
 
 case "$TARGET" in
     kimi)
-        sync_target "kimi" "$KIMI_SKILLS_DIR"
+        install_kimi_target
+        install_bitlesson_selector_shim "$KIMI_SKILLS_DIR/humanize"
         ;;
     codex)
-        sync_target "codex" "$CODEX_SKILLS_DIR"
+        install_codex_target
+        install_bitlesson_selector_shim "$CODEX_SKILLS_DIR/humanize" "$KIMI_SKILLS_DIR/humanize"
         ;;
     both)
-        sync_target "kimi" "$KIMI_SKILLS_DIR"
-        sync_target "codex" "$CODEX_SKILLS_DIR"
+        install_kimi_target
+        install_codex_target
+        install_bitlesson_selector_shim "$CODEX_SKILLS_DIR/humanize" "$KIMI_SKILLS_DIR/humanize"
         ;;
 esac
 
@@ -298,6 +489,7 @@ fi
 if [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]; then
     cat <<EOF
   - codex: $CODEX_SKILLS_DIR
+  - codex hooks: $CODEX_CONFIG_DIR/hooks.json
 EOF
 fi
 
@@ -306,5 +498,9 @@ cat <<EOF
 Runtime root per target:
   <skills-dir>/humanize
 
+Codex installs also update native hook/config state in:
+  $CODEX_CONFIG_DIR
+
 No shell profile changes were made.
+If $COMMAND_BIN_DIR is on PATH, the bitlesson-selector shim is now available there.
 EOF
