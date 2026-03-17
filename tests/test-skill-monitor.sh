@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for _humanize_monitor_skill (humanize monitor skill)
 #

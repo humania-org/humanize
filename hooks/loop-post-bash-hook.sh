@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PostToolUse Bash Hook for RLCR loop
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test runner for PR loop system
 #
@@ -910,7 +910,7 @@ run_monitor_once_capture_output() {
     # Create wrapper script that runs monitor and captures output
     local wrapper="$project_dir/run_monitor_test.sh"
     cat > "$wrapper" << 'WRAPPER_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 PROJECT_DIR="$1"
 PROJECT_ROOT="$2"
 
@@ -1597,7 +1597,7 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << MOCK_GH
-#!/bin/bash
+#!/usr/bin/env bash
 COMMENT_TS="$comment_ts"
 COMMIT_TS="$commit_ts"
 
@@ -1669,7 +1669,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1691,7 +1691,7 @@ MOCK_GIT
 
     # Mock codex command - returns ISSUES_REMAINING to trigger goal tracker update
     cat > "$mock_bin/codex" << 'MOCK_CODEX'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for testing - output review analysis
 cat << 'CODEX_OUTPUT'
 ## Bot Review Analysis

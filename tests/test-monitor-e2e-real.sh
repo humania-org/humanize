@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # TRUE End-to-End Monitor Tests for monitor tests
 #
@@ -105,7 +105,7 @@ GOALTRACKER_EOF1
     # Create the test runner script
     # This script runs the REAL _humanize_monitor_codex function
     cat > "$TEST_PROJECT/run_real_monitor.sh" << 'MONITOR_SCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_codex function
 
 PROJECT_DIR="$1"
@@ -426,7 +426,7 @@ GOALTRACKER_SIGINT
 
     # Create the test runner script for SIGINT test
     cat > "$TEST_PROJECT_SIGINT/run_real_monitor_sigint.sh" << 'SIGINT_SCRIPT_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_codex function for SIGINT testing
 
 PROJECT_DIR="$1"
@@ -747,7 +747,7 @@ GOALTRACKER_EOF
 
     # Create bash test runner script for PR monitor
     cat > "$TEST_PROJECT_PR/run_real_monitor_pr.sh" << 'MONITOR_SCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_pr function
 
 PROJECT_DIR="$1"
@@ -890,7 +890,7 @@ PR_GOAL_EOF
 
     # Create bash test runner script for PR monitor without --once
     cat > "$TEST_PROJECT_PR_NO_ONCE/run_real_monitor_pr_no_once.sh" << 'PR_NO_ONCE_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_pr function WITHOUT --once flag
 
 PROJECT_DIR="$1"

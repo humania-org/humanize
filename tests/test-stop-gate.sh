@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for rlcr-stop-gate wrapper project root detection
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop API poll/stop-hook tests (parallel split 2/2)
 #

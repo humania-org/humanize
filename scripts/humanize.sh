@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # humanize.sh - Humanize shell utilities
 # Part of rc.d configuration
 # Compatible with both bash and zsh

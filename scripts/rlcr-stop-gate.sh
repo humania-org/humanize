@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Run RLCR stop-hook logic from non-hook environments (e.g. skill workflows).
 #

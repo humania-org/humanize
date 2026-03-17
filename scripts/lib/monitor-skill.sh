@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # monitor-skill.sh - Skill monitor for humanize
 #

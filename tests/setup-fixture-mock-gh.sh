@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Create a mock gh CLI that returns fixture data for testing
 # fetch-pr-comments.sh and poll-pr-reviews.sh
@@ -25,7 +25,7 @@ mkdir -p "$MOCK_BIN_DIR"
 
 # Create mock gh that returns fixtures
 cat > "$MOCK_BIN_DIR/gh" << MOCK_GH_EOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Fixture-backed mock gh CLI for testing fetch/poll scripts
 
 FIXTURES_DIR="$FIXTURES_DIR"

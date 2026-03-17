@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Helper script to set up monitor test environment
 # This script creates the necessary directory structure and state files

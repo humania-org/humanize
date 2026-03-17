@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PreToolUse Hook: Validate Edit paths for RLCR loop and PR loop
 #

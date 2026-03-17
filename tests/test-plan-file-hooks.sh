@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for plan file hooks during RLCR loop
 #
@@ -40,7 +40,7 @@ mkdir -p "$XDG_CACHE_HOME"
 setup_mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-plan-file-hooks.sh
 if [[ "$1" == "exec" ]]; then
     echo "Mock review output"

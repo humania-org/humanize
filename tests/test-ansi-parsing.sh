@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test ANSI escape code handling in test runner output parsing
 #

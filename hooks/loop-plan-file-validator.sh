@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # UserPromptSubmit hook for plan file validation during RLCR loop
 #

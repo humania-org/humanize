@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for hook input parsing and monitor edge cases
 #
@@ -453,7 +453,7 @@ cd "$MONITOR_TEST_DIR/project"
 
 # Create monitor runner script
 cat > "$MONITOR_TEST_DIR/run_monitor.sh" << 'MONITOR_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 PROJECT_DIR="$1"
 PROJECT_ROOT="$2"
 FAKE_HOME="$3"
@@ -512,7 +512,7 @@ echo "Test log" > "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED/2026-01-17_10-0
 
 # Create narrow terminal runner - calls _humanize_monitor_codex directly in same shell
 cat > "$MONITOR_TEST_DIR/run_narrow.sh" << 'NARROW_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 PROJECT_DIR="$1"
 PROJECT_ROOT="$2"
 FAKE_HOME="$3"
@@ -603,7 +603,7 @@ mkdir -p "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED3/2026-01-17_11-00-00"
 printf '\033[31mRed text\033[0m\n\033[1;32mBold green\033[0m\n' > "$FAKE_HOME_MONITOR/.cache/humanize/$SANITIZED3/2026-01-17_11-00-00/round-1-codex-run.log"
 
 cat > "$MONITOR_TEST_DIR/run_ansi.sh" << 'ANSI_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 PROJECT_DIR="$1"
 PROJECT_ROOT="$2"
 FAKE_HOME="$3"

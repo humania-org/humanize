@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop Hook Tests Runner (parallel split 2/3)
 #

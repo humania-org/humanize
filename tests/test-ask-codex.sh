@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for ask-codex.sh - one-shot consultation with mock Codex
 #
@@ -36,7 +36,7 @@ MOCK_BIN_DIR="$TEST_DIR/mock-bin"
 mkdir -p "$MOCK_BIN_DIR"
 
 cat > "$MOCK_BIN_DIR/codex" << 'MOCK_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex binary for testing ask-codex.sh
 # Controlled via environment variables.
 if [[ -n "${MOCK_CODEX_STDERR:-}" ]]; then

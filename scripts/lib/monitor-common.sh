@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # monitor-common.sh - Shared utilities for humanize monitor functions
 #

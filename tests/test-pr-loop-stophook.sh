@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop Stop Hook Tests
 #
@@ -56,7 +56,7 @@ EOF
 
     # Mock gh that returns OLD trigger comment (BEFORE latest_commit_at)
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 # Check if --jq is in arguments (for transformed format)
 HAS_JQ=false
 for arg in "$@"; do
@@ -103,7 +103,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -175,7 +175,7 @@ EOF
 
     # Mock gh that returns no trigger comments, but has codex +1
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -206,7 +206,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -281,13 +281,13 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -363,7 +363,7 @@ EOF
 
     # Mock gh that returns bot comments (simulating comments arriving)
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -411,7 +411,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -485,14 +485,14 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 MOCK_GH
     chmod +x "$mock_bin/gh"
 
     # Mock git that reports unpushed commits
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -571,7 +571,7 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     pr)
         if [[ "$*" == *"commits"* ]] && [[ "$*" == *"--jq"* ]]; then
@@ -595,7 +595,7 @@ MOCK_GH
 
     # Mock git that simulates force push: old commit is NOT ancestor of current HEAD
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -676,7 +676,7 @@ EOF
 
     # Mock gh that returns no trigger comments
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -711,7 +711,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -788,7 +788,7 @@ EOF
 
     # Mock gh that returns NO bot comments (simulates bot not responding)
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -820,7 +820,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -930,7 +930,7 @@ EOF
 
     # Mock gh that returns +1 reaction from codex
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -966,7 +966,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1045,7 +1045,7 @@ EOF
 
     # Mock gh that returns NO eyes reaction (simulates claude bot not configured)
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 # Check if --jq is in arguments (for transformed format)
 HAS_JQ=false
 for arg in "$@"; do
@@ -1101,7 +1101,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1193,7 +1193,7 @@ EOF
     # check-pr-reviewer-status.sh uses --jq so needs transformed format
     # Use COMMENT_TS environment variable for dynamic timestamp
     cat > "$mock_bin/gh" << MOCK_GH
-#!/bin/bash
+#!/usr/bin/env bash
 # Dynamic comment timestamp from test setup
 COMMENT_TS="$comment_ts"
 COMMIT_TS="$commit_ts"
@@ -1307,7 +1307,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1425,7 +1425,7 @@ EOF
     # - Current repo (fork) doesn't have PR 456
     # - Parent repo (upstream) has PR 456
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 # Track which repo we're querying
 FORK_REPO="forkuser/forkrepo"
 UPSTREAM_REPO="upstreamowner/upstreamrepo"
@@ -1475,7 +1475,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1583,7 +1583,7 @@ EOF
     # - claude: APPROVE (LGTM)
     # - codex: ISSUES (has issues)
     cat > "$mock_bin/gh" << MOCK_GH
-#!/bin/bash
+#!/usr/bin/env bash
 # Dynamic timestamps from test setup
 CLAUDE_TS="$claude_ts"
 CODEX_TS="$codex_ts"
@@ -1653,7 +1653,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse)
         if [[ "$2" == "HEAD" ]]; then
@@ -1677,7 +1677,7 @@ MOCK_GIT
 
     # Mock codex that outputs mixed approval
     cat > "$mock_bin/codex" << 'MOCK_CODEX'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex output: claude approves, codex has issues
 cat << 'CODEX_OUTPUT'
 # PR Review Validation

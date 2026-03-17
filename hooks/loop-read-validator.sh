@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PreToolUse Hook: Validate Read access for RLCR loop and PR loop files
 #

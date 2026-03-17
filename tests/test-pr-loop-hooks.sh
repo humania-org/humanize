@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop Hook Tests
 #
@@ -482,7 +482,7 @@ create_enhanced_mock_gh() {
     local trigger_timestamp="${3:-2026-01-18T12:00:00Z}"
 
     cat > "$mock_dir/gh" << MOCK_GH
-#!/bin/bash
+#!/usr/bin/env bash
 # Enhanced mock gh CLI for stop hook testing
 
 case "\$1" in
@@ -542,7 +542,7 @@ test_trigger_user_filter() {
 
     # Create mock that returns comments from different users
     cat > "$test_subdir/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -794,7 +794,7 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -816,7 +816,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse) echo "/tmp/git" ;;
     status) echo "" ;;
@@ -877,7 +877,7 @@ EOF
 
     # Mock gh that properly returns jq-parsed user and trigger comments
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -916,7 +916,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse) echo "/tmp/git" ;;
     status) echo "" ;;
@@ -979,7 +979,7 @@ EOF
     # Mock gh that simulates paginated response (returns multiple JSON arrays)
     # The trigger comment is on page 2 (second array) - only visible if pagination works
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -1023,7 +1023,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse) echo "/tmp/git" ;;
     status) echo "" ;;
@@ -1084,7 +1084,7 @@ EOF
     mkdir -p "$mock_bin"
 
     cat > "$mock_bin/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     api)
         if [[ "$2" == "user" ]]; then
@@ -1112,7 +1112,7 @@ MOCK_GH
     chmod +x "$mock_bin/gh"
 
     cat > "$mock_bin/git" << 'MOCK_GIT'
-#!/bin/bash
+#!/usr/bin/env bash
 case "$1" in
     rev-parse) echo "/tmp/git" ;;
     status) echo "" ;;

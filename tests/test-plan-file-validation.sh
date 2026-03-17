@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for plan file validation in setup-rlcr-loop.sh
 #
@@ -74,7 +74,7 @@ EOF
 mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-plan-file-validation.sh
 echo "mock codex"
 EOF

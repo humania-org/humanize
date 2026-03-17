@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop Script Tests Runner (parallel split 1/3)
 #

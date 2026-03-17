@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for all hook scripts
 #
@@ -592,7 +592,7 @@ cd - > /dev/null
 # Create mock codex to avoid real API calls (review_started: false triggers codex exec)
 mkdir -p "$TEST_DIR/mock-bin"
 cat > "$TEST_DIR/mock-bin/codex" << 'MOCKEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex that returns review output indicating work continues
 echo "Review: Code looks good but more testing needed."
 echo "No COMPLETE or STOP markers - work should continue."

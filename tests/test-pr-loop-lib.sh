@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Common library for PR loop tests
 #
@@ -30,7 +30,7 @@ if [[ -z "${TEST_PR_LOOP_LIB_LOADED:-}" ]]; then
         mkdir -p "$mock_dir"
 
         cat > "$mock_dir/gh" << 'MOCK_GH'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock gh CLI for testing
 
 case "$1" in
@@ -92,7 +92,7 @@ MOCK_GH
         local mock_dir="$1"
 
         cat > "$mock_dir/codex" << 'MOCK_CODEX'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex CLI for testing
 echo "Mock codex output"
 exit 0

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for cancel-rlcr-loop signal file mechanism
 #

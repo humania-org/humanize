@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Run all test suites for the Humanize plugin (parallel execution)
 #
@@ -98,7 +98,7 @@ trap "rm -rf $OUTPUT_DIR" EXIT
 if ! command -v codex &>/dev/null; then
     mkdir -p "$OUTPUT_DIR/mock-bin"
     cat > "$OUTPUT_DIR/mock-bin/codex" << 'MOCK_CODEX'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 MOCK_CODEX
     chmod +x "$OUTPUT_DIR/mock-bin/codex"

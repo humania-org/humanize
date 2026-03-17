@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for PR loop API handling
 #
@@ -41,7 +41,7 @@ create_mock_gh() {
     # fetch-pr-comments.sh uses: gh repo view --json owner,name -q '...'
     #                           gh pr view PR --repo REPO --json number -q .number
     cat > "$dir/bin/gh" << 'GHEOF_START'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock gh command for testing
 
 # Check for -q flag anywhere in args (jq query)
@@ -694,7 +694,7 @@ run_poll_tests() {
     # Create a mock gh that sleeps briefly but responds
     mkdir -p "$TEST_DIR/poll2/bin"
     cat > "$TEST_DIR/poll2/bin/gh" << 'GHEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Handle repo view
 if [[ "$1" == "repo" && "$2" == "view" ]]; then
     if [[ "$*" == *"--json"* ]]; then
@@ -761,7 +761,7 @@ GHEOF
     # Create a mock gh that fails on API calls
     mkdir -p "$TEST_DIR/poll3/bin"
     cat > "$TEST_DIR/poll3/bin/gh" << 'GHEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Check for -q flag anywhere in args (jq query)
 HAS_Q_FLAG=false
 for arg in "$@"; do

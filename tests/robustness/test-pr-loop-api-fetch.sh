@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PR Loop API fetch/state tests (parallel split 1/2)
 #
