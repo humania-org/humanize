@@ -41,9 +41,7 @@ load_template() {
     if [[ -f "$template_path" ]]; then
         cat "$template_path"
     else
-        echo "" >&2
         echo "Warning: Template not found: $template_path" >&2
-        echo ""
     fi
 }
 
@@ -71,6 +69,7 @@ render_template() {
     # Single-pass replacement using awk
     # Scans for {{VAR}} patterns and replaces them with values from environment
     # Replaced content goes directly to output without re-scanning
+    local awk_exit=0
     content=$(env "${env_vars[@]}" awk '
     BEGIN {
         # Build lookup table from environment variables with TMPL_VAR_ prefix
@@ -126,7 +125,12 @@ render_template() {
         }
 
         print result
-    }' <<< "$content")
+    }' <<< "$content") || awk_exit=$?
+
+    if [[ $awk_exit -ne 0 ]]; then
+        echo "Error: Template rendering failed (awk exit code: $awk_exit)" >&2
+        return 1
+    fi
 
     echo "$content"
 }
@@ -148,21 +152,35 @@ load_and_render() {
 
 # Append content from another template file
 # Usage: append_template "$base_content" "$TEMPLATE_DIR" "claude/post-alignment.md"
+# Only appends if the template exists and is non-empty.
 append_template() {
     local base_content="$1"
     local template_dir="$2"
     local template_name="$3"
 
     local additional_content
-    additional_content=$(load_template "$template_dir" "$template_name")
+    additional_content=$(load_template "$template_dir" "$template_name" 2>/dev/null) || true
 
     echo "$base_content"
-    echo "$additional_content"
+    if [[ -n "$additional_content" ]]; then
+        echo "$additional_content"
+    fi
 }
 
 # ========================================
 # Safe versions with fallback messages
 # ========================================
+
+# Emit a fallback message, optionally rendering template variables.
+_emit_fallback() {
+    local fallback_msg="$1"
+    shift
+    if [[ $# -gt 0 ]]; then
+        render_template "$fallback_msg" "$@"
+    else
+        echo "$fallback_msg"
+    fi
+}
 
 # Load and render with a fallback message if template fails
 # Usage: load_and_render_safe "$TEMPLATE_DIR" "block/message.md" "fallback message" "VAR=value" ...
@@ -174,28 +192,18 @@ load_and_render_safe() {
     shift 3
 
     local content
-    content=$(load_template "$template_dir" "$template_name" 2>/dev/null)
+    content=$(load_template "$template_dir" "$template_name" 2>/dev/null) || true
 
     if [[ -z "$content" ]]; then
-        # Template missing - use fallback with variable substitution
-        if [[ $# -gt 0 ]]; then
-            render_template "$fallback_msg" "$@"
-        else
-            echo "$fallback_msg"
-        fi
+        _emit_fallback "$fallback_msg" "$@"
         return
     fi
 
     local result
-    result=$(render_template "$content" "$@")
+    result=$(render_template "$content" "$@") || true
 
     if [[ -z "$result" ]]; then
-        # Rendering produced empty result - use fallback
-        if [[ $# -gt 0 ]]; then
-            render_template "$fallback_msg" "$@"
-        else
-            echo "$fallback_msg"
-        fi
+        _emit_fallback "$fallback_msg" "$@"
         return
     fi
 
@@ -213,8 +221,16 @@ validate_template_dir() {
         return 1
     fi
 
-    if [[ ! -d "$template_dir/block" ]] || [[ ! -d "$template_dir/codex" ]] || [[ ! -d "$template_dir/claude" ]]; then
-        echo "ERROR: Template directory missing subdirectories: $template_dir" >&2
+    local required_subdirs=("block" "codex" "claude" "plan" "pr-loop")
+    local missing=()
+    local subdir
+    for subdir in "${required_subdirs[@]}"; do
+        if [[ ! -d "$template_dir/$subdir" ]]; then
+            missing+=("$subdir")
+        fi
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: Template directory missing subdirectories (${missing[*]}): $template_dir" >&2
         return 1
     fi
 
