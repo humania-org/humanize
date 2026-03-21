@@ -2,7 +2,6 @@
 description: "Start PR review loop with bot monitoring"
 argument-hint: "--claude|--codex [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-pr-loop.sh:*)"]
-hide-from-slash-command-tool: "true"
 ---
 
 # Start PR Loop

@@ -249,15 +249,15 @@ _humanize_monitor_skill() {
         [[ "$running" -gt 0 ]] && printf " | ${yellow}${running} running${reset}"
         printf "${clr_eol}\n"
         # Line 3: Focused invocation status + model + duration
-        printf "${magenta}Focused:${reset}  ${status_color}${inv_status}${reset} | ${yellow}Model:${reset} ${model} (${effort}) | ${cyan}Duration:${reset} ${duration:-N/A}${clr_eol}\n"
+        printf "${magenta}Focused:${reset}  ${status_color}%s${reset} | ${yellow}Model:${reset} %s (%s) | ${cyan}Duration:${reset} %s${clr_eol}\n" "$inv_status" "$model" "$effort" "${duration:-N/A}"
         # Line 4: Started at
-        printf "${cyan}Started:${reset}  ${start_display}${clr_eol}\n"
+        printf "${cyan}Started:${reset}  %s${clr_eol}\n" "$start_display"
         # Line 5: Question
-        printf "${cyan}Question:${reset} ${question}${clr_eol}\n"
+        printf "${cyan}Question:${reset} %s${clr_eol}\n" "$question"
         # Line 6: Cache directory
-        printf "${dim}Cache:${reset}    ${cache_display}${clr_eol}\n"
+        printf "${dim}Cache:${reset}    %s${clr_eol}\n" "$cache_display"
         # Line 7: Watching file
-        printf "${dim}Watching:${reset} ${file_display}${clr_eol}\n"
+        printf "${dim}Watching:${reset} %s${clr_eol}\n" "$file_display"
         # Line 8: Separator
         printf "%.s-" $(seq 1 $term_width)
         printf "${clr_eol}\n"

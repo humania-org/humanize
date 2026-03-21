@@ -116,6 +116,137 @@ else
 fi
 
 # ----------------------------------------
+# PT-5b: Claude/Codex deliberation workflow validation
+# ----------------------------------------
+echo ""
+echo "PT-5b: Claude/Codex deliberation workflow validation"
+PLAN_TEMPLATE="$PROJECT_ROOT/prompt-template/plan/gen-plan-template.md"
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "scripts/ask-codex.sh" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command allows ask-codex script"
+else
+    fail "gen-plan command allows ask-codex script" "ask-codex script reference" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q -- "--auto-start-rlcr-if-converged" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command exposes auto-start-if-converged option"
+else
+    fail "gen-plan command exposes auto-start-if-converged option" "--auto-start-rlcr-if-converged" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -n "GEN_PLAN_MODE=direct" "$GEN_PLAN_CMD" | grep -q "PLAN_CONVERGENCE_STATUS=partially_converged"; then
+    pass "gen-plan direct mode does not mark plan as converged"
+else
+    fail "gen-plan direct mode does not mark plan as converged" "PLAN_CONVERGENCE_STATUS=partially_converged in direct-mode branch" "missing or still marked converged"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -n -A12 "Optional Direct Work Start" "$GEN_PLAN_CMD" | grep -q "GEN_PLAN_MODE=discussion"; then
+    pass "gen-plan auto-start requires discussion mode"
+else
+    fail "gen-plan auto-start requires discussion mode" "GEN_PLAN_MODE=discussion in auto-start conditions" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -qi "ultrathink" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires ultrathink execution mode"
+else
+    fail "gen-plan command requires ultrathink execution mode" "ultrathink instruction" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Pending User Decisions" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires pending user decisions section"
+else
+    fail "gen-plan command requires pending user decisions section" "Pending User Decisions section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Phase 3: Codex First-Pass Analysis" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command includes codex first-pass analysis phase"
+else
+    fail "gen-plan command includes codex first-pass analysis phase" "Phase 3 codex first-pass section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Phase 5: Iterative Convergence Loop" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command includes iterative convergence loop phase"
+else
+    fail "gen-plan command includes iterative convergence loop phase" "Phase 5 convergence loop section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Maximum 3 rounds reached" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines convergence loop termination limit"
+else
+    fail "gen-plan command defines convergence loop termination limit" "Maximum 3 rounds reached" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]]; then
+    PHASE3_LINE=$(grep -n "## Phase 3: Codex First-Pass Analysis" "$GEN_PLAN_CMD" | head -1 | cut -d: -f1 || true)
+    PHASE4_LINE=$(grep -n "## Phase 4: Claude Candidate Plan (v1)" "$GEN_PLAN_CMD" | head -1 | cut -d: -f1 || true)
+    if [[ -n "$PHASE3_LINE" && -n "$PHASE4_LINE" && "$PHASE3_LINE" -lt "$PHASE4_LINE" ]]; then
+        pass "gen-plan command orders codex analysis before claude candidate plan"
+    else
+        fail "gen-plan command orders codex analysis before claude candidate plan" "Phase 3 line < Phase 4 line" "phase3=$PHASE3_LINE phase4=$PHASE4_LINE"
+    fi
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Claude-Codex Deliberation" "$PLAN_TEMPLATE"; then
+    pass "plan template includes Claude-Codex deliberation section"
+else
+    fail "plan template includes Claude-Codex deliberation section" "Claude-Codex Deliberation section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Pending User Decisions" "$PLAN_TEMPLATE"; then
+    pass "plan template includes pending user decisions section"
+else
+    fail "plan template includes pending user decisions section" "Pending User Decisions section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "## Convergence Log" "$PLAN_TEMPLATE"; then
+    pass "plan template does not include convergence log section"
+else
+    fail "plan template does not include convergence log section" "no Convergence Log section" "section still present"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "## Codex Team Workflow" "$PLAN_TEMPLATE"; then
+    pass "plan template does not include codex team workflow section"
+else
+    fail "plan template does not include codex team workflow section" "no Codex Team Workflow section" "section still present"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "### Convergence Status" "$PLAN_TEMPLATE"; then
+    pass "plan template includes convergence status subsection"
+else
+    fail "plan template includes convergence status subsection" "Convergence Status subsection" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Task Breakdown" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command requires task breakdown section"
+else
+    fail "gen-plan command requires task breakdown section" "Task Breakdown section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Task Tag Requirement" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines mandatory coding/analyze tags"
+else
+    fail "gen-plan command defines mandatory coding/analyze tags" "Task Tag Requirement rule" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "Tag (\`coding\`/\`analyze\`)" "$PLAN_TEMPLATE"; then
+    pass "plan template includes coding/analyze task tag column"
+else
+    fail "plan template includes coding/analyze task tag column" "tag column in task table" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "### Step 1.5: Consolidate Pending User Decisions" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command includes consolidate pending user decisions step"
+else
+    fail "gen-plan command includes consolidate pending user decisions step" "Step 1.5 section" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "QUESTIONS_FOR_USER" "$GEN_PLAN_CMD" && grep -q "needs_user_decision" "$GEN_PLAN_CMD"; then
+    pass "gen-plan consolidation step references both question sources"
+else
+    fail "gen-plan consolidation step references both question sources" "QUESTIONS_FOR_USER and needs_user_decision" "missing one or both"
+fi
+
+# ----------------------------------------
 # PT-6: Agent name validation
 # ----------------------------------------
 echo ""
@@ -529,6 +660,39 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         fail "validate-gen-plan-io: valid paths should exit 0" "0" "$EXIT_CODE"
     fi
 
+    # Test: Valid paths with auto-start flag should exit 0
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output-auto.md" --auto-start-rlcr-if-converged 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: auto-start flag accepted"
+    else
+        fail "validate-gen-plan-io: auto-start flag should be accepted" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --discussion flag is recognized (not rejected as unknown)
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion 2>&1) || true
+    if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
+        pass "validate script accepts --discussion flag"
+    else
+        fail "validate script accepts --discussion flag" "accepted" "unknown option error"
+    fi
+
+    # Test: --direct flag is recognized (not rejected as unknown)
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --direct 2>&1) || true
+    if ! echo "$OUTPUT" | grep -qi "unknown option\|unrecognized"; then
+        pass "validate script accepts --direct flag"
+    else
+        fail "validate script accepts --direct flag" "accepted" "unknown option error"
+    fi
+
+    # Test: --discussion and --direct together are rejected as mutually exclusive
+    OUTPUT=$("$VALIDATE_SCRIPT" --input /dev/null --output /dev/null --discussion --direct 2>&1) || true
+    if echo "$OUTPUT" | grep -qi "mutually exclusive\|cannot use"; then
+        pass "validate script rejects --discussion and --direct together"
+    else
+        fail "validate script rejects --discussion and --direct together" "mutual exclusion error" "no error produced"
+    fi
+
     # Test: Help option should exit 6
     EXIT_CODE=0
     "$VALIDATE_SCRIPT" --help 2>/dev/null || EXIT_CODE=$?
@@ -539,6 +703,16 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
     fi
 else
     fail "validate-gen-plan-io.sh not found or not executable"
+fi
+
+# Test: Plan Structure block in gen-plan.md matches gen-plan-template.md
+if [[ -f "$GEN_PLAN_CMD" ]] && [[ -f "$PLAN_TEMPLATE" ]]; then
+    EXTRACTED=$(awk '/^```markdown[[:space:]]*$/{in_block=1;next} /^```[[:space:]]*$/ && in_block{exit} in_block' "$GEN_PLAN_CMD")
+    if [[ "$EXTRACTED" == "$(<"$PLAN_TEMPLATE")" ]]; then
+        pass "gen-plan.md Plan Structure block matches gen-plan-template.md"
+    else
+        fail "gen-plan.md Plan Structure block matches gen-plan-template.md" "identical content" "content differs (run: diff <(awk '/^\`\`\`markdown/{in_block=1;next} /^\`\`\`/ && in_block{exit} in_block' \"$GEN_PLAN_CMD\") \"$PLAN_TEMPLATE\")"
+    fi
 fi
 
 # ========================================

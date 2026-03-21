@@ -1,7 +1,7 @@
 ---
 description: "Cancel active PR loop"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/cancel-pr-loop.sh)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/cancel-pr-loop.sh --force)"]
-hide-from-slash-command-tool: "true"
+disable-model-invocation: true
 ---
 
 # Cancel PR Loop

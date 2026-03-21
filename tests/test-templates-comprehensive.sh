@@ -151,7 +151,7 @@ while IFS= read -r -d '' template_file; do
         for pattern in $unclosed; do
             # Extract the variable name part
             varname=$(echo "$pattern" | sed 's/{{//' | sed 's/[^A-Z0-9_].*//')
-            if [[ -n "$varname" ]] && ! echo "$content" | grep -q "{{${varname}}}"; then
+            if [[ -n "$varname" ]] && ! grep -q "{{${varname}}}" <<< "$content"; then
                 syntax_errors="${syntax_errors}Possibly unclosed: {{$varname\n"
             fi
         done

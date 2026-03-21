@@ -2,6 +2,7 @@
 name: humanize
 description: Iterative development with AI review. Provides RLCR (Ralph-Loop with Codex Review) for implementation planning and code review loops, plus PR review automation with bot monitoring.
 user-invocable: false
+disable-model-invocation: true
 ---
 
 # Humanize - Iterative Development with AI Review
@@ -86,7 +87,7 @@ Transforms a rough draft document into a structured implementation plan with:
 
 **Common Options:**
 - `--max N` - Maximum iterations before auto-stop (default: 42)
-- `--codex-model MODEL:EFFORT` - Codex model and reasoning effort for `codex exec` (default: gpt-5.4:xhigh)
+- `--codex-model MODEL:EFFORT` - Codex model and reasoning effort for `codex exec` (default: gpt-5.4:high)
 - Review phase `codex review` uses `gpt-5.4:high`
 - `--codex-timeout SECONDS` - Timeout for each Codex review (default: 5400)
 - `--base-branch BRANCH` - Base branch for code review (auto-detects if not specified)
@@ -96,6 +97,8 @@ Transforms a rough draft document into a structured implementation plan with:
 - `--push-every-round` - Require git push after each round
 - `--claude-answer-codex` - Let Claude answer Codex Open Questions directly (default is AskUserQuestion)
 - `--agent-teams` - Enable Agent Teams mode
+- `--yolo` - Skip Plan Understanding Quiz and enable --claude-answer-codex
+- `--skip-quiz` - Skip the Plan Understanding Quiz only
 
 ### Cancel RLCR Loop
 

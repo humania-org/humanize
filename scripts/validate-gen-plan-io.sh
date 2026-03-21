@@ -14,17 +14,23 @@
 set -e
 
 usage() {
-    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md>"
+    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct]"
     echo ""
     echo "Options:"
     echo "  --input   Path to the input draft file (required)"
     echo "  --output  Path to the output plan file (required)"
+    echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning (discussion mode only)"
+    echo "  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)"
+    echo "  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)"
     echo "  -h, --help  Show this help message"
     exit 6
 }
 
 INPUT_FILE=""
 OUTPUT_FILE=""
+AUTO_START_RLCR_IF_CONVERGED="false"
+GEN_PLAN_MODE_DISCUSSION="false"
+GEN_PLAN_MODE_DIRECT="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +51,18 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_FILE="$2"
             shift 2
             ;;
+        --auto-start-rlcr-if-converged)
+            AUTO_START_RLCR_IF_CONVERGED="true"
+            shift
+            ;;
+        --discussion)
+            GEN_PLAN_MODE_DISCUSSION="true"
+            shift
+            ;;
+        --direct)
+            GEN_PLAN_MODE_DIRECT="true"
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -55,6 +73,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate mutually exclusive flags
+if [[ "$GEN_PLAN_MODE_DISCUSSION" == "true" && "$GEN_PLAN_MODE_DIRECT" == "true" ]]; then
+    echo "Error: --discussion and --direct are mutually exclusive"
+    exit 6
+fi
+
 # Validate required arguments
 if [[ -z "$INPUT_FILE" ]]; then
     echo "ERROR: --input is required"
@@ -64,6 +88,11 @@ fi
 if [[ -z "$OUTPUT_FILE" ]]; then
     echo "ERROR: --output is required"
     usage
+fi
+
+# Note on auto-start behavior in direct mode
+if [[ "$GEN_PLAN_MODE_DIRECT" == "true" && "$AUTO_START_RLCR_IF_CONVERGED" == "true" ]]; then
+    echo "NOTE: --auto-start-rlcr-if-converged only triggers in --discussion mode; in --direct mode the plan is not considered converged and auto-start will be skipped."
 fi
 
 # Get absolute paths
@@ -145,17 +174,6 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
     exit 7
 fi
 
-# Copy template to output location
-cp "$TEMPLATE_FILE" "$OUTPUT_FILE"
-
-# Append separator and original draft content
-echo "" >> "$OUTPUT_FILE"
-echo "--- Original Design Draft Start ---" >> "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-cat "$INPUT_FILE" >> "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-echo "--- Original Design Draft End ---" >> "$OUTPUT_FILE"
-
-echo "Template and draft combined at: $OUTPUT_FILE"
+echo "TEMPLATE_FILE: $TEMPLATE_FILE"
 echo "Proceeding with draft analysis..."
 exit 0

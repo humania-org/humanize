@@ -40,11 +40,12 @@ readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
-# Both use :- so scripts can override before sourcing (e.g. PR loop sets different model/effort).
+# Scripts can pre-set DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT before sourcing to override.
+# Config-backed defaults are loaded from the merge hierarchy after config-loader.sh is sourced.
+# Precedence: pre-set value > config value > hardcoded fallback (gpt-5.4/high)
 #
-# Default model for Codex operations (same model for both plugin and skill mode)
-DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-gpt-5.4}"
-DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-xhigh}"
+# The actual assignment happens in the "Config-backed defaults" section below,
+# after config-loader.sh has been sourced and merged config is available.
 
 # Codex review markers
 readonly MARKER_COMPLETE="COMPLETE"
@@ -157,6 +158,60 @@ is_deeply_nested() {
 
 # Source template loader
 LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+LOOP_COMMON_PLUGIN_ROOT="$(cd "$LOOP_COMMON_DIR/../.." && pwd)"
+export PLUGIN_ROOT="${PLUGIN_ROOT:-$LOOP_COMMON_PLUGIN_ROOT}"
+
+_lc_errexit=false; [[ -o errexit ]] && _lc_errexit=true
+_lc_nounset=false; [[ -o nounset ]] && _lc_nounset=true
+_lc_pipefail=false; [[ -o pipefail ]] && _lc_pipefail=true
+source "$LOOP_COMMON_PLUGIN_ROOT/scripts/lib/config-loader.sh"
+$_lc_errexit && set -e || set +e
+$_lc_nounset && set -u || set +u
+$_lc_pipefail && set -o pipefail || set +o pipefail
+unset _lc_errexit _lc_nounset _lc_pipefail
+
+_LOOP_COMMON_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+# Config loading is best-effort: use || true so a config-load failure does not
+# abort sourcing before callers' dependency checks (jq, codex) are reached.
+# Stderr is NOT suppressed so malformed config warnings remain visible.
+_LOOP_COMMON_CONFIG="$(load_merged_config "$LOOP_COMMON_PLUGIN_ROOT" "$_LOOP_COMMON_PROJECT_ROOT")" || true
+
+# Load bitlesson model from merged config (controls which CLI bitlesson-select.sh uses)
+DEFAULT_BITLESSON_MODEL="$(get_config_value "$_LOOP_COMMON_CONFIG" "bitlesson_model" 2>/dev/null || true)"
+DEFAULT_BITLESSON_MODEL="${DEFAULT_BITLESSON_MODEL:-haiku}"
+
+# Load codex model/effort from merged config so .humanize/config.json can set persistent
+# defaults for all Codex-using features (RLCR, PR loop, ask-codex).
+# Precedence: pre-set by caller (e.g. PR loop) > config value > hardcoded fallback (gpt-5.4/high)
+_cfg_codex_model="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_model" 2>/dev/null || true)"
+if [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    echo "Warning: Invalid codex_model in merged config: $_cfg_codex_model" >&2
+    echo "  Ignoring configured codex_model; using caller preset or fallback" >&2
+    _cfg_codex_model=""
+elif [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^(gpt-|o[0-9]) ]]; then
+    echo "Warning: Unsupported codex_model in merged config: $_cfg_codex_model" >&2
+    echo "  Must start with a Codex model prefix: gpt- or o[0-9]" >&2
+    echo "  Ignoring configured codex_model; using caller preset or fallback" >&2
+    _cfg_codex_model=""
+fi
+DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.4}}"
+_cfg_codex_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_effort" 2>/dev/null || true)"
+if [[ -n "$_cfg_codex_effort" && ! "$_cfg_codex_effort" =~ ^(xhigh|high|medium|low)$ ]]; then
+    echo "Warning: Invalid codex_effort in merged config: $_cfg_codex_effort" >&2
+    echo "  Must be one of: xhigh, high, medium, low" >&2
+    echo "  Ignoring configured codex_effort; using caller preset or fallback" >&2
+    _cfg_codex_effort=""
+fi
+DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_codex_effort:-high}}"
+
+# Load agent_teams from merged config (controls whether RLCR uses agent teams by default)
+# Precedence: pre-set by caller (e.g. --agent-teams flag) > config value > hardcoded fallback (false)
+_cfg_agent_teams="$(get_config_value "$_LOOP_COMMON_CONFIG" "agent_teams" 2>/dev/null || true)"
+DEFAULT_AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-${_cfg_agent_teams:-false}}"
+unset _cfg_codex_model _cfg_codex_effort _cfg_agent_teams
+
+unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
+
 source "$LOOP_COMMON_DIR/template-loader.sh"
 
 # Initialize template directory (can be overridden by sourcing script)
@@ -349,6 +404,7 @@ _parse_state_fields() {
 #   STATE_REVIEW_STARTED - "true" or "false"
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
 #   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
+#   STATE_AGENT_TEAMS - "true" or "false"
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -1193,6 +1249,20 @@ If you need to add \`.humanize*\` to \`.gitignore\`, follow these steps:
 IMPORTANT: The commit message must NOT contain the literal string \".humanize\" to avoid triggering this protection."
 
     load_and_render_safe "$TEMPLATE_DIR" "block/git-add-humanize.md" "$fallback"
+}
+
+# Standard message for blocking direct execution of hook scripts
+# Usage: stop_hook_direct_execution_blocked_message
+stop_hook_direct_execution_blocked_message() {
+    local fallback="# Direct Execution of Hook Scripts Blocked
+
+You are attempting to directly execute a hook script via Bash. This is not allowed during an active loop.
+
+Hook scripts are managed by the hooks system and are triggered automatically at the appropriate time. You should NOT execute them manually.
+
+Simply complete your work and end your response. The hooks system will handle the rest automatically."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/stop-hook-direct-execution.md" "$fallback"
 }
 
 # Check if a shell command attempts to modify a file matching the given pattern

@@ -70,6 +70,32 @@ if [[ -z "$ACTIVE_LOOP_DIR" ]] && [[ -z "$ACTIVE_PR_LOOP_DIR" ]]; then
 fi
 
 # ========================================
+# Block Direct Execution of Hook Scripts
+# ========================================
+# Prevents Claude from manually running stop hook or stop gate scripts.
+# These scripts should only be invoked by the hooks system, not via Bash.
+
+BLOCKED_HOOK_SCRIPTS="(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh|rlcr-stop-gate\.sh)"
+HOOK_ASSIGNMENT_PREFIX="[[:alpha:]_][[:alnum:]_]*=[^[:space:];&|]+"
+HOOK_COMMAND_PREFIX="command([[:space:]]+(-[^[:space:];&|]+|--))*"
+HOOK_ENV_PREFIX="env([[:space:]]+(-[^[:space:];&|]+|--|${HOOK_ASSIGNMENT_PREFIX}))*"
+HOOK_UTILITY_ARG="[^[:space:];&|]+"
+HOOK_TIMEOUT_OPTION="(-[^[:space:];&|]+([[:space:]]+${HOOK_UTILITY_ARG})?|--([^[:space:];&|]+(=${HOOK_UTILITY_ARG}|[[:space:]]+${HOOK_UTILITY_ARG})?)?)"
+HOOK_NICE_OPTION="(-n([[:space:]]+${HOOK_UTILITY_ARG})?|--adjustment(=${HOOK_UTILITY_ARG}|[[:space:]]+${HOOK_UTILITY_ARG})|-[^[:space:];&|]+|--[^[:space:];&|]+)"
+HOOK_TRACE_OPTION="(-[^[:space:];&|]+([[:space:]]+${HOOK_UTILITY_ARG})?|--([^[:space:];&|]+(=${HOOK_UTILITY_ARG}|[[:space:]]+${HOOK_UTILITY_ARG})?)?)"
+HOOK_TIMEOUT_PREFIX="timeout([[:space:]]+(${HOOK_TIMEOUT_OPTION}))*([[:space:]]+--)?[[:space:]]+${HOOK_UTILITY_ARG}"
+HOOK_NICE_PREFIX="nice([[:space:]]+(${HOOK_NICE_OPTION}))*([[:space:]]+--)?"
+HOOK_NOHUP_PREFIX="nohup"
+HOOK_TRACE_PREFIX="(strace|ltrace)([[:space:]]+(${HOOK_TRACE_OPTION}))*([[:space:]]+--)?"
+HOOK_UTILITY_PREFIX="(${HOOK_TIMEOUT_PREFIX}|${HOOK_NICE_PREFIX}|${HOOK_NOHUP_PREFIX}|${HOOK_TRACE_PREFIX})"
+HOOK_WRAPPER_PREFIX_PATTERN="((${HOOK_ASSIGNMENT_PREFIX}|${HOOK_COMMAND_PREFIX}|${HOOK_ENV_PREFIX}|${HOOK_UTILITY_PREFIX})[[:space:]]+)*"
+HOOK_LAUNCH_PATTERN="(([^[:space:]]*/)?|(bash|sh|zsh|source|\.)[[:space:]].*)$BLOCKED_HOOK_SCRIPTS"
+if echo "$COMMAND_LOWER" | grep -qE "(^|[;&|])[[:space:]]*${HOOK_WRAPPER_PREFIX_PATTERN}${HOOK_LAUNCH_PATTERN}"; then
+    stop_hook_direct_execution_blocked_message >&2
+    exit 2
+fi
+
+# ========================================
 # RLCR Loop Specific Checks
 # ========================================
 # The following checks only apply when an RLCR loop is active

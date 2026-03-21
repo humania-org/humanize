@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.14.0**
+**Current Version: 1.15.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -15,6 +15,7 @@ A Claude Code plugin that provides iterative development with independent AI rev
 - **Iteration over Perfection** -- Instead of expecting perfect output in one shot, Humanize leverages continuous feedback loops where issues are caught early and refined incrementally.
 - **One Build + One Review** -- Claude implements, Codex independently reviews. No blind spots.
 - **Ralph Loop with Swarm Mode** -- Iterative refinement continues until all acceptance criteria are met. Optionally parallelize with Agent Teams.
+- **Begin with the End in Mind** -- Before the loop starts, Humanize verifies that *you* understand the plan you are about to execute. The human must remain the architect. ([Details](docs/usage.md#begin-with-the-end-in-mind))
 
 ## How It Works
 
@@ -44,12 +45,17 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
 
-2. **Run the loop**:
+2. **Refine an annotated plan** before implementation when reviewers add `CMT:` ... `ENDCMT` comments:
+   ```bash
+   /humanize:refine-plan --input docs/plan.md
+   ```
+
+3. **Run the loop**:
    ```bash
    /humanize:start-rlcr-loop docs/plan.md
    ```
 
-3. **Monitor progress**:
+4. **Monitor progress**:
    ```bash
    source <path/to/humanize>/scripts/humanize.sh
    humanize monitor rlcr
@@ -67,6 +73,8 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 - [Install for Claude Code](docs/install-for-claude.md) -- Full installation instructions
 - [Install for Codex](docs/install-for-codex.md) -- Codex skill runtime setup
 - [Install for Kimi](docs/install-for-kimi.md) -- Kimi CLI skill setup
+- [Configuration](docs/usage.md#configuration) -- Shared config hierarchy and override rules
+- [Bitter Lesson Workflow](docs/bitlesson.md) -- Project memory, selector routing, and delta validation
 
 ## License
 

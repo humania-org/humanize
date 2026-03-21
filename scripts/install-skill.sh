@@ -33,6 +33,7 @@ DRY_RUN="false"
 SKILL_NAMES=(
     "humanize"
     "humanize-gen-plan"
+    "humanize-refine-plan"
     "humanize-rlcr"
 )
 
@@ -68,6 +69,9 @@ validate_repo() {
     [[ -d "$REPO_ROOT/scripts" ]] || die "scripts directory not found under repo root: $REPO_ROOT"
     [[ -d "$REPO_ROOT/hooks" ]] || die "hooks directory not found under repo root: $REPO_ROOT"
     [[ -d "$REPO_ROOT/prompt-template" ]] || die "prompt-template directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/templates" ]] || die "templates directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/config" ]] || die "config directory not found under repo root: $REPO_ROOT"
+    [[ -d "$REPO_ROOT/agents" ]] || die "agents directory not found under repo root: $REPO_ROOT"
     for skill in "${SKILL_NAMES[@]}"; do
         [[ -f "$REPO_ROOT/skills/$skill/SKILL.md" ]] || die "missing $REPO_ROOT/skills/$skill/SKILL.md"
     done
@@ -115,7 +119,7 @@ install_runtime_bundle() {
 
     log "syncing runtime bundle into: $runtime_root"
 
-    for component in scripts hooks prompt-template; do
+    for component in scripts hooks prompt-template templates config agents; do
         sync_dir "$REPO_ROOT/$component" "$runtime_root/$component"
     done
 }
@@ -147,7 +151,7 @@ hydrate_skill_runtime_root() {
     done
 }
 
-strip_user_invocable_for_runtime() {
+strip_claude_specific_frontmatter() {
     local target_dir="$1"
     local skill
     local skill_file
@@ -158,7 +162,7 @@ strip_user_invocable_for_runtime() {
         [[ -f "$skill_file" ]] || continue
 
         if [[ "$DRY_RUN" == "true" ]]; then
-            log "DRY-RUN strip user-invocable in $skill_file"
+            log "DRY-RUN strip Claude-specific frontmatter in $skill_file"
             continue
         fi
 
@@ -176,6 +180,8 @@ strip_user_invocable_for_runtime() {
                 next
             }
             in_fm && $0 ~ /^user-invocable:[[:space:]]*/ { next }
+            in_fm && $0 ~ /^disable-model-invocation:[[:space:]]*/ { next }
+            in_fm && $0 ~ /^hide-from-slash-command-tool:[[:space:]]*/ { next }
             { print }
         ' "$skill_file" > "$tmp" \
             || { rm -f "$tmp"; die "failed to update $skill_file"; }
@@ -200,7 +206,7 @@ sync_target() {
     done
     install_runtime_bundle "$target_dir"
     hydrate_skill_runtime_root "$target_dir"
-    strip_user_invocable_for_runtime "$target_dir"
+    strip_claude_specific_frontmatter "$target_dir"
 }
 
 while [[ $# -gt 0 ]]; do

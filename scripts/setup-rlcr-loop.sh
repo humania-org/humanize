@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/portable-timeout.sh"
 
 # Source shared loop library (provides runtime-aware DEFAULT_CODEX_MODEL and other constants)
-# Callers can override by exporting DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT
+# Callers can override by exporting DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT/DEFAULT_AGENT_TEAMS
 # before invoking this script.
 HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
 source "$HOOKS_LIB_DIR/loop-common.sh"
@@ -49,7 +49,8 @@ FULL_REVIEW_ROUND="$DEFAULT_FULL_REVIEW_ROUND"
 SKIP_IMPL="false"
 SKIP_IMPL_NO_PLAN="false"
 ASK_CODEX_QUESTION="true"
-AGENT_TEAMS="false"
+AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-false}"
+BITLESSON_ALLOW_EMPTY_NONE="true"
 
 show_help() {
     cat <<HELP_EOF
@@ -88,6 +89,17 @@ OPTIONS:
   --agent-teams        Enable Claude Code Agent Teams mode for parallel development.
                        Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 environment variable.
                        Claude acts as team leader, splitting tasks among team members.
+  --yolo               Skip Plan Understanding Quiz and let Claude answer Codex Open
+                       Questions directly. Convenience alias for --skip-quiz
+                       --claude-answer-codex. Use when you trust the plan and want
+                       maximum automation.
+  --skip-quiz          Skip the Plan Understanding Quiz only (without other behavioral
+                       changes). The quiz is an advisory pre-flight check that verifies
+                       you understand the plan before committing to an RLCR loop.
+  --allow-empty-bitlesson-none
+                       Allow BitLesson delta with action:none even with no new entries (default)
+  --require-bitlesson-entry-for-none
+                       Require at least one BitLesson entry when action is none
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -99,7 +111,9 @@ DESCRIPTION:
   3. Has two phases: Implementation Phase and Review Phase
 
   The flow:
-  1. Claude works on the plan (Implementation Phase)
+  1. Claude executes plan tasks with tag-based routing (Implementation Phase)
+     - \`coding\` tasks: Claude implements directly
+     - \`analyze\` tasks: Claude delegates execution via \`/humanize:ask-codex\`
   2. Claude writes a summary to round-N-summary.md
   3. On exit attempt, Codex reviews the summary
   4. If Codex finds issues, it blocks exit and sends feedback
@@ -113,6 +127,8 @@ EXAMPLES:
   /humanize:start-rlcr-loop docs/impl.md --max 20
   /humanize:start-rlcr-loop plan.md --codex-model ${DEFAULT_CODEX_MODEL}:${DEFAULT_CODEX_EFFORT}
   /humanize:start-rlcr-loop plan.md --codex-timeout 7200  # 2 hour timeout
+  /humanize:start-rlcr-loop plan.md --yolo              # skip quiz, full automation
+  /humanize:start-rlcr-loop plan.md --skip-quiz          # skip quiz only
 
 STOPPING:
   - /humanize:cancel-rlcr-loop   Cancel the active loop
@@ -226,6 +242,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --agent-teams)
             AGENT_TEAMS="true"
+            shift
+            ;;
+        --yolo)
+            ASK_CODEX_QUESTION="false"
+            shift
+            ;;
+        --skip-quiz)
+            # No-op in setup script; quiz logic lives in command markdown
+            shift
+            ;;
+        --allow-empty-bitlesson-none)
+            BITLESSON_ALLOW_EMPTY_NONE="true"
+            shift
+            ;;
+        --require-bitlesson-entry-for-none)
+            BITLESSON_ALLOW_EMPTY_NONE="false"
             shift
             ;;
         -*)
@@ -638,12 +670,10 @@ if [[ ! "$CODEX_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     exit 1
 fi
 
-# Validate codex effort for YAML safety
-# Only alphanumeric, hyphen, underscore allowed
-if [[ ! "$CODEX_EFFORT" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-    echo "Error: Codex effort contains invalid characters" >&2
-    echo "  Effort: $CODEX_EFFORT" >&2
-    echo "  Only alphanumeric, hyphen, underscore allowed" >&2
+# Validate codex effort matches allowed values (consistent with stop-hook validation)
+if [[ ! "$CODEX_EFFORT" =~ ^(xhigh|high|medium|low)$ ]]; then
+    echo "Error: Invalid codex effort: $CODEX_EFFORT" >&2
+    echo "  Must be one of: xhigh, high, medium, low" >&2
     exit 1
 fi
 
@@ -652,12 +682,15 @@ fi
 # ========================================
 # Placed after input validation so users see input errors first
 
-GIT_STATUS_OUTPUT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null) || GIT_STATUS_EXIT=$?
+GIT_STATUS_OUTPUT=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" status --porcelain --untracked-files=all 2>/dev/null) || GIT_STATUS_EXIT=$?
 GIT_STATUS_EXIT=${GIT_STATUS_EXIT:-0}
 if [[ $GIT_STATUS_EXIT -eq 124 ]]; then
     echo "Error: Git operation timed out while checking working tree status" >&2
     exit 1
 fi
+# Filter out untracked .humanize/ paths and .humanize-* dash-separated legacy variants.
+# These are gitignored runtime directories and do not indicate a dirty working tree.
+GIT_STATUS_OUTPUT=$(echo "$GIT_STATUS_OUTPUT" | grep -vE '^\?\? \.humanize[-/]' || true)
 if [[ -n "$GIT_STATUS_OUTPUT" ]]; then
     echo "Error: Git working tree is not clean" >&2
     echo "" >&2
@@ -776,11 +809,23 @@ SKIP_IMPL_PLAN_EOF
     # Using relative path because git ls-files requires repo-relative paths
     PLAN_FILE=".humanize/rlcr/$TIMESTAMP/plan.md"
 else
-    ln -s "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
+    cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
 fi
 
 # Docs path default
 DOCS_PATH="docs"
+
+# ========================================
+# Initialize BitLesson File
+# ========================================
+
+BITLESSON_FILE_REL=".humanize/bitlesson.md"
+BITLESSON_FILE="$PROJECT_ROOT/$BITLESSON_FILE_REL"
+PLUGIN_BITLESSON_TEMPLATE="$SCRIPT_DIR/../templates/bitlesson.md"
+bash "$SCRIPT_DIR/bitlesson-init.sh" \
+    --project-root "$PROJECT_ROOT" \
+    --template "$PLUGIN_BITLESSON_TEMPLATE" \
+    --bitlesson-relpath "$BITLESSON_FILE_REL" > /dev/null
 
 # ========================================
 # Create State File
@@ -788,6 +833,11 @@ DOCS_PATH="docs"
 
 # Determine initial review_started value based on skip-impl mode
 INITIAL_REVIEW_STARTED="$SKIP_IMPL"
+
+# Skip-impl mode does not use BitLesson-aware summary templates,
+# so disable enforcement to avoid blocking the review-only workflow.
+BITLESSON_STATE_VALUE="true"
+[[ "$SKIP_IMPL" == "true" ]] && BITLESSON_STATE_VALUE="false"
 
 cat > "$LOOP_DIR/state.md" << EOF
 ---
@@ -807,6 +857,9 @@ review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
+bitlesson_required: $BITLESSON_STATE_VALUE
+bitlesson_file: $BITLESSON_FILE_REL
+bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
@@ -929,10 +982,10 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 | 0 | Initial plan | - | - |
 
 #### Active Tasks
-<!-- Map each task to its target Acceptance Criterion -->
-| Task | Target AC | Status | Notes |
-|------|-----------|--------|-------|
-| [To be populated by Claude based on plan] | - | pending | - |
+<!-- Map each task to its target Acceptance Criterion and routing tag -->
+| Task | Target AC | Status | Tag | Owner | Notes |
+|------|-----------|--------|-----|-------|-------|
+| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | - |
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -953,10 +1006,47 @@ GOAL_TRACKER_EOF
 fi  # End of skip-impl goal tracker handling
 
 # ========================================
+# Summary Template Helper
+# ========================================
+
+write_summary_template() {
+    local summary_path="$1"
+    cat > "$summary_path" << 'SUMMARY_TMPL_EOF'
+# Round 0 Summary
+
+## What Was Implemented
+
+[Describe what was done]
+
+## Files Changed
+
+[List files created/modified/deleted]
+
+## Validation
+
+[List tests/commands run and outcomes]
+
+## Remaining Items
+
+[List any deferred or pending items]
+
+## BitLesson Delta
+
+Action: none
+Lesson ID(s): NONE
+Notes: [what changed and why]
+SUMMARY_TMPL_EOF
+}
+
+# ========================================
 # Create Initial Prompt
 # ========================================
 
 SUMMARY_PATH="$LOOP_DIR/round-0-summary.md"
+
+# Create the round-0 summary scaffold before either mode starts so stop-hook
+# validation and BitLesson Delta checks have a valid target file.
+write_summary_template "$SUMMARY_PATH"
 
 if [[ "$SKIP_IMPL" == "true" ]]; then
     # Skip-impl mode: create a prompt for code review only
@@ -1007,7 +1097,7 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 1. Read @$GOAL_TRACKER_FILE
 2. If the "Ultimate Goal" section says "[To be extracted...]", extract a clear goal statement from the plan
 3. If the "Acceptance Criteria" section says "[To be defined...]", define 3-7 specific, testable criteria
-4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC
+4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC and filling Tag/Owner
 5. Write the updated goal-tracker.md
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be modified in Round 0. After this round, it becomes read-only.
@@ -1019,10 +1109,40 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList) to track each item in order of importance.
 You are strictly prohibited from only addressing the most important issues - you MUST create Tasks for ALL discovered issues and attempt to resolve each one.
 
+## Task Tag Routing (MUST FOLLOW)
+
+Each task must have one routing tag from the plan: \`coding\` or \`analyze\`.
+
+- Tag \`coding\`: Claude executes the task directly.
+- Tag \`analyze\`: Claude must execute via \`/humanize:ask-codex\`, then integrate Codex output.
+- Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> claude\`, \`analyze -> codex\`).
+- If a task has no explicit tag, default to \`coding\` (Claude executes directly).
+
 EOF
 
 # Append plan content directly (avoids command substitution size limits for large files)
 cat "$LOOP_DIR/plan.md" >> "$LOOP_DIR/round-0-prompt.md"
+
+# Append BitLesson Selection section
+cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
+
+---
+
+## BitLesson Selection (REQUIRED FOR EACH TASK)
+
+Before executing each task or sub-task, you MUST:
+
+1. Read @$BITLESSON_FILE
+2. Run \`bitlesson-selector\` for each task/sub-task to select relevant lesson IDs
+3. Follow the selected lesson IDs (or \`NONE\`) during implementation
+
+Include a \`## BitLesson Delta\` section in your summary with:
+- Action: none|add|update
+- Lesson ID(s): NONE or comma-separated IDs
+- Notes: what changed and why (required if action is add or update)
+
+Reference: @$BITLESSON_FILE
+EOF
 
 # Inject agent-teams instructions if enabled (header + shared core)
 if [[ "$AGENT_TEAMS" == "true" ]]; then
@@ -1057,6 +1177,7 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 Throughout your work, you MUST maintain the Goal Tracker:
 
 1. **Before starting a task**: Mark it as "in_progress" in Active Tasks
+   - Confirm Tag/Owner routing is correct before execution
 2. **After completing a task**: Move it to "Completed and Verified" with evidence (but mark as "pending verification")
 3. **If you discover the plan has errors**:
    - Do NOT silently change direction
@@ -1106,7 +1227,6 @@ Start Branch: $START_BRANCH
 Base Branch: $BASE_BRANCH
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
-Codex Review Effort: high
 Codex Timeout: ${CODEX_TIMEOUT}s
 Loop Directory: $LOOP_DIR
 
@@ -1134,10 +1254,10 @@ Base Branch: $BASE_BRANCH
 Max Iterations: $MAX_ITERATIONS
 Codex Model: $CODEX_MODEL
 Codex Effort: $CODEX_EFFORT
-Codex Review Effort: high
 Codex Timeout: ${CODEX_TIMEOUT}s
 Full Review Round: $FULL_REVIEW_ROUND (Full Alignment Checks at rounds $((FULL_REVIEW_ROUND - 1)), $((2 * FULL_REVIEW_ROUND - 1)), $((3 * FULL_REVIEW_ROUND - 1)), ...)
 Ask User for Codex Questions: $ASK_CODEX_QUESTION
+Agent Teams: $AGENT_TEAMS
 Loop Directory: $LOOP_DIR
 
 The loop is now active. When you try to exit:
@@ -1182,6 +1302,7 @@ echo "   - What was implemented"
 echo "   - Files created/modified"
 echo "   - Tests added/passed"
 echo "   - Any remaining items"
+echo "   - ## BitLesson Delta section (Action: none|add|update)"
 echo ""
 echo "Codex will review this summary to determine if work is complete."
 echo "==========================================="

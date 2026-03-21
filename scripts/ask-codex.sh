@@ -55,7 +55,7 @@ USAGE:
 
 OPTIONS:
   --codex-model <MODEL:EFFORT>
-                       Codex model and reasoning effort (default: gpt-5.4:xhigh)
+                       Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
   --codex-timeout <SECONDS>
                        Timeout for the Codex query in seconds (default: 3600)
   -h, --help           Show this help message
