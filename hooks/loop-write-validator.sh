@@ -97,6 +97,47 @@ if [[ "$IN_PR_LOOP_DIR" == "true" ]]; then
 fi
 
 # ========================================
+# Methodology Analysis Phase Write Restriction
+# ========================================
+# During methodology analysis, only methodology artifacts can be written.
+# This prevents source code modifications after Codex has signed off.
+# This check MUST come before the file type early exits below.
+
+PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
+# Use only the session-matched loop. Do NOT fall back to an unfiltered search,
+# as that would incorrectly restrict unrelated sessions opened in the same repo.
+# Limitation: Spawned agents (different session_id) are not restricted by hooks;
+# their sanitization is enforced by the analysis prompt.
+_MA_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
+
+if [[ -n "$_MA_LOOP_DIR" ]] && [[ -f "$_MA_LOOP_DIR/methodology-analysis-state.md" ]]; then
+    # If realpath fails (file doesn't exist yet on BSD/macOS), resolve parent dir
+    _ma_real_path=$(realpath "$FILE_PATH" 2>/dev/null || echo "")
+    if [[ -z "$_ma_real_path" ]]; then
+        _ma_parent=$(realpath "$(dirname "$FILE_PATH")" 2>/dev/null || echo "")
+        [[ -n "$_ma_parent" ]] && _ma_real_path="$_ma_parent/$(basename "$FILE_PATH")"
+    fi
+    _ma_real_loop=$(realpath "$_MA_LOOP_DIR" 2>/dev/null || echo "")
+    # Fallback to raw paths when realpath is unavailable (older macOS/BSD)
+    [[ -z "$_ma_real_path" ]] && _ma_real_path="$FILE_PATH"
+    [[ -z "$_ma_real_loop" ]] && _ma_real_loop="$_MA_LOOP_DIR"
+    if [[ "$_ma_real_path" == "$_ma_real_loop/"* ]]; then
+        _ma_basename=$(basename "$_ma_real_path")
+        case "$_ma_basename" in
+            methodology-analysis-report.md|methodology-analysis-done.md)
+                exit 0
+                ;;
+        esac
+    fi
+    echo "# Write Blocked During Methodology Analysis
+
+During the methodology analysis phase, only methodology artifacts can be written.
+Allowed: methodology-analysis-report.md, methodology-analysis-done.md" >&2
+    exit 2
+fi
+
+# ========================================
 # Determine File Types
 # ========================================
 
@@ -109,12 +150,12 @@ if [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]
     exit 0
 fi
 
-# For state.md, finalize-state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
+# For state.md, finalize-state.md, methodology-analysis-state.md, goal-tracker.md, and plan.md in .humanize/rlcr, we need further validation
 # For other files in .humanize/rlcr that aren't summaries, allow them
 FILENAME=$(basename "$FILE_PATH")
 IS_PLAN_BACKUP=$([[ "$FILENAME" == "plan.md" ]] && echo "true" || echo "false")
 if [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]] && [[ "$IS_SUMMARY_FILE" == "false" ]] && [[ "$IS_FINALIZE_SUMMARY" == "false" ]]; then
-    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_finalize_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
+    if ! is_state_file_path "$FILE_PATH_LOWER" && ! is_finalize_state_file_path "$FILE_PATH_LOWER" && ! is_methodology_analysis_state_file_path "$FILE_PATH_LOWER" && ! is_goal_tracker_path "$FILE_PATH_LOWER" && [[ "$IS_PLAN_BACKUP" != "true" ]]; then
         exit 0
     fi
 fi
@@ -147,9 +188,14 @@ fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
-# Block State File Writes (state.md and finalize-state.md)
+# Block State File Writes (state.md, finalize-state.md, methodology-analysis-state.md)
 # ========================================
-# NOTE: Check finalize-state.md FIRST because is_state_file_path also matches finalize-state.md
+# NOTE: Check most specific patterns first because is_state_file_path matches any *state.md
+
+if is_methodology_analysis_state_file_path "$FILE_PATH_LOWER"; then
+    methodology_analysis_state_file_blocked_message >&2
+    exit 2
+fi
 
 if is_finalize_state_file_path "$FILE_PATH_LOWER"; then
     finalize_state_file_blocked_message >&2

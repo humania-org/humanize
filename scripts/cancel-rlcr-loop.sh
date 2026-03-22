@@ -50,7 +50,7 @@ DESCRIPTION:
   Cancels the active RLCR loop by:
   1. Finding the most recent loop directory
   2. Creating a .cancel-requested signal file
-  3. Renaming state.md or finalize-state.md to cancel-state.md
+  3. Renaming state.md, methodology-analysis-state.md, or finalize-state.md to cancel-state.md
 HELP_EOF
             exit 0
             ;;
@@ -98,11 +98,15 @@ fi
 
 STATE_FILE="$LOOP_DIR/state.md"
 FINALIZE_STATE_FILE="$LOOP_DIR/finalize-state.md"
+METHODOLOGY_ANALYSIS_STATE_FILE="$LOOP_DIR/methodology-analysis-state.md"
 CANCEL_SIGNAL="$LOOP_DIR/.cancel-requested"
 
 if [[ -f "$STATE_FILE" ]]; then
     LOOP_STATE="NORMAL_LOOP"
     ACTIVE_STATE_FILE="$STATE_FILE"
+elif [[ -f "$METHODOLOGY_ANALYSIS_STATE_FILE" ]]; then
+    LOOP_STATE="METHODOLOGY_ANALYSIS_PHASE"
+    ACTIVE_STATE_FILE="$METHODOLOGY_ANALYSIS_STATE_FILE"
 elif [[ -f "$FINALIZE_STATE_FILE" ]]; then
     LOOP_STATE="FINALIZE_PHASE"
     ACTIVE_STATE_FILE="$FINALIZE_STATE_FILE"
@@ -151,6 +155,9 @@ touch "$CANCEL_SIGNAL"
 # Clean up any pending session_id signal file (setup may not have completed)
 rm -f "$PROJECT_ROOT/.humanize/.pending-session-id"
 
+# Clean up methodology analysis marker files if present
+rm -f "$LOOP_DIR/.methodology-exit-reason"
+
 # Rename state file to cancel-state.md
 mv "$ACTIVE_STATE_FILE" "$LOOP_DIR/cancel-state.md"
 
@@ -161,6 +168,10 @@ mv "$ACTIVE_STATE_FILE" "$LOOP_DIR/cancel-state.md"
 if [[ "$LOOP_STATE" == "NORMAL_LOOP" ]]; then
     echo "CANCELLED"
     echo "Cancelled RLCR loop (was at round $CURRENT_ROUND of $MAX_ITERATIONS)."
+    echo "State preserved as cancel-state.md"
+elif [[ "$LOOP_STATE" == "METHODOLOGY_ANALYSIS_PHASE" ]]; then
+    echo "CANCELLED_METHODOLOGY_ANALYSIS"
+    echo "Cancelled RLCR loop during Methodology Analysis Phase (was at round $CURRENT_ROUND of $MAX_ITERATIONS)."
     echo "State preserved as cancel-state.md"
 else
     echo "CANCELLED_FINALIZE"

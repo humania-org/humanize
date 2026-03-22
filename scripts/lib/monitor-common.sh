@@ -130,7 +130,7 @@ monitor_restore_terminal() {
 monitor_get_status_color() {
     local status="$1"
     case "$status" in
-        active) echo "\033[1;32m" ;;  # green
+        active|methodology-analysis) echo "\033[1;32m" ;;  # green
         completed) echo "\033[1;36m" ;;  # cyan
         failed|error|timeout) echo "\033[1;31m" ;;  # red
         cancelled) echo "\033[1;33m" ;;  # yellow
@@ -159,7 +159,11 @@ monitor_find_state_file() {
         return
     fi
 
-    # Priority 1: state.md indicates active loop
+    # Priority 1: Active state files indicate running loop
+    if [[ -f "$session_dir/methodology-analysis-state.md" ]]; then
+        echo "$session_dir/methodology-analysis-state.md|methodology-analysis"
+        return
+    fi
     if [[ -f "$session_dir/state.md" ]]; then
         echo "$session_dir/state.md|active"
         return

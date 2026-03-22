@@ -38,6 +38,7 @@ readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
+readonly FIELD_PRIVACY_MODE="privacy_mode"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
 # Scripts can pre-set DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT before sourcing to override.
@@ -237,7 +238,9 @@ extract_session_id() {
 resolve_active_state_file() {
     local loop_dir="$1"
 
-    if [[ -f "$loop_dir/finalize-state.md" ]]; then
+    if [[ -f "$loop_dir/methodology-analysis-state.md" ]]; then
+        echo "$loop_dir/methodology-analysis-state.md"
+    elif [[ -f "$loop_dir/finalize-state.md" ]]; then
         echo "$loop_dir/finalize-state.md"
     elif [[ -f "$loop_dir/state.md" ]]; then
         echo "$loop_dir/state.md"
@@ -255,7 +258,10 @@ resolve_any_state_file() {
     local loop_dir="$1"
 
     # Prefer active states
-    if [[ -f "$loop_dir/finalize-state.md" ]]; then
+    if [[ -f "$loop_dir/methodology-analysis-state.md" ]]; then
+        echo "$loop_dir/methodology-analysis-state.md"
+        return
+    elif [[ -f "$loop_dir/finalize-state.md" ]]; then
         echo "$loop_dir/finalize-state.md"
         return
     elif [[ -f "$loop_dir/state.md" ]]; then
@@ -347,6 +353,7 @@ find_active_loop() {
     echo ""
 }
 
+
 # Extract current round number from state.md
 # Outputs the round number to stdout, defaults to 0
 # Note: For full state parsing, use parse_state_file() instead
@@ -385,6 +392,7 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
+    STATE_PRIVACY_MODE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PRIVACY_MODE}:" | sed "s/${FIELD_PRIVACY_MODE}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -427,6 +435,8 @@ parse_state_file() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    # Default privacy_mode to "true" for legacy loops that pre-date this field
+    STATE_PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -704,6 +714,21 @@ is_finalize_state_file_path() {
     echo "$path_lower" | grep -qE 'finalize-state\.md$'
 }
 
+# Check if a path (lowercase) targets methodology-analysis-state.md
+is_methodology_analysis_state_file_path() {
+    local path_lower="$1"
+    echo "$path_lower" | grep -qE 'methodology-analysis-state\.md$'
+}
+
+# Standard message for blocking methodology-analysis-state file modifications
+methodology_analysis_state_file_blocked_message() {
+    local fallback="# Methodology Analysis State File Modification Blocked
+
+You cannot modify methodology-analysis-state.md. This file is managed by the loop system during the Methodology Analysis Phase."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/methodology-analysis-state-file-modification.md" "$fallback"
+}
+
 # Check if a path (lowercase) targets finalize-summary.md
 is_finalize_summary_path() {
     local path_lower="$1"
@@ -868,7 +893,8 @@ is_cancel_authorized() {
     src=$(_normalize_path "$src")
     local expected_src_state="${loop_dir_lower}state.md"
     local expected_src_finalize="${loop_dir_lower}finalize-state.md"
-    if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
+    local expected_src_methodology="${loop_dir_lower}methodology-analysis-state.md"
+    if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]] && [[ "$src" != "$expected_src_methodology" ]]; then
         return 5
     fi
 
@@ -881,9 +907,11 @@ is_cancel_authorized() {
 
     # SECURITY: Reject if source file is a symlink (filesystem check)
     # Determine source file by comparing against expected paths (not substring match)
-    # This avoids vulnerability when loop directory path contains "finalize"
+    # This avoids vulnerability when loop directory path contains "finalize" or "methodology"
     local src_original
-    if [[ "$src" == "$expected_src_finalize" ]]; then
+    if [[ "$src" == "$expected_src_methodology" ]]; then
+        src_original="${active_loop_dir}/methodology-analysis-state.md"
+    elif [[ "$src" == "$expected_src_finalize" ]]; then
         src_original="${active_loop_dir}/finalize-state.md"
     else
         src_original="${active_loop_dir}/state.md"

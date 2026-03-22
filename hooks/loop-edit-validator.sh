@@ -80,6 +80,47 @@ if [[ "$IN_PR_LOOP_DIR" == "true" ]]; then
 fi
 
 # ========================================
+# Methodology Analysis Phase Edit Restriction
+# ========================================
+# During methodology analysis, only methodology artifacts can be edited.
+# This prevents source code modifications after Codex has signed off.
+# This check MUST come before the humanize loop dir early exit below.
+
+PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
+# Use only the session-matched loop. Do NOT fall back to an unfiltered search,
+# as that would incorrectly restrict unrelated sessions opened in the same repo.
+# Limitation: Spawned agents (different session_id) are not restricted by hooks;
+# their sanitization is enforced by the analysis prompt.
+_MA_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
+
+if [[ -n "$_MA_LOOP_DIR" ]] && [[ -f "$_MA_LOOP_DIR/methodology-analysis-state.md" ]]; then
+    # If realpath fails (file doesn't exist yet on BSD/macOS), resolve parent dir
+    _ma_real_path=$(realpath "$FILE_PATH" 2>/dev/null || echo "")
+    if [[ -z "$_ma_real_path" ]]; then
+        _ma_parent=$(realpath "$(dirname "$FILE_PATH")" 2>/dev/null || echo "")
+        [[ -n "$_ma_parent" ]] && _ma_real_path="$_ma_parent/$(basename "$FILE_PATH")"
+    fi
+    _ma_real_loop=$(realpath "$_MA_LOOP_DIR" 2>/dev/null || echo "")
+    # Fallback to raw paths when realpath is unavailable (older macOS/BSD)
+    [[ -z "$_ma_real_path" ]] && _ma_real_path="$FILE_PATH"
+    [[ -z "$_ma_real_loop" ]] && _ma_real_loop="$_MA_LOOP_DIR"
+    if [[ "$_ma_real_path" == "$_ma_real_loop/"* ]]; then
+        _ma_basename=$(basename "$_ma_real_path")
+        case "$_ma_basename" in
+            methodology-analysis-report.md|methodology-analysis-done.md)
+                exit 0
+                ;;
+        esac
+    fi
+    echo "# Edit Blocked During Methodology Analysis
+
+During the methodology analysis phase, only methodology artifacts can be edited.
+Allowed: methodology-analysis-report.md, methodology-analysis-done.md" >&2
+    exit 2
+fi
+
+# ========================================
 # Check if File is in .humanize/rlcr
 # ========================================
 
@@ -110,9 +151,14 @@ fi
 CURRENT_ROUND="$STATE_CURRENT_ROUND"
 
 # ========================================
-# Block State File Edits (state.md and finalize-state.md)
+# Block State File Edits (state.md, finalize-state.md, methodology-analysis-state.md)
 # ========================================
-# NOTE: Check finalize-state.md FIRST because is_state_file_path also matches finalize-state.md
+# NOTE: Check most specific patterns first because is_state_file_path matches any *state.md
+
+if is_methodology_analysis_state_file_path "$FILE_PATH_LOWER"; then
+    methodology_analysis_state_file_blocked_message >&2
+    exit 2
+fi
 
 if is_finalize_state_file_path "$FILE_PATH_LOWER"; then
     finalize_state_file_blocked_message >&2

@@ -37,7 +37,9 @@ format_duration() {
 _resolve_rlcr_display() {
     local session_dir="$1"
 
-    if [[ -f "$session_dir/finalize-state.md" ]]; then
+    if [[ -f "$session_dir/methodology-analysis-state.md" ]]; then
+        echo "Analyzing"
+    elif [[ -f "$session_dir/finalize-state.md" ]]; then
         echo "Finalizing"
     elif [[ -f "$session_dir/state.md" ]]; then
         echo "Active"
@@ -95,7 +97,9 @@ get_rlcr_status() {
             [[ -z "$dir" ]] && continue
             local trimmed="${dir%/}"
             local any_state=""
-            if [[ -f "$trimmed/finalize-state.md" ]]; then
+            if [[ -f "$trimmed/methodology-analysis-state.md" ]]; then
+                any_state="$trimmed/methodology-analysis-state.md"
+            elif [[ -f "$trimmed/finalize-state.md" ]]; then
                 any_state="$trimmed/finalize-state.md"
             elif [[ -f "$trimmed/state.md" ]]; then
                 any_state="$trimmed/state.md"

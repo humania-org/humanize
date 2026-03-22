@@ -66,6 +66,80 @@ if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
 fi
 
 # ========================================
+# Methodology Analysis Phase Read Restriction
+# ========================================
+# During methodology analysis, restrict reads of files within the loop
+# directory to only the artifacts the analysis agent needs. This prevents
+# project-specific information from leaking into the analysis report.
+# Files outside the loop directory are allowed (Claude needs system files).
+# This check MUST come before the summary/prompt early exit below,
+# otherwise non-summary/prompt files in the loop dir escape restriction.
+
+PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
+# Use only the session-matched loop. Do NOT fall back to an unfiltered search,
+# as that would incorrectly restrict unrelated sessions opened in the same repo.
+# Limitation: Spawned agents (different session_id) are not restricted by hooks;
+# their sanitization is enforced by the analysis prompt.
+ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
+_MA_CHECK_DIR="$ACTIVE_LOOP_DIR"
+
+if [[ -n "$_MA_CHECK_DIR" ]]; then
+    _MA_STATE=$(resolve_active_state_file "$_MA_CHECK_DIR")
+    if [[ "$_MA_STATE" == *"/methodology-analysis-state.md" ]]; then
+        # Canonicalize to prevent path traversal
+        # If realpath fails (file doesn't exist yet on BSD/macOS), resolve parent dir
+        _ma_real_path=$(realpath "$FILE_PATH" 2>/dev/null || echo "")
+        if [[ -z "$_ma_real_path" ]]; then
+            _ma_parent=$(realpath "$(dirname "$FILE_PATH")" 2>/dev/null || echo "")
+            [[ -n "$_ma_parent" ]] && _ma_real_path="$_ma_parent/$(basename "$FILE_PATH")"
+        fi
+        _ma_real_loop=$(realpath "$_MA_CHECK_DIR" 2>/dev/null || echo "")
+        # Fallback to raw paths when realpath is unavailable (older macOS/BSD)
+        [[ -z "$_ma_real_path" ]] && _ma_real_path="$FILE_PATH"
+        [[ -z "$_ma_real_loop" ]] && _ma_real_loop="$_MA_CHECK_DIR"
+        if [[ "$_ma_real_path" == "$_ma_real_loop/"* ]]; then
+            _ma_basename=$(basename "$_ma_real_path")
+            # Allowlist: only methodology artifacts (not raw development records).
+            # Raw records (round-*-summary.md, round-*-review-result.md) are
+            # intentionally excluded so the originating session cannot read
+            # project-specific content and must rely solely on the sanitized
+            # methodology-analysis-report.md for all user-facing output.
+            # The spawned Opus agent reads raw records directly (not restricted
+            # by hooks due to different session_id -- see limitation comment above).
+            case "$_ma_basename" in
+                methodology-analysis-report.md|methodology-analysis-done.md|methodology-analysis-state.md)
+                    exit 0
+                    ;;
+                *)
+                    echo "# Read Blocked During Methodology Analysis
+
+Only methodology artifacts can be read from the loop directory during this phase.
+Allowed: methodology-analysis-report.md, methodology-analysis-done.md, methodology-analysis-state.md" >&2
+                    exit 2
+                    ;;
+            esac
+        fi
+        # Files within the project root are blocked (project-specific information)
+        # Files outside the project root are allowed (system files, config, etc.)
+        _ma_project_real=$(realpath "$PROJECT_ROOT" 2>/dev/null || echo "$PROJECT_ROOT")
+        if [[ -n "$_ma_project_real" ]]; then
+            _ma_path_check="${_ma_real_path:-$FILE_PATH}"
+            if [[ "$_ma_path_check" == "$_ma_project_real/"* ]] || \
+               [[ "$_ma_path_check" == "$PROJECT_ROOT/"* ]]; then
+                echo "# Read Blocked During Methodology Analysis
+
+Reading project files is not allowed during the methodology analysis phase.
+Only methodology artifacts within the loop directory can be read.
+Allowed: methodology-analysis-report.md, methodology-analysis-done.md, methodology-analysis-state.md" >&2
+                exit 2
+            fi
+        fi
+        exit 0
+    fi
+fi
+
+# ========================================
 # Check for Round Files (summary/prompt)
 # ========================================
 
@@ -80,15 +154,14 @@ IN_HUMANIZE_LOOP_DIR=$(is_in_humanize_loop_dir "$FILE_PATH" && echo "true" || ec
 # Find Active Loop and Current Round
 # ========================================
 
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
-LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
-ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
+# Re-use ACTIVE_LOOP_DIR if already set by methodology analysis check above
+ACTIVE_LOOP_DIR="${ACTIVE_LOOP_DIR:-${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}}"
 
 if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
-# Detect if we're in Finalize Phase (finalize-state.md exists)
+# Detect loop phase from state file
 STATE_FILE_TO_PARSE=$(resolve_active_state_file "$ACTIVE_LOOP_DIR")
 
 # Parse state file using strict validation (fail closed on malformed state)
