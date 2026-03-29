@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# PreToolUse Hook: Validate Edit paths for RLCR loop and PR loop
+# PreToolUse Hook: Validate Edit paths for RLCR loop
 #
 # Blocks Claude from editing:
 # - Todos files (should use native Task tools instead)
@@ -8,8 +8,6 @@
 # - State files (managed by hooks, not Claude)
 # - Wrong round number contract files
 # - Goal tracker edits outside the active loop or that alter the immutable section
-# - PR loop state files (.humanize/pr-loop/)
-# - PR loop read-only files (pr-comment, prompt, codex-prompt, pr-check, pr-feedback)
 #
 
 set -euo pipefail
@@ -52,32 +50,6 @@ fi
 if is_round_file_type "$FILE_PATH_LOWER" "prompt"; then
     prompt_write_blocked_message >&2
     exit 2
-fi
-
-# ========================================
-# PR Loop File Protection
-# ========================================
-
-IN_PR_LOOP_DIR=$(is_in_pr_loop_dir "$FILE_PATH" && echo "true" || echo "false")
-
-if [[ "$IN_PR_LOOP_DIR" == "true" ]]; then
-    # Block state.md edits in PR loop
-    if is_state_file_path "$FILE_PATH_LOWER"; then
-        pr_loop_state_blocked_message >&2
-        exit 2
-    fi
-
-    # Block read-only PR loop files
-    if is_pr_loop_readonly_file "$FILE_PATH_LOWER"; then
-        pr_loop_prompt_blocked_message >&2
-        exit 2
-    fi
-
-    # For round-N-pr-resolve.md (Claude's resolution summary), validate round number
-    if is_pr_round_file_type "$FILE_PATH_LOWER" "pr-resolve"; then
-        validate_pr_resolve_round "$FILE_PATH_LOWER" "edit" || exit $?
-        exit 0
-    fi
 fi
 
 # ========================================

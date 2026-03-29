@@ -11,7 +11,6 @@ echo ""
 
 monitor_test_bash_deletion
 monitor_test_zsh_deletion
-monitor_test_pr_deletion
 
 echo ""
 echo "========================================"

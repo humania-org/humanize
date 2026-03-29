@@ -1,5 +1,5 @@
 {
-  "description": "Humanize Codex Hooks - Native Stop hooks for RLCR and PR loops",
+  "description": "Humanize Codex Hooks - Native Stop hooks for RLCR loops",
   "hooks": {
     "Stop": [
       {
@@ -9,12 +9,6 @@
             "command": "{{HUMANIZE_RUNTIME_ROOT}}/hooks/loop-codex-stop-hook.sh",
             "timeout": 7200,
             "statusMessage": "humanize RLCR stop hook"
-          },
-          {
-            "type": "command",
-            "command": "{{HUMANIZE_RUNTIME_ROOT}}/hooks/pr-loop-stop-hook.sh",
-            "timeout": 7200,
-            "statusMessage": "humanize PR stop hook"
           }
         ]
       }

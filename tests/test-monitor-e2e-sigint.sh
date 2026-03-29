@@ -11,7 +11,6 @@ echo ""
 
 monitor_test_bash_sigint
 monitor_test_zsh_sigint
-monitor_test_pr_sigint
 
 echo ""
 echo "========================================"

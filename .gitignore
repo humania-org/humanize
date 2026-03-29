@@ -3,6 +3,7 @@ temp
 
 # Local Claude client settings
 /.claude/settings.json
+/.claude/scheduled_tasks.lock
 
 # Humanize state directories (runtime-generated, project-local)
 .humanize/

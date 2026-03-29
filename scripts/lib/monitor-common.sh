@@ -2,7 +2,7 @@
 #
 # monitor-common.sh - Shared utilities for humanize monitor functions
 #
-# This file contains common functions used by both RLCR and PR loop monitors.
+# This file contains common functions used by humanize monitor functions.
 # It should be sourced by humanize.sh rather than executed directly.
 
 # ========================================
@@ -256,135 +256,6 @@ monitor_truncate_string() {
 }
 
 # ========================================
-# PR Loop Phase Detection
-# ========================================
-
-# Detect current PR loop phase from file state
-# Returns: one of: approved, cancelled, maxiter, codex_analyzing, waiting_initial_review, waiting_reviewer
-#
-# Usage: get_pr_loop_phase "/path/to/session"
-#
-# Detection strategy for codex_analyzing:
-# 1. Find the latest round's pr-check.md file
-# 2. Check if it's growing by comparing current size with cached previous size
-# 3. Cache size in /tmp for comparison on next call
-get_pr_loop_phase() {
-    local session_dir="$1"
-
-    [[ ! -d "$session_dir" ]] && echo "unknown" && return
-
-    # Check for final states first
-    [[ -f "$session_dir/approve-state.md" ]] && echo "approved" && return
-    [[ -f "$session_dir/cancel-state.md" ]] && echo "cancelled" && return
-    [[ -f "$session_dir/maxiter-state.md" ]] && echo "maxiter" && return
-
-    # Check for Codex running by detecting file growth
-    # Find the highest numbered round pr-check file
-    local latest_check=""
-    local highest_round=-1
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        local basename=$(basename "$f")
-        local round_str="${basename#round-}"
-        round_str="${round_str%-pr-check.md}"
-        if [[ "$round_str" =~ ^[0-9]+$ ]] && [[ "$round_str" -gt "$highest_round" ]]; then
-            highest_round="$round_str"
-            latest_check="$f"
-        fi
-    done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null)
-
-    if [[ -n "$latest_check" ]]; then
-        # Get current file size
-        local current_size
-        current_size=$(stat -c%s "$latest_check" 2>/dev/null || stat -f%z "$latest_check" 2>/dev/null || echo 0)
-
-        # Cache file for tracking size changes (unique per session)
-        local session_name=$(basename "$session_dir")
-        local cache_file="/tmp/humanize-phase-${session_name}-${highest_round}.size"
-
-        # Read previous size from cache
-        local previous_size=0
-        [[ -f "$cache_file" ]] && previous_size=$(cat "$cache_file" 2>/dev/null || echo 0)
-
-        # Update cache with current size
-        echo "$current_size" > "$cache_file" 2>/dev/null || true
-
-        # If file is growing OR is new (no previous record), Codex is analyzing
-        # Also check mtime as fallback (file modified in last 10 seconds)
-        local now_epoch file_epoch
-        now_epoch=$(date +%s)
-        file_epoch=$(stat -c %Y "$latest_check" 2>/dev/null || stat -f %m "$latest_check" 2>/dev/null || echo 0)
-        local age_seconds=$((now_epoch - file_epoch))
-
-        if [[ "$current_size" -gt "$previous_size" ]] || [[ "$age_seconds" -lt 10 ]]; then
-            echo "codex_analyzing"
-            return
-        fi
-    fi
-
-    # Check state.md for round info
-    if [[ -f "$session_dir/state.md" ]]; then
-        local frontmatter
-        frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$session_dir/state.md" 2>/dev/null)
-
-        local current_round
-        local startup_case
-        current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
-        startup_case=$(echo "$frontmatter" | grep "^startup_case:" | sed "s/startup_case: *//" | tr -d ' ')
-
-        current_round=${current_round:-0}
-        startup_case=${startup_case:-1}
-
-        if [[ "$current_round" -eq 0 && "$startup_case" -eq 1 ]]; then
-            echo "waiting_initial_review"
-        else
-            echo "waiting_reviewer"
-        fi
-    else
-        echo "unknown"
-    fi
-}
-
-# Get human-readable description for PR loop phase
-# Usage: get_pr_loop_phase_display "waiting_reviewer" "claude,codex"
-get_pr_loop_phase_display() {
-    local phase="$1"
-    local active_bots="$2"
-
-    case "$phase" in
-        approved)
-            echo "All reviews approved"
-            ;;
-        cancelled)
-            echo "Loop cancelled"
-            ;;
-        maxiter)
-            echo "Max iterations reached"
-            ;;
-        codex_analyzing)
-            echo "Codex analyzing reviews..."
-            ;;
-        waiting_initial_review)
-            if [[ -n "$active_bots" && "$active_bots" != "none" ]]; then
-                echo "Waiting for initial PR review from $active_bots"
-            else
-                echo "Waiting for initial PR review"
-            fi
-            ;;
-        waiting_reviewer)
-            if [[ -n "$active_bots" && "$active_bots" != "none" ]]; then
-                echo "Waiting for $active_bots (polling...)"
-            else
-                echo "Waiting for reviews (polling...)"
-            fi
-            ;;
-        *)
-            echo "Unknown phase"
-            ;;
-    esac
-}
-
-# ========================================
 # Goal Tracker Parsing
 # ========================================
 
@@ -511,37 +382,3 @@ parse_goal_tracker() {
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
 }
 
-# Parse PR goal-tracker.md for issue statistics
-# Returns: total_issues|resolved_issues|remaining_issues|last_reviewer
-# Usage: humanize_parse_pr_goal_tracker "/path/to/goal-tracker.md"
-humanize_parse_pr_goal_tracker() {
-    local tracker_file="$1"
-    if [[ ! -f "$tracker_file" ]]; then
-        echo "0|0|0|none"
-        return
-    fi
-
-    # Extract from Total Statistics section
-    # Format: - Total Issues Found: N
-    local total_issues
-    total_issues=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    total_issues=${total_issues:-0}
-
-    local resolved_issues
-    resolved_issues=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    resolved_issues=${resolved_issues:-0}
-
-    local remaining_issues
-    remaining_issues=$(grep -E "^- Remaining:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    remaining_issues=${remaining_issues:-0}
-
-    # Get last reviewer from Issue Summary table (last row, Reviewer column)
-    # Table format: | ID | Reviewer | Round | Status | Description |
-    # Pattern matches rows like "|1|..." or "| 1 |..." (with or without spaces)
-    local last_reviewer
-    last_reviewer=$(sed -n '/## Issue Summary/,/^##/p' "$tracker_file" \
-        | grep -E '^\|[[:space:]]*[0-9]+' | tail -1 | cut -d'|' -f3 | tr -d ' ')
-    last_reviewer=${last_reviewer:-none}
-
-    echo "${total_issues}|${resolved_issues}|${remaining_issues}|${last_reviewer}"
-}

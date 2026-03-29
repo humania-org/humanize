@@ -90,11 +90,6 @@ cat > "$HOOKS_FILE" <<'EOF'
             "type": "command",
             "command": "/tmp/old/skills/humanize/hooks/loop-codex-stop-hook.sh",
             "timeout": 30
-          },
-          {
-            "type": "command",
-            "command": "/tmp/old/skills/humanize/hooks/pr-loop-stop-hook.sh",
-            "timeout": 30
           }
         ]
       },
@@ -190,7 +185,6 @@ for group in data["hooks"]["Stop"]:
 
 expected = {
     f"{runtime_root}/hooks/loop-codex-stop-hook.sh",
-    f"{runtime_root}/hooks/pr-loop-stop-hook.sh",
 }
 
 print("FOUND=" + ("1" if expected.issubset(set(commands)) else "0"))
@@ -225,10 +219,10 @@ else
     fail "Codex install preserves SessionStart hooks" "SESSION=1" "$PY_OUTPUT"
 fi
 
-if grep -q '^COUNT=2$' <<<"$PY_OUTPUT"; then
-    pass "Codex install writes exactly two managed Humanize Stop hooks"
+if grep -q '^COUNT=1$' <<<"$PY_OUTPUT"; then
+    pass "Codex install writes exactly one managed Humanize Stop hook"
 else
-    fail "Codex install writes exactly two managed Humanize Stop hooks" "COUNT=2" "$PY_OUTPUT"
+    fail "Codex install writes exactly one managed Humanize Stop hook" "COUNT=1" "$PY_OUTPUT"
 fi
 
 mkdir -p "$TEST_DIR/project"
@@ -281,10 +275,10 @@ print(sum(1 for cmd in commands if "/humanize/hooks/" in cmd))
 PY
 )"
 
-if [[ "$PY_OUTPUT_2" == "2" ]]; then
+if [[ "$PY_OUTPUT_2" == "1" ]]; then
     pass "Codex install is idempotent for managed hook commands"
 else
-    fail "Codex install is idempotent for managed hook commands" "2" "$PY_OUTPUT_2"
+    fail "Codex install is idempotent for managed hook commands" "1" "$PY_OUTPUT_2"
 fi
 
 if [[ "$(wc -l < "$FEATURE_LOG" | tr -d ' ')" == "2" ]]; then

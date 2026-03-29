@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 #
-# PreToolUse Hook: Validate Bash commands for RLCR loop and PR loop
+# PreToolUse Hook: Validate Bash commands for RLCR loop
 #
 # Blocks attempts to bypass Write/Edit hooks using shell commands:
 # - cat/echo/printf > file.md (redirection)
 # - tee file.md
 # - sed -i file.md (in-place edit)
 # - goal-tracker.md modifications via Bash
-# - PR loop state.md modifications
-# - PR loop read-only file modifications (pr-comment, prompt, codex-prompt, etc.)
 #
 
 set -euo pipefail
@@ -59,10 +57,6 @@ HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 # Check for active RLCR loop (filtered by session_id)
 LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 ACTIVE_LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
-
-# Check for active PR loop
-PR_LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/pr-loop"
-ACTIVE_PR_LOOP_DIR=$(find_active_pr_loop "$PR_LOOP_BASE_DIR")
 
 # ========================================
 # Methodology Analysis Phase Bash Restriction
@@ -158,8 +152,8 @@ File redirection is not allowed during the methodology analysis phase." >&2
     fi
 fi
 
-# If no active loop of either type, allow all commands
-if [[ -z "$ACTIVE_LOOP_DIR" ]] && [[ -z "$ACTIVE_PR_LOOP_DIR" ]]; then
+# If no active RLCR loop, allow all commands
+if [[ -z "$ACTIVE_LOOP_DIR" ]]; then
     exit 0
 fi
 
@@ -169,7 +163,7 @@ fi
 # Prevents Claude from manually running stop hook or stop gate scripts.
 # These scripts should only be invoked by the hooks system, not via Bash.
 
-BLOCKED_HOOK_SCRIPTS="(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh|rlcr-stop-gate\.sh)"
+BLOCKED_HOOK_SCRIPTS="(loop-codex-stop-hook\.sh|rlcr-stop-gate\.sh)"
 HOOK_ASSIGNMENT_PREFIX="[[:alpha:]_][[:alnum:]_]*=[^[:space:];&|]+"
 HOOK_COMMAND_PREFIX="command([[:space:]]+(-[^[:space:];&|]+|--))*"
 HOOK_ENV_PREFIX="env([[:space:]]+(-[^[:space:];&|]+|--|${HOOK_ASSIGNMENT_PREFIX}))*"
@@ -557,53 +551,5 @@ if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
 fi
 
 fi  # End of RLCR-specific checks
-
-# ========================================
-# PR Loop File Protection
-# ========================================
-# Block modifications to PR loop state and read-only files
-# Note: ACTIVE_PR_LOOP_DIR was already set at the top of the script
-
-if [[ -n "$ACTIVE_PR_LOOP_DIR" ]]; then
-    # Block PR loop state.md modifications
-    # Check both full path pattern AND bare filename to catch relative path bypass
-    # (e.g., cd .humanize/pr-loop/timestamp && sed -i state.md)
-    if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/state\.md"; then
-        pr_loop_state_blocked_message >&2
-        exit 2
-    fi
-    # Bare filename check for state.md (catches relative path usage)
-    if command_modifies_file "$COMMAND_LOWER" "state\.md"; then
-        pr_loop_state_blocked_message >&2
-        exit 2
-    fi
-
-    # Block PR loop read-only files:
-    # - round-N-pr-comment.md (fetched comments)
-    # - round-N-prompt.md (prompts from system)
-    # - round-N-codex-prompt.md (Codex prompts)
-    # - round-N-pr-check.md (Codex output)
-    # - round-N-pr-feedback.md (feedback for next round)
-    PR_LOOP_READONLY_PATTERNS=(
-        "round-[0-9]+-pr-comment\.md"
-        "round-[0-9]+-prompt\.md"
-        "round-[0-9]+-codex-prompt\.md"
-        "round-[0-9]+-pr-check\.md"
-        "round-[0-9]+-pr-feedback\.md"
-    )
-
-    for pattern in "${PR_LOOP_READONLY_PATTERNS[@]}"; do
-        # Check both full path pattern AND bare filename to catch relative path bypass
-        if command_modifies_file "$COMMAND_LOWER" "\.humanize/pr-loop(/[^/]+)?/${pattern}"; then
-            pr_loop_prompt_blocked_message >&2
-            exit 2
-        fi
-        # Bare filename check (catches relative path usage from within loop dir)
-        if command_modifies_file "$COMMAND_LOWER" "${pattern}"; then
-            pr_loop_prompt_blocked_message >&2
-            exit 2
-        fi
-    done
-fi
 
 exit 0

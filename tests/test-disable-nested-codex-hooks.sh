@@ -38,7 +38,6 @@ export XDG_CACHE_HOME="$TEST_DIR/.cache"
 mkdir -p "$XDG_CACHE_HOME"
 
 STOP_HOOK="$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"
-PR_STOP_HOOK="$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"
 
 setup_repo() {
     local repo_dir="$1"
@@ -192,13 +191,6 @@ if grep -q -- '--disable codex_hooks review' "$TEST_DIR/review.args"; then
 else
     fail "review-phase stop hook disables codex_hooks for codex review" \
         "--disable codex_hooks review" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
-fi
-
-if grep -q 'codex "\${CODEX_DISABLE_HOOKS_ARGS\[@\]}" exec' "$PR_STOP_HOOK"; then
-    pass "PR stop hook disables codex_hooks for nested codex exec"
-else
-    fail "PR stop hook disables codex_hooks for nested codex exec" \
-        'codex "${CODEX_DISABLE_HOOKS_ARGS[@]}" exec' "not found"
 fi
 
 echo ""

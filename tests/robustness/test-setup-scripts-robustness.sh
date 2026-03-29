@@ -2,7 +2,7 @@
 #
 # Robustness tests for setup scripts
 #
-# Tests setup-rlcr-loop.sh and setup-pr-loop.sh under edge cases:
+# Tests setup-rlcr-loop.sh under edge cases:
 # - Argument parsing edge cases
 # - Plan file validation edge cases
 # - Git repository edge cases
@@ -89,17 +89,6 @@ run_rlcr_setup() {
         # Set CLAUDE_PROJECT_DIR to isolate from any real active loops
         # Preserve PATH to ensure git/gh/etc are available
         CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "$@"
-    )
-}
-
-# Run setup-pr-loop.sh with proper isolation from real PR loop
-# Usage: run_pr_setup <test_repo_dir> [args...]
-run_pr_setup() {
-    local repo_dir="$1"
-    shift
-    (
-        cd "$repo_dir"
-        CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-pr-loop.sh" "$@"
     )
 }
 
@@ -503,68 +492,6 @@ else
 fi
 
 # ========================================
-# Setup PR Loop Tests
-# ========================================
-
-echo ""
-echo "--- Setup PR Loop Argument Tests ---"
-echo ""
-
-# Test 19: Help flag displays usage
-echo "Test 19: PR loop help flag displays usage"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --help 2>&1) || true
-if echo "$OUTPUT" | grep -q "USAGE\|start-pr-loop"; then
-    pass "PR loop help flag displays usage"
-else
-    fail "PR loop help" "USAGE text" "no usage found"
-fi
-
-# Test 20: Missing bot flag shows error
-echo ""
-echo "Test 20: PR loop missing bot flag shows error"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "at least one bot flag"; then
-    pass "PR loop missing bot flag shows error"
-else
-    fail "Missing bot flag" "error message" "exit=$EXIT_CODE"
-fi
-
-# Test 21: Unknown option rejected
-echo ""
-echo "Test 21: PR loop unknown option rejected"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --unknown-option 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "unknown option"; then
-    pass "PR loop unknown option rejected"
-else
-    fail "PR loop unknown option" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 22: --max with non-numeric value rejected
-echo ""
-echo "Test 22: PR loop --max with non-numeric value rejected"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude --max abc 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
-    pass "PR loop --max non-numeric rejected"
-else
-    fail "PR loop --max validation" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 23: Non-git directory rejected
-echo ""
-echo "Test 23: PR loop non-git directory rejected"
-mkdir -p "$TEST_DIR/pr-nongit"
-OUTPUT=$(run_pr_setup "$TEST_DIR/pr-nongit" --claude 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "git repository"; then
-    pass "PR loop non-git directory rejected"
-else
-    fail "PR loop non-git" "rejection" "exit=$EXIT_CODE"
-fi
-
-# ========================================
 # Mutual Exclusion Tests
 # ========================================
 
@@ -600,38 +527,6 @@ if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "already active"; then
     pass "Active RLCR loop blocks new RLCR loop"
 else
     fail "RLCR mutual exclusion" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 25: PR loop blocks starting RLCR loop
-echo ""
-echo "Test 25: Active PR loop blocks new RLCR loop"
-mkdir -p "$TEST_DIR/repo25"
-init_basic_git_repo "$TEST_DIR/repo25"
-create_minimal_plan "$TEST_DIR/repo25"
-echo "plan.md" >> "$TEST_DIR/repo25/.gitignore"
-git -C "$TEST_DIR/repo25" add .gitignore && git -C "$TEST_DIR/repo25" commit -q -m "Add gitignore"
-
-# Create fake active PR loop
-mkdir -p "$TEST_DIR/repo25/.humanize/pr-loop/2026-01-19_00-00-00"
-cat > "$TEST_DIR/repo25/.humanize/pr-loop/2026-01-19_00-00-00/state.md" << 'EOF'
----
-current_round: 0
-max_iterations: 42
-pr_number: 123
----
-EOF
-
-mkdir -p "$TEST_DIR/repo25/bin"
-echo '#!/usr/bin/env bash
-exit 0' > "$TEST_DIR/repo25/bin/codex"
-chmod +x "$TEST_DIR/repo25/bin/codex"
-
-OUTPUT=$(PATH="$TEST_DIR/repo25/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo25" plan.md 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "pr loop.*already active\|already active"; then
-    pass "Active PR loop blocks new RLCR loop"
-else
-    fail "PR loop blocks RLCR" "rejection" "exit=$EXIT_CODE"
 fi
 
 # ========================================
@@ -751,33 +646,6 @@ else
     pass "Valid numeric arguments accepted (--max 10, --codex-timeout 3600)"
 fi
 
-# Test 30: Valid PR loop setup proceeds past argument validation
-echo ""
-echo "Test 30: Valid PR loop setup proceeds past argument validation"
-mkdir -p "$TEST_DIR/repo30"
-init_basic_git_repo "$TEST_DIR/repo30"
-
-# Create mock gh that fails auth check (to test dependency handling)
-mkdir -p "$TEST_DIR/repo30/bin"
-cat > "$TEST_DIR/repo30/bin/gh" << 'EOF'
-#!/usr/bin/env bash
-if [[ "$1" == "auth" && "$2" == "status" ]]; then
-    echo "Not logged in" >&2
-    exit 1
-fi
-exit 0
-EOF
-chmod +x "$TEST_DIR/repo30/bin/gh"
-
-OUTPUT=$(PATH="$TEST_DIR/repo30/bin:$PATH" run_pr_setup "$TEST_DIR/repo30" --claude 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-# Should fail at gh auth check, not argument parsing
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "gh\|auth\|logged"; then
-    pass "Valid PR loop setup proceeds to gh auth check"
-else
-    fail "Valid PR loop setup" "fail at gh auth check" "exit=$EXIT_CODE"
-fi
-
 # ========================================
 # Timeout Scenario Tests
 # ========================================
@@ -802,20 +670,6 @@ if echo "$OUTPUT" | grep -qi "positive integer"; then
     fail "--codex-timeout 0" "accepted" "rejected as not positive integer"
 else
     pass "--codex-timeout 0 accepted (non-negative integer validation)"
-fi
-
-# Test 32: --codex-timeout with non-numeric value rejected (PR loop)
-echo ""
-echo "Test 32: PR loop --codex-timeout with non-numeric value rejected"
-mkdir -p "$TEST_DIR/repo32"
-init_basic_git_repo "$TEST_DIR/repo32"
-mkdir -p "$TEST_DIR/repo32/bin"
-OUTPUT=$(PATH="$TEST_DIR/repo32/bin:$PATH" run_pr_setup "$TEST_DIR/repo32" --claude --codex-timeout "abc" 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
-    pass "PR loop --codex-timeout non-numeric rejected"
-else
-    fail "PR loop --codex-timeout non-numeric" "rejection with 'positive integer'" "exit=$EXIT_CODE, output=$OUTPUT"
 fi
 
 # Test 33: Very large timeout value accepted

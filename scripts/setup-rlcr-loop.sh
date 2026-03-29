@@ -325,7 +325,7 @@ done
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# loop-common.sh already sourced above (provides find_active_loop, find_active_pr_loop, etc.)
+# loop-common.sh already sourced above (provides find_active_loop, etc.)
 
 # ========================================
 # Required Dependency Check
@@ -362,10 +362,8 @@ fi
 # Mutual Exclusion Check
 # ========================================
 
-# Check for existing active loops (both RLCR and PR loops)
-# Only one loop type can be active at a time
+# Check for existing active RLCR loop
 RLCR_LOOP_DIR=$(find_active_loop "$PROJECT_ROOT/.humanize/rlcr" 2>/dev/null || echo "")
-PR_LOOP_DIR=$(find_active_pr_loop "$PROJECT_ROOT/.humanize/pr-loop" 2>/dev/null || echo "")
 
 if [[ -n "$RLCR_LOOP_DIR" ]]; then
     echo "Error: An RLCR loop is already active" >&2
@@ -373,15 +371,6 @@ if [[ -n "$RLCR_LOOP_DIR" ]]; then
     echo "" >&2
     echo "Only one loop can be active at a time." >&2
     echo "Cancel the RLCR loop first with: /humanize:cancel-rlcr-loop" >&2
-    exit 1
-fi
-
-if [[ -n "$PR_LOOP_DIR" ]]; then
-    echo "Error: A PR loop is already active" >&2
-    echo "  Active loop: $PR_LOOP_DIR" >&2
-    echo "" >&2
-    echo "Only one loop can be active at a time." >&2
-    echo "Cancel the PR loop first with: /humanize:cancel-pr-loop" >&2
     exit 1
 fi
 

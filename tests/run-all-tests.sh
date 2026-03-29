@@ -86,10 +86,6 @@ TEST_SUITES=(
     "test-config-error-handling.sh"
     "test-codex-hook-install.sh"
     "test-unified-codex-config.sh"
-    "test-pr-loop-1-scripts.sh"
-    "test-pr-loop-2-hooks.sh"
-    "test-pr-loop-3-stophook.sh"
-    "test-pr-loop-system.sh"
     # Session ID and Agent Teams tests
     "test-session-id.sh"
     "test-agent-teams.sh"
@@ -118,8 +114,6 @@ TEST_SUITES=(
     "robustness/test-hook-system-robustness.sh"
     "robustness/test-template-error-robustness.sh"
     "robustness/test-state-transition-robustness.sh"
-    "robustness/test-pr-loop-api-fetch.sh"
-    "robustness/test-pr-loop-api-poll.sh"
 )
 
 # Tests that must be run with zsh (not bash)

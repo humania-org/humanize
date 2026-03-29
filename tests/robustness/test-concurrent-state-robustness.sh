@@ -387,61 +387,6 @@ else
 fi
 
 # ========================================
-# PR Loop State Tests
-# ========================================
-
-echo ""
-echo "--- PR Loop State Tests ---"
-echo ""
-
-# Test 16: find_active_pr_loop works correctly
-echo "Test 16: find_active_pr_loop detection"
-mkdir -p "$TEST_DIR/pr-loops/pr-loop/2026-01-19_12-00-00"
-cat > "$TEST_DIR/pr-loops/pr-loop/2026-01-19_12-00-00/state.md" << 'EOF'
----
-current_round: 0
-max_iterations: 42
-pr_number: 123
----
-EOF
-
-ACTIVE=$(find_active_pr_loop "$TEST_DIR/pr-loops/pr-loop" 2>/dev/null || echo "")
-if [[ "$ACTIVE" == *"2026-01-19"* ]]; then
-    pass "find_active_pr_loop works correctly"
-else
-    fail "find_active_pr_loop" "*2026-01-19*" "$ACTIVE"
-fi
-
-# Test 17: PR loop state with YAML list for active_bots
-echo ""
-echo "Test 17: PR loop state with YAML list"
-mkdir -p "$TEST_DIR/pr-yaml"
-cat > "$TEST_DIR/pr-yaml/state.md" << 'EOF'
----
-current_round: 1
-active_bots:
-  - claude
-  - codex
-configured_bots:
-  - claude
-  - codex
----
-EOF
-
-# Test that we can read the state file without errors
-if [[ -f "$TEST_DIR/pr-yaml/state.md" ]]; then
-    # Check if file contains expected YAML structure
-    if grep -q "^  - claude$" "$TEST_DIR/pr-yaml/state.md" && \
-       grep -q "^  - codex$" "$TEST_DIR/pr-yaml/state.md"; then
-        pass "PR loop YAML list format validated"
-    else
-        fail "YAML list format" "list items" "missing"
-    fi
-else
-    fail "YAML list" "file exists" "file not found"
-fi
-
-# ========================================
 # Stale Loop Detection Tests
 # ========================================
 

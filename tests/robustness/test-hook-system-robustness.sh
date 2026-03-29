@@ -6,7 +6,6 @@
 # - loop-edit-validator.sh
 # - loop-plan-file-validator.sh
 # - loop-codex-stop-hook.sh (state parsing)
-# - pr-loop-stop-hook.sh (state parsing)
 #
 # Focus areas:
 # - JSON input validation edge cases
@@ -656,22 +655,6 @@ if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q '"decision".*:.*"block"'
     pass "Stop hook allows exit when no state (no block decision)"
 else
     fail "Missing state handling" "exit 0, no block decision" "exit=$EXIT_CODE, output=$OUTPUT"
-fi
-
-# Test 17: PR stop hook handles missing state gracefully (allows exit)
-echo ""
-echo "Test 17: PR stop hook allows exit when no state directory"
-mkdir -p "$TEST_DIR/no-pr-state"
-
-set +e
-OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/no-pr-state" bash "$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh" 2>&1)
-EXIT_CODE=$?
-set -e
-# Should exit 0, no block decision
-if [[ $EXIT_CODE -eq 0 ]] && ! echo "$OUTPUT" | grep -q '"decision".*:.*"block"'; then
-    pass "PR stop hook allows exit when no state (no block decision)"
-else
-    fail "PR missing state" "exit 0, no block decision" "exit=$EXIT_CODE"
 fi
 
 # Test 18: Stop hook with corrupted state file outputs block decision

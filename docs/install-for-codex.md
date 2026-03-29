@@ -76,7 +76,7 @@ sed -n '1,220p' "${CODEX_HOME:-$HOME/.codex}/hooks.json"
 
 Expected:
 - `codex_hooks` is `true`
-- `hooks.json` contains `loop-codex-stop-hook.sh` and `pr-loop-stop-hook.sh`
+- `hooks.json` contains `loop-codex-stop-hook.sh`
 - `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json` contains `bitlesson_model` set to a Codex/OpenAI model such as `gpt-5.4`
 - for `--target codex`, `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json` also contains `provider_mode: "codex-only"`
 

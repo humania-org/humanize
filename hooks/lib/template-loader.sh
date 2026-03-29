@@ -221,7 +221,7 @@ validate_template_dir() {
         return 1
     fi
 
-    local required_subdirs=("block" "codex" "claude" "plan" "pr-loop")
+    local required_subdirs=("block" "codex" "claude" "plan")
     local missing=()
     local subdir
     for subdir in "${required_subdirs[@]}"; do

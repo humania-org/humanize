@@ -63,8 +63,6 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 | `/refine-plan --input <annotated-plan.md>` | Refine an annotated plan and generate a QA ledger |
-| `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
-| `/cancel-pr-loop` | Cancel active PR loop |
 | `/ask-codex [question]` | One-shot consultation with Codex |
 
 ## Command Reference
@@ -209,39 +207,6 @@ If `--alt-language` is set to a supported non-English language, the command also
 translated plan and QA variants by inserting `_<code>` before the file extension, such as
 `plan_zh.md` and `plan-qa_zh.md`.
 
-### start-pr-loop
-
-```
-/humanize:start-pr-loop --claude|--codex [OPTIONS]
-
-BOT FLAGS (at least one required):
-  --claude   Monitor reviews from claude[bot] (trigger with @claude)
-  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger with @codex)
-
-OPTIONS:
-  --max <N>              Maximum iterations before auto-stop (default: 42)
-  --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default from config, effort: medium)
-  --codex-timeout <SECONDS>
-                         Timeout for each Codex review in seconds (default: 900)
-  -h, --help             Show help message
-```
-
-The PR loop automates the process of handling GitHub PR reviews from remote bots:
-
-1. Detects the PR associated with the current branch
-2. Fetches review comments from the specified bot(s)
-3. Claude analyzes and fixes issues identified by the bot(s)
-4. Pushes changes and triggers re-review by commenting @bot
-5. Stop Hook polls for new bot reviews (every 30s, 15min timeout per bot)
-6. Local Codex validates if remote concerns are approved or have issues
-7. Loop continues until all bots approve or max iterations reached
-
-**Prerequisites:**
-- GitHub CLI (`gh`) must be installed and authenticated
-- Codex CLI must be installed
-- Current branch must have an associated open PR
-
 ### ask-codex
 
 ```
@@ -284,7 +249,7 @@ Current built-in keys:
 
 ### Codex Model Configuration
 
-All Codex-using features (RLCR loop, PR loop, ask-codex) share the same model configuration:
+All Codex-using features (RLCR loop, ask-codex) share the same model configuration:
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -307,7 +272,7 @@ are unset, so BitLesson selection stays on the Codex/OpenAI path without probing
 
 Codex model is resolved with this precedence:
 1. CLI `--codex-model` flag (highest priority)
-2. Feature-specific defaults (e.g., PR loop defaults to `medium` effort)
+2. Feature-specific defaults
 3. Config-backed defaults from the 4-layer hierarchy above
 4. Hardcoded fallback (`gpt-5.4:high`)
 
@@ -327,8 +292,6 @@ source ~/.claude/plugins/cache/humania/humanize/<LATEST.VERSION>/scripts/humaniz
 # Monitor RLCR loop progress
 humanize monitor rlcr
 
-# Monitor PR loop progress
-humanize monitor pr
 ```
 
 Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
@@ -336,7 +299,6 @@ Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
 ## Cancellation
 
 - **RLCR loop**: `/humanize:cancel-rlcr-loop`
-- **PR loop**: `/humanize:cancel-pr-loop`
 
 ## Environment Variables
 
