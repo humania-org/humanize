@@ -104,8 +104,27 @@ if [[ -n "$_MA_LOOP_DIR" ]] && [[ -f "$_MA_LOOP_DIR/methodology-analysis-state.m
     fi
     _ma_real_loop=$(realpath "$_MA_LOOP_DIR" 2>/dev/null || echo "")
     # Fallback to raw paths when realpath is unavailable (older macOS/BSD)
-    [[ -z "$_ma_real_path" ]] && _ma_real_path="$FILE_PATH"
-    [[ -z "$_ma_real_loop" ]] && _ma_real_loop="$_MA_LOOP_DIR"
+    # Ensure paths are absolute and reject ".." to prevent traversal bypasses.
+    if [[ -z "$_ma_real_path" ]]; then
+        if [[ "$FILE_PATH" == *".."* ]]; then
+            echo "# Edit Blocked During Methodology Analysis
+
+Path contains traversal segments that cannot be resolved without realpath." >&2
+            exit 2
+        fi
+        if [[ "$FILE_PATH" == /* ]]; then
+            _ma_real_path="$FILE_PATH"
+        else
+            _ma_real_path="$PROJECT_ROOT/$FILE_PATH"
+        fi
+    fi
+    if [[ -z "$_ma_real_loop" ]]; then
+        if [[ "$_MA_LOOP_DIR" == /* ]]; then
+            _ma_real_loop="$_MA_LOOP_DIR"
+        else
+            _ma_real_loop="$PROJECT_ROOT/$_MA_LOOP_DIR"
+        fi
+    fi
     if [[ "$_ma_real_path" == "$_ma_real_loop/"* ]]; then
         _ma_basename=$(basename "$_ma_real_path")
         case "$_ma_basename" in

@@ -122,6 +122,8 @@ complete_methodology_analysis() {
 
     local done_content
     done_content=$(cat "$done_file" 2>/dev/null || echo "")
+    # Trim whitespace to reject whitespace-only markers
+    done_content="${done_content#"${done_content%%[![:space:]]*}"}"
     if [[ -z "$done_content" ]]; then
         return 1
     fi
@@ -134,6 +136,7 @@ complete_methodology_analysis() {
     fi
     local report_content
     report_content=$(cat "$report_file" 2>/dev/null || echo "")
+    report_content="${report_content#"${report_content%%[![:space:]]*}"}"
     if [[ -z "$report_content" ]]; then
         echo "Warning: methodology-analysis-report.md is empty, blocking completion" >&2
         return 1
