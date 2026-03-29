@@ -95,6 +95,7 @@ merge_hooks_json() {
 import json
 import pathlib
 import re
+import shlex
 import sys
 
 hooks_file = pathlib.Path(sys.argv[1])
@@ -107,6 +108,14 @@ template_text = template_file.read_text(encoding="utf-8")
 escaped_root = json.dumps(runtime_root)[1:-1]  # strip outer quotes from dumps output
 template_text = template_text.replace("{{HUMANIZE_RUNTIME_ROOT}}", escaped_root)
 template = json.loads(template_text)
+
+# Shell-quote command paths so spaces in runtime_root do not split the command
+for group_list in template.get("hooks", {}).values():
+    for group in group_list:
+        if isinstance(group, dict):
+            for hook in group.get("hooks", []):
+                if isinstance(hook, dict) and "command" in hook:
+                    hook["command"] = shlex.quote(hook["command"])
 
 existing = {}
 if hooks_file.exists():
