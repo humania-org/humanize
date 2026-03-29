@@ -1,0 +1,33 @@
+name: PR Target Branch Check
+
+on:
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  check-target-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce branch targeting rules
+        run: |
+          SOURCE="${{ github.head_ref }}"
+          TARGET="${{ github.base_ref }}"
+
+          echo "Source branch: $SOURCE"
+          echo "Target branch: $TARGET"
+
+          if [ "$TARGET" = "main" ] && [ "$SOURCE" != "dev" ]; then
+            echo ""
+            echo "========================================"
+            echo "FAILED: Only 'dev' branch can target 'main'."
+            echo ""
+            echo "Your branch '$SOURCE' must target 'dev' instead."
+            echo "Please change the base branch of this PR to 'dev'."
+            echo "========================================"
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "PASSED: Branch targeting rule satisfied."
+          echo "========================================"
