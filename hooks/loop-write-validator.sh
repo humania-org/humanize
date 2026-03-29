@@ -121,8 +121,16 @@ if [[ -n "$_MA_LOOP_DIR" ]] && [[ -f "$_MA_LOOP_DIR/methodology-analysis-state.m
     fi
     _ma_real_loop=$(realpath "$_MA_LOOP_DIR" 2>/dev/null || echo "")
     # Fallback to raw paths when realpath is unavailable (older macOS/BSD)
-    # Ensure paths are absolute so prefix guards cannot be bypassed
+    # Ensure paths are absolute so prefix guards cannot be bypassed.
+    # Reject paths with ".." segments to prevent traversal bypasses
+    # when we cannot canonicalize (fail closed).
     if [[ -z "$_ma_real_path" ]]; then
+        if [[ "$FILE_PATH" == *".."* ]]; then
+            echo "# Write Blocked During Methodology Analysis
+
+Path contains traversal segments that cannot be resolved without realpath." >&2
+            exit 2
+        fi
         if [[ "$FILE_PATH" == /* ]]; then
             _ma_real_path="$FILE_PATH"
         else
