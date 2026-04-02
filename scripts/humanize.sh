@@ -14,6 +14,9 @@ HUMANIZE_HOOKS_LIB_DIR="$(cd "$HUMANIZE_SCRIPT_DIR/../hooks/lib" && pwd)"
 if [[ -f "$HUMANIZE_HOOKS_LIB_DIR/loop-common.sh" ]]; then
     source "$HUMANIZE_HOOKS_LIB_DIR/loop-common.sh"
 fi
+if [[ -f "$HUMANIZE_HOOKS_LIB_DIR/scenario-matrix.sh" ]]; then
+    source "$HUMANIZE_HOOKS_LIB_DIR/scenario-matrix.sh"
+fi
 
 # ========================================
 # Public helper functions (can be called directly for testing)
@@ -153,6 +156,55 @@ humanize_parse_goal_tracker() {
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
 }
 
+humanize_parse_scenario_matrix() {
+    local session_dir="$1"
+    local state_file="${2:-}"
+
+    if [[ -z "$session_dir" || ! -d "$session_dir" ]]; then
+        echo "missing|0|No scenario matrix session.|idle|none|n/a|unknown|n/a|none"
+        return
+    fi
+
+    if [[ -z "$state_file" ]]; then
+        local state_info
+        state_info=$(monitor_find_state_file "$session_dir")
+        state_file="${state_info%%|*}"
+    fi
+
+    local matrix_required="false"
+    local matrix_rel=""
+    if [[ -f "$state_file" ]]; then
+        matrix_required=$(grep -E "^scenario_matrix_required:" "$state_file" 2>/dev/null | sed 's/scenario_matrix_required: *//' | tr -d ' "')
+        matrix_rel=$(grep -E "^scenario_matrix_file:" "$state_file" 2>/dev/null | sed 's/scenario_matrix_file: *//' | sed 's/^"//; s/"$//')
+    fi
+
+    if [[ "$matrix_required" != "true" && "$matrix_required" != "false" ]]; then
+        matrix_required="false"
+    fi
+
+    local project_root
+    project_root=$(cd "$session_dir/../../.." 2>/dev/null && pwd)
+
+    local matrix_file=""
+    if [[ -n "$matrix_rel" && -n "$project_root" ]]; then
+        matrix_file="$project_root/$matrix_rel"
+    else
+        matrix_file="$session_dir/scenario-matrix.json"
+    fi
+
+    if declare -F scenario_matrix_monitor_snapshot >/dev/null 2>&1; then
+        scenario_matrix_monitor_snapshot "$matrix_file" "$matrix_required"
+    else
+        if [[ -f "$matrix_file" ]]; then
+            echo "ready|0|Scenario matrix library unavailable.|idle|none|n/a|unknown|n/a|none"
+        elif [[ "$matrix_required" == "true" ]]; then
+            echo "missing|0|Scenario matrix file is missing.|idle|none|n/a|unknown|n/a|none"
+        else
+            echo "legacy|0|Legacy loop without scenario matrix.|idle|none|n/a|legacy|n/a|none"
+        fi
+    fi
+}
+
 # Detect special git repository states
 # Returns: state_name (one of: normal, detached, rebase, merge, shallow, permission_error)
 humanize_detect_git_state() {
@@ -267,7 +319,7 @@ _humanize_monitor_codex() {
     local current_file=""
     local current_session_dir=""
     local check_interval=2  # seconds between checking for new files
-    local status_bar_height=11  # number of lines for status bar (includes loop status line)
+    local status_bar_height=12  # number of lines for status bar (includes loop status line)
 
     # Check if .humanize/rlcr exists
     if [[ ! -d "$loop_dir" ]]; then
@@ -461,6 +513,19 @@ _humanize_monitor_codex() {
         local blocking_issues="${issue_parts[0]}"
         local queued_issues="${issue_parts[1]}"
 
+        # Parse scenario-matrix runtime
+        local -a matrix_parts
+        _split_to_array matrix_parts "$(humanize_parse_scenario_matrix "$session_dir" "$state_file")"
+        local matrix_status="${matrix_parts[0]:-legacy}"
+        local matrix_task_count="${matrix_parts[1]:-0}"
+        local matrix_mainline_summary="${matrix_parts[2]:-Legacy loop without scenario matrix.}"
+        local matrix_oversight_status="${matrix_parts[3]:-idle}"
+        local matrix_oversight_action="${matrix_parts[4]:-none}"
+        local matrix_checkpoint_id="${matrix_parts[5]:-n/a}"
+        local matrix_convergence_status="${matrix_parts[6]:-unknown}"
+        local matrix_next_action="${matrix_parts[7]:-n/a}"
+        local matrix_wave_label="${matrix_parts[8]:-none}"
+
         # Parse git status
         local -a git_parts
         _split_to_array git_parts "$(_parse_git_status)"
@@ -493,6 +558,36 @@ _humanize_monitor_codex() {
         if [[ ${#goal_summary} -gt $max_display_len ]]; then
             local prefix_len=$((max_display_len - 3))
             goal_display="${goal_summary:0:$prefix_len}..."
+        fi
+        local matrix_task_label="${matrix_task_count} tasks"
+        [[ "$matrix_task_count" == "1" ]] && matrix_task_label="1 task"
+        local matrix_oversight_label="$matrix_oversight_status"
+        if [[ -n "$matrix_oversight_action" ]] && [[ "$matrix_oversight_action" != "none" ]] && [[ "$matrix_oversight_action" != "$matrix_oversight_status" ]]; then
+            matrix_oversight_label="${matrix_oversight_status}/${matrix_oversight_action}"
+        fi
+        local matrix_convergence_label="$matrix_convergence_status"
+        if [[ -n "$matrix_next_action" ]] && [[ "$matrix_next_action" != "n/a" ]] && [[ "$matrix_next_action" != "$matrix_convergence_status" ]]; then
+            matrix_convergence_label="${matrix_convergence_status}/${matrix_next_action}"
+        fi
+        local matrix_prefix_plain="${matrix_status} (${matrix_task_label}) | Oversight: ${matrix_oversight_label} | Mainline: "
+        local matrix_mainline_max=$((term_width - 12 - ${#matrix_prefix_plain}))
+        local matrix_display="$matrix_mainline_summary"
+        if [[ "$matrix_mainline_max" -lt 24 ]]; then
+            matrix_mainline_max=24
+        fi
+        if [[ ${#matrix_display} -gt $matrix_mainline_max ]]; then
+            local matrix_prefix_len=$((matrix_mainline_max - 3))
+            matrix_display="${matrix_display:0:$matrix_prefix_len}..."
+        fi
+        local control_prefix_plain="Checkpoint: ${matrix_checkpoint_id} | Convergence: ${matrix_convergence_label} | Wave: "
+        local control_max=$((term_width - 12 - ${#control_prefix_plain}))
+        local control_display="$matrix_wave_label"
+        if [[ "$control_max" -lt 18 ]]; then
+            control_max=18
+        fi
+        if [[ ${#control_display} -gt $control_max ]]; then
+            local control_prefix_len=$((control_max - 3))
+            control_display="${control_display:0:$control_prefix_len}..."
         fi
 
         # Save cursor position and move to top
@@ -622,6 +717,45 @@ _humanize_monitor_codex() {
             printf ")"
         fi
         printf "${clr_eol}\n"
+
+        local matrix_status_color="${green}"
+        case "$matrix_status" in
+            legacy)
+                matrix_status_color="${dim}"
+                ;;
+            not_applicable)
+                matrix_status_color="${cyan}"
+                ;;
+            missing|invalid)
+                matrix_status_color="${red}"
+                ;;
+        esac
+        local oversight_color="${dim}"
+        if [[ "$matrix_oversight_status" == "active" ]]; then
+            oversight_color="${yellow}"
+        fi
+        local convergence_color="${dim}"
+        case "$matrix_convergence_status" in
+            converged)
+                convergence_color="${green}"
+                ;;
+            stabilizing)
+                convergence_color="${cyan}"
+                ;;
+            continue)
+                convergence_color="${yellow}"
+                ;;
+            unknown)
+                convergence_color="${red}"
+                ;;
+            legacy)
+                convergence_color="${dim}"
+                ;;
+        esac
+        printf "${magenta}Matrix:${reset}   ${matrix_status_color}%s${reset} (%s) | Oversight: ${oversight_color}%s${reset} | Mainline: %s${clr_eol}\n" \
+            "$matrix_status" "$matrix_task_label" "$matrix_oversight_label" "$matrix_display"
+        printf "${magenta}Control:${reset}  Checkpoint: %s | Convergence: ${convergence_color}%s${reset} | Wave: %s${clr_eol}\n" \
+            "$matrix_checkpoint_id" "$matrix_convergence_label" "$control_display"
 
         # Git status line (same color as Progress)
         local git_total=$((git_modified + git_added + git_deleted))
@@ -1193,6 +1327,14 @@ humanize() {
     shift
 
     case "$cmd" in
+        matrix)
+            local viewer_script="$HUMANIZE_SCRIPT_DIR/render-scenario-matrix.py"
+            if [[ ! -x "$viewer_script" ]]; then
+                echo "Error: scenario matrix viewer script not found: $viewer_script" >&2
+                return 1
+            fi
+            "$viewer_script" "$@"
+            ;;
         monitor)
             local target="$1"
             shift 2>/dev/null || true
@@ -1231,6 +1373,7 @@ humanize() {
             echo "Usage: humanize <command> [args]"
             echo ""
             echo "Commands:"
+            echo "  matrix          Render the latest scenario matrix as a local HTML dashboard"
             echo "  monitor rlcr    Monitor the latest RLCR loop log"
             echo "  monitor skill   Monitor all skill invocations (codex + gemini)"
             echo "  monitor codex   Monitor ask-codex skill invocations only"

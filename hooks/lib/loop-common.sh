@@ -42,6 +42,8 @@ readonly FIELD_PRIVACY_MODE="privacy_mode"
 readonly FIELD_MAINLINE_STALL_COUNT="mainline_stall_count"
 readonly FIELD_LAST_MAINLINE_VERDICT="last_mainline_verdict"
 readonly FIELD_DRIFT_STATUS="drift_status"
+readonly FIELD_SCENARIO_MATRIX_FILE="scenario_matrix_file"
+readonly FIELD_SCENARIO_MATRIX_REQUIRED="scenario_matrix_required"
 
 readonly MAINLINE_VERDICT_ADVANCED="advanced"
 readonly MAINLINE_VERDICT_STALLED="stalled"
@@ -407,6 +409,8 @@ _parse_state_fields() {
     STATE_MAINLINE_STALL_COUNT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAINLINE_STALL_COUNT}:" | sed "s/${FIELD_MAINLINE_STALL_COUNT}: *//" | tr -d ' ' || true)
     STATE_LAST_MAINLINE_VERDICT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LAST_MAINLINE_VERDICT}:" | sed "s/${FIELD_LAST_MAINLINE_VERDICT}: *//" | tr -d ' ' || true)
     STATE_DRIFT_STATUS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_DRIFT_STATUS}:" | sed "s/${FIELD_DRIFT_STATUS}: *//" | tr -d ' ' || true)
+    STATE_SCENARIO_MATRIX_FILE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SCENARIO_MATRIX_FILE}:" | sed "s/${FIELD_SCENARIO_MATRIX_FILE}: *//; s/^\"//; s/\"\$//" || true)
+    STATE_SCENARIO_MATRIX_REQUIRED=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SCENARIO_MATRIX_REQUIRED}:" | sed "s/${FIELD_SCENARIO_MATRIX_REQUIRED}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -457,6 +461,7 @@ parse_state_file() {
     STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
     STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
     STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
+    STATE_SCENARIO_MATRIX_REQUIRED="${STATE_SCENARIO_MATRIX_REQUIRED:-false}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -536,6 +541,7 @@ parse_state_file_strict() {
     STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
     STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
     STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
+    STATE_SCENARIO_MATRIX_REQUIRED="${STATE_SCENARIO_MATRIX_REQUIRED:-false}"
 
     return 0
 }

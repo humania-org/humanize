@@ -14,6 +14,7 @@ This plan contains the full scope of work and requirements. Ensure your work ali
 Before writing code:
 - Re-read @{{PLAN_FILE}}
 - Re-read @{{GOAL_TRACKER_FILE}}
+{{SCENARIO_MATRIX_REANCHOR_STEPS}}
 - Re-read the most recent round summaries/reviews that led to this round
 - Write the current round contract to @{{ROUND_CONTRACT_FILE}}
 
@@ -25,6 +26,11 @@ Your round contract must contain:
 - Concrete success criteria for this round
 
 Do not start implementation until the round contract exists.
+
+{{SCENARIO_MATRIX_MAINLINE_BLOCK}}
+
+Treat the Current Task Packet and Manager Checkpoint as manager-issued scope.
+Do not rewrite authoritative matrix state directly; report packet corrections or task-shape concerns through the summary feedback section.
 
 ## Task Lane Rules
 
@@ -63,6 +69,8 @@ Before starting work, **read** @{{GOAL_TRACKER_FILE}} to understand:
 **IMPORTANT**: Keep the mutable section of `goal-tracker.md` up to date during the round.
 Do NOT change the immutable section after Round 0.
 If you cannot safely reconcile the tracker yourself, include an optional "Goal Tracker Update Request" section in your summary (see below).
+
+{{SCENARIO_MATRIX_TRACKER_NOTE}}
 
 ## Mainline Guardrails
 

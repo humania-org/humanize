@@ -15,6 +15,7 @@ A Claude Code plugin that provides iterative development with independent AI rev
 - **Iteration over Perfection** -- Instead of expecting perfect output in one shot, Humanize leverages continuous feedback loops where issues are caught early and refined incrementally.
 - **One Build + One Review** -- Claude implements, Codex independently reviews. No blind spots.
 - **Ralph Loop with Swarm Mode** -- Iterative refinement continues until all acceptance criteria are met. Optionally parallelize with Agent Teams.
+- **Manager-Driven Scenario Matrix** -- Humanize keeps a machine-readable task graph in `.humanize/rlcr/<timestamp>/scenario-matrix.json`, lets the top-level manager reconcile task state, projects that state back into the Goal Tracker and checkpoint contract, and can nudge a stuck agent toward a narrower recovery path without replacing the single-mainline rule.
 - **Begin with the End in Mind** -- Before the loop starts, Humanize verifies that *you* understand the plan you are about to execute. The human must remain the architect. ([Details](docs/usage.md#begin-with-the-end-in-mind))
 
 ## How It Works
@@ -24,6 +25,14 @@ A Claude Code plugin that provides iterative development with independent AI rev
 </p>
 
 The loop has two phases: **Implementation** (Claude works, Codex reviews summaries) and **Code Review** (Codex checks code quality with severity markers). Issues feed back into implementation until resolved.
+
+New-format loops also maintain a compatibility-first manager orchestration runtime:
+
+- `scenario-matrix.json` is the machine-native control plane. It stores authoritative task state, dependency edges, task packets, repair-wave clustering, checkpoint/convergence metadata, and oversight signals.
+- The top-level manager is the only authoritative scheduler and matrix reconciler. Execution agents implement code, while the manager assigns bounded task packets, ingests feedback, and keeps exactly one current primary objective.
+- Review findings first enter a raw backlog, are deduplicated and normalized into grouped issue backlogs, and only become executable tasks when the manager explicitly promotes them.
+- `goal-tracker.md` and `round-N-contract.md` remain human-facing compatibility views, but their mutable task sections are now projected from the matrix.
+- Oversight interventions such as `nudge`, `reframe`, `split`, or `resequence` only steer the active agent back onto the current task. They do not create multiple mainlines or take over implementation authority.
 
 ## Install
 
@@ -69,6 +78,20 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    humanize monitor gemini     # Gemini invocations only
    ```
 
+   The RLCR monitor now shows scenario-matrix readiness, the current mainline projection, the current manager checkpoint, convergence state, repair-wave context, and any active oversight action alongside the existing loop status.
+
+6. **Render the current scenario matrix as an HTML dashboard**:
+   ```bash
+   source <path/to/humanize>/scripts/humanize.sh
+   humanize matrix                    # latest local RLCR session
+   humanize matrix --input tmp.json   # explicit matrix/session/state file
+   humanize matrix --serve            # local browser client with refresh
+   ```
+
+   `humanize matrix` generates a local HTML snapshot with the current primary objective, supporting window, dependency graph, feedback queues, recent events, and convergence/oversight status.
+
+   `humanize matrix --serve` starts a local HTML client on `http://127.0.0.1:<port>/`. Leave that page open and use the in-page `Refresh Snapshot` button instead of reopening freshly generated files.
+
 ## Monitor Dashboard
 
 <p align="center">
@@ -78,6 +101,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 ## Documentation
 
 - [Usage Guide](docs/usage.md) -- Commands, options, environment variables
+- [Scenario Matrix Guide](scenario-matrix.md) -- Manager role, task packets, repair waves, and convergence flow
 - [Install for Claude Code](docs/install-for-claude.md) -- Full installation instructions
 - [Install for Codex](docs/install-for-codex.md) -- Codex skill runtime setup
 - [Install for Kimi](docs/install-for-kimi.md) -- Kimi CLI skill setup
