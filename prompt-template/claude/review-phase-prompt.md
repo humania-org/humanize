@@ -7,9 +7,15 @@ You are in the **Review Phase**. Codex has performed a code review and found iss
 Before touching code:
 - Re-read the original plan at @{{PLAN_FILE}}
 - Re-read the goal tracker at @{{GOAL_TRACKER_FILE}}
+{{SCENARIO_MATRIX_REANCHOR_STEPS}}
 - Refresh the current round contract at @{{ROUND_CONTRACT_FILE}}
 
 The round contract must preserve a single mainline objective. Code review findings do NOT automatically become the new round objective.
+
+{{SCENARIO_MATRIX_MAINLINE_BLOCK}}
+
+Treat the Current Task Packet and Manager Checkpoint as manager-issued fix scope.
+Do not rewrite authoritative matrix state directly; report packet corrections or task-shape concerns through the summary feedback section.
 
 ## Review Results
 
@@ -56,3 +62,4 @@ Your summary should include:
 - You must address the code review findings to proceed
 - After you commit and write your summary, Codex will perform another code review
 - The loop continues until no `[P0-9]` issues are found
+{{SCENARIO_MATRIX_TRACKER_NOTE}}

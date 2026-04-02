@@ -31,6 +31,7 @@ source "$SCRIPT_DIR/portable-timeout.sh"
 # before invoking this script.
 HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
 source "$HOOKS_LIB_DIR/loop-common.sh"
+source "$HOOKS_LIB_DIR/scenario-matrix.sh"
 
 # ========================================
 # Parse Arguments
@@ -823,6 +824,7 @@ LOOP_DIR="$LOOP_BASE_DIR/$TIMESTAMP"
 mkdir -p "$LOOP_DIR"
 
 # Copy plan file to loop directory as backup (or create placeholder for skip-impl)
+PLAN_BACKUP_REL=".humanize/rlcr/$TIMESTAMP/plan.md"
 if [[ "$SKIP_IMPL_NO_PLAN" == "true" ]]; then
     # Create placeholder plan file for skip-impl mode
     cat > "$LOOP_DIR/plan.md" << 'SKIP_IMPL_PLAN_EOF'
@@ -841,13 +843,43 @@ The loop will:
 SKIP_IMPL_PLAN_EOF
     # Update PLAN_FILE to point to the actual placeholder location (repo-relative path)
     # Using relative path because git ls-files requires repo-relative paths
-    PLAN_FILE=".humanize/rlcr/$TIMESTAMP/plan.md"
+    PLAN_FILE="$PLAN_BACKUP_REL"
 else
     cp "$FULL_PLAN_PATH" "$LOOP_DIR/plan.md"
 fi
 
 # Docs path default
 DOCS_PATH="docs"
+
+# ========================================
+# Initialize Scenario Matrix File
+# ========================================
+
+SCENARIO_MATRIX_FILE="$LOOP_DIR/scenario-matrix.json"
+SCENARIO_MATRIX_FILE_REL=".humanize/rlcr/$TIMESTAMP/scenario-matrix.json"
+SCENARIO_MATRIX_MODE="implementation"
+SCENARIO_MATRIX_STATUS_OVERRIDE=""
+if [[ "$SKIP_IMPL" == "true" ]]; then
+    SCENARIO_MATRIX_MODE="skip_impl"
+fi
+if [[ "$SKIP_IMPL_NO_PLAN" == "true" ]]; then
+    SCENARIO_MATRIX_STATUS_OVERRIDE="not_applicable"
+fi
+
+scenario_matrix_initialize_file \
+    "$SCENARIO_MATRIX_FILE" \
+    "$PLAN_FILE" \
+    "$PLAN_BACKUP_REL" \
+    "$SCENARIO_MATRIX_MODE" \
+    0 \
+    "$SCENARIO_MATRIX_STATUS_OVERRIDE"
+
+if ! scenario_matrix_validate_file "$SCENARIO_MATRIX_FILE"; then
+    echo "Error: Failed to initialize a valid scenario matrix file" >&2
+    exit 1
+fi
+
+scenario_matrix_reconcile_manager_state "$SCENARIO_MATRIX_FILE" 0 "initial_setup" || true
 
 # ========================================
 # Initialize BitLesson File
@@ -892,6 +924,8 @@ ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
 privacy_mode: $PRIVACY_MODE
+scenario_matrix_file: $SCENARIO_MATRIX_FILE_REL
+scenario_matrix_required: true
 bitlesson_required: $BITLESSON_STATE_VALUE
 bitlesson_file: $BITLESSON_FILE_REL
 bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
@@ -1176,6 +1210,11 @@ write_summary_template() {
 
 [List any deferred or pending items]
 
+## Task Packet Feedback (Optional)
+
+| Task ID | Source | Kind | Summary |
+|---------|--------|------|---------|
+
 ## BitLesson Delta
 
 Action: none
@@ -1194,6 +1233,11 @@ ROUND_CONTRACT_PATH="$LOOP_DIR/round-0-contract.md"
 # Create the round-0 summary scaffold before either mode starts so stop-hook
 # validation and BitLesson Delta checks have a valid target file.
 write_summary_template "$SUMMARY_PATH"
+
+if [[ "$SCENARIO_MATRIX_MODE" == "implementation" ]]; then
+    scenario_matrix_sync_goal_tracker "$SCENARIO_MATRIX_FILE" "$GOAL_TRACKER_FILE" || true
+    scenario_matrix_write_round_contract_scaffold "$SCENARIO_MATRIX_FILE" "$ROUND_CONTRACT_PATH" 0 "implementation" "true" || true
+fi
 
 if [[ "$SKIP_IMPL" == "true" ]]; then
     if [[ "$SKIP_IMPL_PLAN_ANCHORED" == "true" ]]; then
@@ -1237,15 +1281,17 @@ Do not try to execute anything to trigger the review - just stop and it will run
 Before requesting review, read:
 - @$PLAN_FILE
 - @$GOAL_TRACKER_FILE
+- @$SCENARIO_MATRIX_FILE
 - @$ROUND_CONTRACT_PATH
 
 ## Your Task
 
 1. Review your current work
-2. When ready, try to exit - Codex will review your code
-3. Fix any issues Codex finds
-4. Repeat until no issues remain
-5. Enter finalize phase for code simplification
+2. Refresh @$SCENARIO_MATRIX_FILE so review-only work stays aligned with the current task graph
+3. When ready, try to exit - Codex will review your code
+4. Fix any issues Codex finds
+5. Repeat until no issues remain
+6. Enter finalize phase for code simplification
 
 ## Review Objective
 
@@ -1273,6 +1319,7 @@ EOF
     cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 
 Keep @$ROUND_CONTRACT_PATH updated if the blocking/queued split changes materially during review iterations.
+Keep @$SCENARIO_MATRIX_FILE updated if review findings change task readiness, dependency assumptions, or the mainline/supporting split.
 
 When you're ready for review, write a brief summary of your changes and try to exit (do not try to execute anything, just stop).
 
@@ -1310,6 +1357,17 @@ Before starting implementation, create @$ROUND_CONTRACT_PATH with:
 Use this contract to keep the round focused. Do NOT let non-blocking bugs or cleanup work replace the mainline objective.
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be modified in Round 0. After this round, it becomes read-only.
+
+## Scenario Matrix Setup (REQUIRED BEFORE CODING)
+
+Before starting implementation, you MUST read and refresh @$SCENARIO_MATRIX_FILE:
+
+1. Verify the seeded task, routing, and dependency data copied from the plan
+2. If the task table was missing or malformed, repair the matrix with the smallest safe defaults
+3. Keep the matrix aligned with the round contract and mutable goal tracker state
+4. Track dependency-sensitive task readiness there before touching code
+
+The matrix may describe several related tasks, but this round still has exactly one current mainline objective.
 
 ---
 
@@ -1414,6 +1472,18 @@ Throughout your work, you MUST maintain the Goal Tracker:
    - Add to "Blocking Side Issues" only if mainline progress is blocked
    - Otherwise add to "Queued Side Issues" or keep them as \`[queued]\` tasks/backlog
 
+## Scenario Matrix Rules
+
+Throughout your work, you MUST maintain @$SCENARIO_MATRIX_FILE:
+
+1. Refresh task states and dependency edges before rewriting the round contract
+2. If upstream work changes a downstream assumption, update the affected task state instead of blindly following the old plan
+3. Keep exactly one current mainline objective for the round even if several supporting tasks are ready
+4. If matrix state and tracker state disagree, reconcile the matrix first, then update the mutable tracker section
+
+Treat the Current Task Packet and Manager Checkpoint as manager-issued scope.
+Do not rewrite authoritative matrix state directly; report packet corrections or task-shape concerns through the summary feedback section.
+
 ---
 
 Note: You MUST NOT try to exit \`start-rlcr-loop\` loop by lying or edit loop state file or try to execute \`cancel-rlcr-loop\`
@@ -1435,6 +1505,21 @@ EOF
 fi
 
 fi  # End of skip-impl prompt handling
+
+if scenario_matrix_has_projectable_tasks "$SCENARIO_MATRIX_FILE"; then
+    ROUND0_TASK_PACKET=$(scenario_matrix_current_task_packet_markdown "$SCENARIO_MATRIX_FILE" 2>/dev/null || true)
+    ROUND0_CHECKPOINT=$(scenario_matrix_current_checkpoint_markdown "$SCENARIO_MATRIX_FILE" 2>/dev/null || true)
+    ROUND0_TASK_PACKET_FEEDBACK=$(scenario_matrix_task_packet_feedback_instructions_markdown 2>/dev/null || true)
+    if [[ -n "$ROUND0_TASK_PACKET" ]]; then
+        printf '\n%s\n' "$ROUND0_TASK_PACKET" >> "$LOOP_DIR/round-0-prompt.md"
+    fi
+    if [[ -n "$ROUND0_CHECKPOINT" ]]; then
+        printf '\n%s\n' "$ROUND0_CHECKPOINT" >> "$LOOP_DIR/round-0-prompt.md"
+    fi
+    if [[ -n "$ROUND0_TASK_PACKET_FEEDBACK" ]]; then
+        printf '\n%s\n' "$ROUND0_TASK_PACKET_FEEDBACK" >> "$LOOP_DIR/round-0-prompt.md"
+    fi
+fi
 
 # ========================================
 # Output Setup Message

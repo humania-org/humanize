@@ -70,9 +70,56 @@ The `Mainline Progress Verdict` line is mandatory. If you omit it, the Humanize 
 - Identify any gaps, bugs, or incomplete work
 - Reference @{{DOCS_PATH}} for design documents
 
-## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 4: Failure-Surface Coverage Pass (MANDATORY)
 
-## Part 5: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
+Before you write the final lane findings, you MUST expand review coverage across the touched failure surfaces:
+
+0. **Historical Tail-Repair Scan**
+   - Inspect recent git history before you settle on a narrow diff-only review.
+   - Start with `git log --oneline --stat -n 20` to understand the recent repair pattern.
+   - If the current round or recent rounds keep touching the same hotspot file or module, also inspect file-scoped history such as `git log --stat -- <path>`.
+   - Treat these as a long-tail repair-chain signal:
+     - repeated small `fix` commits
+     - repeated blocker cleanup in the same file or module
+     - several follow-up patches that keep revisiting one hotspot
+   - If that signal appears, widen the audit:
+     - inspect neighboring call sites in the hotspot
+     - inspect sibling lifecycle and rollback paths
+     - search for system-level consistency failures beyond the newest local patch
+   - Reflect that broader scan in `Touched Failure Surfaces`, `Likely Sibling Risks`, and `Coverage Ledger`.
+
+1. **Touched Failure Surfaces**
+   - Map the high-risk failure surfaces touched by the recent diff, summaries, and changed tests.
+   - Prefer system-oriented surfaces such as lifecycle symmetry, rollback correctness, resource cleanup, state consistency, snapshot/projection consistency, dependency propagation, and cross-subsystem synchronization.
+   - If the git history shows a long-tail repair chain, prefer the broader failure surface over a single-file symptom label.
+   - Use this exact bullet format so the runtime can retain the analysis:
+     - `- <surface> | why: <reason> | confidence: high|medium|low`
+
+2. **Likely Sibling Risks**
+   - For each confirmed issue, extend the search into sibling paths:
+     - symmetric paths
+     - parallel resources
+     - adjacent state transitions
+     - neighboring call sites in the same hotspot module
+   - If the git history shows repeated small fixes in one hotspot, increase skepticism and search wider before you stop.
+   - Report high-confidence sibling risks even if they are not yet elevated into blocking findings.
+   - Use this exact bullet format:
+     - `- <risk summary> | derived_from: <finding or surface> | axis: <expansion axis> | why: <why likely> | check: <recommended check> | confidence: high|medium|low`
+
+3. **Coverage Ledger**
+   - End the review with a short ledger describing which touched surfaces are `covered`, `partial`, or `unclear`.
+   - **Do NOT render the Coverage Ledger as `-` / `*` bullet findings.** Use a markdown table or short plain-text paragraphs instead.
+   - This preserves compatibility with the current finding parser.
+   - Preferred format:
+     ```
+     | Surface | Status | Notes |
+     |---------|--------|-------|
+     | rollback-symmetry | partial | cancel path checked; restore path still unclear |
+     ```
+
+## Part 5: {{GOAL_TRACKER_UPDATE_SECTION}}
+
+## Part 6: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
 
 To implement the original plan at @{{PLAN_FILE}}, we have completed **{{COMPLETED_ITERATIONS}} iterations** (Round 0 to Round {{CURRENT_ROUND}}).
 
@@ -99,14 +146,24 @@ The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the histor
 
 **If development is stagnating**, write **STOP** (as a single word on its own line) as the last line of your review output @{{REVIEW_RESULT_FILE}} instead of COMPLETE.
 
-## Part 6: Output Requirements
+## Part 7: Output Requirements
 
 - If issues found OR any AC is NOT MET (including deferred ACs), write your findings to @{{REVIEW_RESULT_FILE}}
+- Structure the review in this order:
+  1. `Touched Failure Surfaces`
+  2. `Likely Sibling Risks`
+  3. `Mainline Gaps`
+  4. `Blocking Side Issues`
+  5. `Queued Side Issues`
+  6. `Mainline Progress Verdict`
+  7. `Coverage Ledger`
 - Include specific action items for Claude to address, classified into:
   - Mainline Gaps
   - Blocking Side Issues
   - Queued Side Issues
-- **If development is stagnating** (see Part 4), write "STOP" as the last line
+- Keep the lane headings exactly as written above so the runtime can continue to classify findings safely.
+- Keep lane findings as explicit issue bullets, preferably with `[P0-9]` severity markers.
+- **If development is stagnating** (see Part 6), write "STOP" as the last line
 - **CRITICAL**: Only write "COMPLETE" as the last line if ALL ACs from the original plan are FULLY MET with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any AC is deferred
   - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals allowed

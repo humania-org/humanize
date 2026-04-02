@@ -19,6 +19,7 @@ This round is a **drift recovery round**. Do not continue with normal issue-clea
 Before changing code:
 - Re-read @{{PLAN_FILE}}
 - Re-read @{{GOAL_TRACKER_FILE}}
+{{SCENARIO_MATRIX_REANCHOR_STEPS}}
 - Re-read the recent round summaries and review results that led here
 - Rewrite the round contract at @{{ROUND_CONTRACT_FILE}}
 
@@ -31,6 +32,11 @@ Your recovery contract must contain:
 - Concrete success criteria that would change the verdict back to `ADVANCED`
 
 Do not start implementation until the recovery contract exists.
+
+{{SCENARIO_MATRIX_MAINLINE_BLOCK}}
+
+Treat the Current Task Packet and Manager Checkpoint as manager-issued recovery scope.
+Do not rewrite authoritative matrix state directly; report packet corrections or task-shape concerns through the summary feedback section.
 
 ## Task Lane Rules
 
@@ -59,6 +65,8 @@ Before starting work, **read and update** @{{GOAL_TRACKER_FILE}} as needed:
 - Record the drift/stagnation cause in the mutable section if it changed planning
 - Keep blocking vs queued issue classification accurate
 - Ensure the tracker and contract now describe the same recovered mainline objective
+
+{{SCENARIO_MATRIX_TRACKER_NOTE}}
 
 ## Recovery Guardrails
 

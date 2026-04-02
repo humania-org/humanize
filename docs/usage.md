@@ -11,6 +11,18 @@ Humanize creates an iterative feedback loop with two phases:
 
 The loop continues until all acceptance criteria are met or no issues remain.
 
+New-format RLCR loops also keep a compatibility-first runtime artifact at `.humanize/rlcr/<timestamp>/scenario-matrix.json`. The matrix is the machine-readable control plane: it records seeded plan tasks, dependency edges, manager authority, task packets, repair waves, checkpoint/convergence state, review-driven state changes, and bounded oversight interventions when the active agent appears stuck.
+
+The top-level orchestrating session acts as the **manager**. It is the only authoritative scheduler and matrix reconciler. Execution agents implement code, while the manager reviews progress, ingests findings, and keeps exactly one current `primary objective` plus a bounded supporting window.
+
+Subagents do not receive the full global loop prompt by default. Instead, Humanize projects a **task packet** from the matrix that includes the current primary objective, local task, direct dependencies, downstream impact, allowed scope, success criteria, stop criteria, and explicit out-of-scope boundaries. This is how the runtime avoids "subagent single-player mode" caused by limited LLM context.
+
+Review findings first enter a raw backlog, are deduplicated, and are normalized into grouped issue backlogs before the manager decides whether any of them should become executable repair tasks. Low-value or out-of-bound findings can stay deferred in a watchlist instead of automatically joining the frontier.
+
+`goal-tracker.md` and `round-N-contract.md` remain the human-facing workflow. Humanize projects matrix state back into those files so the active checkpoint still has exactly one current mainline objective even when several supporting tasks are queued behind it.
+
+Oversight does not replace the executing agent. It only injects bounded corrections such as `nudge`, `reframe`, `split`, `reclassify`, or `resequence` when repeated failures suggest the current method or task framing is unhealthy.
+
 ## Begin with the End in Mind
 
 Before the RLCR loop starts any work, Humanize runs a **Plan Understanding Quiz** -- a brief pre-flight check that verifies you genuinely understand the plan you are about to execute.
@@ -64,6 +76,12 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 | `/refine-plan --input <annotated-plan.md>` | Refine an annotated plan and generate a QA ledger |
 | `/ask-codex [question]` | One-shot consultation with Codex |
+| `humanize matrix [--input <path>] [--output <path>] [--serve]` | Render a local HTML dashboard or run a refreshable local matrix client |
+
+For scenario-matrix inspection, there are now two modes:
+
+- `humanize matrix` writes a static HTML snapshot next to the current matrix or session.
+- `humanize matrix --serve` starts a localhost HTML client. Keep that browser tab open and use the page's `Refresh Snapshot` button to pull the latest matrix view without reopening generated files.
 
 ## Command Reference
 
@@ -226,6 +244,53 @@ for getting a second opinion, reviewing a design, or asking domain-specific ques
 
 Responses are saved to `.humanize/skill/<timestamp>/` with `input.md`, `output.md`,
 and `metadata.md` for reference.
+
+### humanize matrix
+
+After sourcing `scripts/humanize.sh`, you can render a scenario-matrix snapshot into a local HTML dashboard:
+
+```bash
+source scripts/humanize.sh
+
+humanize matrix
+humanize matrix --input .humanize/rlcr/2026-04-01_20-41-00
+humanize matrix --input tmp.json --output /tmp/matrix-view.html
+```
+
+Input resolution rules:
+
+- No `--input`: use the latest local RLCR session under `.humanize/rlcr/`
+- Session directory: resolve that session's `scenario-matrix.json`
+- `state.md` / `*-state.md`: follow `scenario_matrix_file` from the state file
+- `.json` file: render that matrix file directly
+- Project directory: resolve the latest local RLCR session under that project
+
+The generated HTML snapshot includes:
+
+- current primary objective and supporting window
+- task board grouped into primary/supporting/active/done/deferred buckets
+- dependency edges between tasks
+- checkpoint, convergence, and oversight status
+- recent events plus execution/review feedback queues
+- per-task detail drill-down without reading raw JSON
+
+## Monitoring
+
+Load the helper script and run the RLCR monitor:
+
+```bash
+source scripts/humanize.sh
+humanize monitor rlcr
+humanize matrix
+```
+
+The monitor remains compatible with legacy loops, but for new loops it also surfaces:
+
+- scenario-matrix readiness (`ready`, `legacy`, `missing`, `invalid`, or `not_applicable`)
+- the current matrix-derived mainline summary
+- the current manager checkpoint and convergence status
+- the primary repair-wave or cluster context when one is active
+- any active oversight action currently steering the next round
 
 ## Configuration
 

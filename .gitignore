@@ -13,3 +13,7 @@ temp
 # Python cache
 __pycache__/
 *.pyc
+
+.codex
+*.json
+plan.md

@@ -44,12 +44,53 @@ Include a brief Goal Alignment Summary in your review:
 ACs: X/Y addressed | Forgotten items: N | Unjustified deferrals: N
 ```
 
-## Part 3: Required Finding Classification
+## Part 3: Failure-Surface Coverage Pass (MANDATORY)
 
-You MUST classify your findings into these lanes:
-- **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
-- **Blocking Side Issues**: bugs or implementation issues that block the current mainline objective from succeeding safely
-- **Queued Side Issues**: valid non-blocking follow-up issues that should be documented but must NOT take over the next round
+Before you write those lane findings, you MUST first run a failure-surface coverage pass:
+
+0. **Historical Tail-Repair Scan**
+   - Before you settle on a narrow diff-only review, inspect recent git history.
+   - Start with `git log --oneline --stat -n 12` to understand the recent repair pattern.
+   - If the current round appears to touch a hotspot file or module, also inspect file-scoped history such as `git log --stat -- <path>`.
+   - Treat these as a long-tail repair-chain signal:
+     - repeated small `fix` commits
+     - repeated review-blocker fixes in the same file or module
+     - several follow-up patches that only nibble at one hotspot
+   - If you detect that signal, widen your review strategy beyond the latest patch:
+     - inspect neighboring call sites in the hotspot
+     - inspect sibling state transitions and rollback paths
+     - look for system-level consistency failures, not just the newest local diff defect
+   - Reflect that broader scan in `Touched Failure Surfaces`, `Likely Sibling Risks`, and `Coverage Ledger`.
+
+1. **Touched Failure Surfaces**
+   - Map the high-risk failure surfaces touched by this round's diff, summary claims, and changed tests.
+   - Prefer system-oriented surfaces such as lifecycle symmetry, rollback correctness, resource cleanup, state consistency, snapshot/projection consistency, dependency propagation, and cross-subsystem synchronization.
+   - If the git history shows a long-tail repair chain around one hotspot, prefer naming the broader failure surface instead of reporting only a single-file symptom.
+   - Keep this section concise, but do not skip it just because you already found one bug.
+   - Use this exact bullet format so the runtime can retain the analysis:
+     - `- <surface> | why: <reason> | confidence: high|medium|low`
+
+2. **Likely Sibling Risks**
+   - For each confirmed issue, expand at least one round further across sibling paths:
+     - symmetric paths
+     - parallel resources
+     - adjacent state transitions
+     - neighboring call sites in the same hotspot module
+   - If the git history shows repeated small fixes in the same hotspot, increase skepticism and search wider before you stop.
+   - Report high-confidence sibling risks even if they are not yet as strongly confirmed as the main finding.
+   - Use this exact bullet format:
+     - `- <risk summary> | derived_from: <finding or surface> | axis: <expansion axis> | why: <why likely> | check: <recommended check> | confidence: high|medium|low`
+
+3. **Coverage Ledger**
+   - Close the review with a short coverage ledger describing which touched failure surfaces are `covered`, `partial`, or `unclear`.
+   - **Do NOT render the Coverage Ledger as `-` / `*` bullet findings.** Use a markdown table or short plain-text paragraphs instead.
+   - This is required because Humanize currently parses lane bullets into machine-managed findings.
+   - Preferred format:
+     ```
+     | Surface | Status | Notes |
+     |---------|--------|-------|
+     | rollback-symmetry | partial | cancel path checked; restore path still unclear |
+     ```
 
 Also include a one-line verdict:
 ```
@@ -60,12 +101,28 @@ This verdict line is mandatory. If you omit it, the Humanize stop hook will bloc
 
 If Claude mostly worked on queued side issues and failed to advance the mainline, say so explicitly.
 
-## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 4: Required Finding Classification
 
-## Part 5: Output Requirements
+You MUST classify your findings into these lanes:
+- **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
+- **Blocking Side Issues**: bugs or implementation issues that block the current mainline objective from succeeding safely
+- **Queued Side Issues**: valid non-blocking follow-up issues that should be documented but must NOT take over the next round
+
+## Part 5: {{GOAL_TRACKER_UPDATE_SECTION}}
+
+## Part 6: Output Requirements
 
 - In short, your review comments can include: problems/findings/blockers; claims that don't match reality; implementation plans for deferred work (to be implemented now); implementation plans for unfinished work; goal alignment issues.
-- Your output should be structured so Claude can tell which items are mainline gaps, blocking side issues, and queued side issues.
+- Your output should be structured in this order:
+  1. `Touched Failure Surfaces`
+  2. `Likely Sibling Risks`
+  3. `Mainline Gaps`
+  4. `Blocking Side Issues`
+  5. `Queued Side Issues`
+  6. `Mainline Progress Verdict`
+  7. `Coverage Ledger`
+- Keep the lane headings exactly as written above so the runtime can continue to classify findings safely.
+- Keep lane findings as explicit issue bullets, preferably with `[P0-9]` severity markers.
 - If after your investigation the actual situation does not match what Claude claims to have completed, or there is pending work to be done, output your review comments to @{{REVIEW_RESULT_FILE}}.
 - **CRITICAL**: Only output "COMPLETE" as the last line if ALL tasks from the original plan are FULLY completed with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any task is deferred

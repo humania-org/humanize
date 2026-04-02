@@ -45,6 +45,7 @@ LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 # Source shared loop functions and template loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
+source "$SCRIPT_DIR/lib/scenario-matrix.sh"
 
 # Source portable timeout wrapper for git operations
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -155,6 +156,8 @@ fi
 MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
 LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
 DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
+SCENARIO_MATRIX_FILE_REL="${STATE_SCENARIO_MATRIX_FILE:-}"
+SCENARIO_MATRIX_REQUIRED="${STATE_SCENARIO_MATRIX_REQUIRED:-false}"
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
 if [[ ! "$CODEX_EXEC_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -202,6 +205,15 @@ if [[ ! "$MAINLINE_STALL_COUNT" =~ ^[0-9]+$ ]]; then
 fi
 LAST_MAINLINE_VERDICT=$(normalize_mainline_progress_verdict "$LAST_MAINLINE_VERDICT")
 DRIFT_STATUS=$(normalize_drift_status "$DRIFT_STATUS")
+
+if [[ -n "$SCENARIO_MATRIX_FILE_REL" ]]; then
+    SCENARIO_MATRIX_FILE="$PROJECT_ROOT/$SCENARIO_MATRIX_FILE_REL"
+else
+    SCENARIO_MATRIX_FILE="$LOOP_DIR/scenario-matrix.json"
+fi
+if [[ "$SCENARIO_MATRIX_REQUIRED" != "true" && "$SCENARIO_MATRIX_REQUIRED" != "false" ]]; then
+    SCENARIO_MATRIX_REQUIRED="false"
+fi
 
 # ========================================
 # Quick-check 0: Schema Validation (v1.1.2+ fields)
@@ -887,6 +899,46 @@ Please fill in the Goal Tracker ({{GOAL_TRACKER_FILE}}):
 fi
 
 # ========================================
+# Scenario Matrix Validation
+# ========================================
+
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$SCENARIO_MATRIX_REQUIRED" == "true" ]]; then
+    if [[ ! -f "$SCENARIO_MATRIX_FILE" ]]; then
+        REASON="# Scenario Matrix Missing
+
+This loop requires a scenario matrix file, but it is missing:
+
+\`$SCENARIO_MATRIX_FILE\`
+
+Before continuing, restore or recreate the matrix so task dependencies and round re-anchoring remain consistent."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - scenario matrix missing" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+
+    if ! scenario_matrix_validate_file "$SCENARIO_MATRIX_FILE"; then
+        REASON="# Scenario Matrix Invalid
+
+This loop requires a valid scenario matrix file, but the current file failed validation:
+
+\`$SCENARIO_MATRIX_FILE\`
+
+Do not continue until the matrix is repaired. The next-round contract and task graph would otherwise drift."
+        jq -n --arg reason "$REASON" --arg msg "Loop: Blocked - scenario matrix invalid" \
+            '{"decision": "block", "reason": $reason, "systemMessage": $msg}'
+        exit 0
+    fi
+fi
+
+SCENARIO_MATRIX_ENABLED=false
+SCENARIO_MATRIX_MAINLINE_SUMMARY="No valid scenario matrix is available."
+if [[ -f "$SCENARIO_MATRIX_FILE" ]] && scenario_matrix_validate_file "$SCENARIO_MATRIX_FILE"; then
+    SCENARIO_MATRIX_ENABLED=true
+    scenario_matrix_ingest_summary_feedback "$SCENARIO_MATRIX_FILE" "$SUMMARY_FILE" || true
+    SCENARIO_MATRIX_MAINLINE_SUMMARY=$(scenario_matrix_current_mainline_summary "$SCENARIO_MATRIX_FILE" 2>/dev/null || echo "No active mainline task is recorded in the scenario matrix.")
+fi
+
+# ========================================
 # Check Max Iterations (skip in Finalize Phase - already post-COMPLETE)
 # ========================================
 
@@ -1171,7 +1223,7 @@ Provider: codex
 # Note: detect_review_issues() is defined in loop-common.sh and sourced above
 
 # Run code review and handle the result
-# Arguments: $1=round_number, $2=success_system_message
+# Arguments: $1=round_number, $2=success_system_message, $3=latest_implementation_review_content (optional)
 # This function consolidates the common pattern of:
 #   1. Running codex review (no prompt - uses --base only)
 #   2. Checking results and handling outcomes
@@ -1184,6 +1236,7 @@ Provider: codex
 run_and_handle_code_review() {
     local round="$1"
     local success_msg="$2"
+    local implementation_review_content="${3:-}"
 
     echo "Running codex review against base branch: $BASE_BRANCH..." >&2
 
@@ -1204,7 +1257,7 @@ run_and_handle_code_review() {
         block_review_failure "$round" "Codex review produced no stdout output" "N/A"
     elif [[ "$detect_exit" -eq 0 ]] && [[ -n "$merged_content" ]]; then
         # Issues found - continue review loop
-        continue_review_loop_with_issues "$round" "$merged_content"
+        continue_review_loop_with_issues "$round" "$merged_content" "$implementation_review_content"
     else
         # No issues found (exit code 1) - proceed to finalize
         echo "Code review passed with no issues. Proceeding to finalize phase." >&2
@@ -1314,6 +1367,122 @@ Follow the plan's per-task routing tags strictly:
 ROUTING_EOF
 }
 
+# Append scenario matrix reminder to follow-up prompts.
+# Arguments: $1=prompt_file_path $2=scenario_matrix_file $3=mainline_summary
+append_scenario_matrix_note() {
+    local prompt_file="$1"
+    local scenario_matrix_file="$2"
+    local mainline_summary="$3"
+    local task_packet_markdown=""
+    local feedback_readback_markdown=""
+    local checkpoint_markdown=""
+    local review_coverage_markdown=""
+
+    if [[ -f "$scenario_matrix_file" ]]; then
+        task_packet_markdown=$(scenario_matrix_current_task_packet_markdown "$scenario_matrix_file" 2>/dev/null || true)
+        feedback_readback_markdown=$(scenario_matrix_task_packet_feedback_instructions_markdown 2>/dev/null || true)
+        checkpoint_markdown=$(scenario_matrix_current_checkpoint_markdown "$scenario_matrix_file" 2>/dev/null || true)
+        review_coverage_markdown=$(scenario_matrix_current_review_coverage_markdown "$scenario_matrix_file" 2>/dev/null || true)
+    fi
+
+    cat >> "$prompt_file" << EOF
+
+## Scenario Matrix Re-anchor
+
+Before rewriting the round contract or starting implementation work:
+- Re-read @$scenario_matrix_file
+- Refresh task states, dependency edges, and any invalidated assumptions in the matrix
+- Keep the matrix aligned with the mutable goal tracker section and the current round contract
+- Preserve exactly one current mainline objective for this round even if multiple supporting tasks are ready
+
+Current matrix mainline projection:
+- $mainline_summary
+EOF
+
+    if [[ -n "$task_packet_markdown" ]]; then
+        printf '\n%s\n' "$task_packet_markdown" >> "$prompt_file"
+    fi
+
+    if [[ -n "$checkpoint_markdown" ]]; then
+        printf '\n%s\n' "$checkpoint_markdown" >> "$prompt_file"
+    fi
+
+    if [[ -n "$review_coverage_markdown" ]]; then
+        printf '\n%s\n' "$review_coverage_markdown" >> "$prompt_file"
+    fi
+
+    if [[ -n "$feedback_readback_markdown" ]]; then
+        printf '\n%s\n' "$feedback_readback_markdown" >> "$prompt_file"
+    fi
+}
+
+build_scenario_matrix_reanchor_steps() {
+    local scenario_matrix_enabled="$1"
+    local scenario_matrix_file="$2"
+
+    if [[ "$scenario_matrix_enabled" != "true" ]]; then
+        return 0
+    fi
+
+    cat <<EOF
+- Re-read @$scenario_matrix_file
+- Refresh task states, dependency edges, and invalidated assumptions in @$scenario_matrix_file
+EOF
+}
+
+build_scenario_matrix_mainline_block() {
+    local scenario_matrix_enabled="$1"
+    local mainline_summary="$2"
+
+    if [[ "$scenario_matrix_enabled" != "true" ]]; then
+        return 0
+    fi
+
+    cat <<EOF
+Current scenario matrix mainline projection:
+- $mainline_summary
+EOF
+}
+
+build_scenario_matrix_tracker_note() {
+    local scenario_matrix_enabled="$1"
+    local scenario_matrix_file="$2"
+    local mode="${3:-implementation}"
+
+    if [[ "$scenario_matrix_enabled" != "true" ]]; then
+        return 0
+    fi
+
+    case "$mode" in
+        "recovery")
+            cat <<EOF
+Keep @$scenario_matrix_file aligned with the recovered objective. If the latest review invalidated an upstream dependency or assumption, reflect that in the matrix before editing code.
+EOF
+            ;;
+        "review")
+            cat <<EOF
+Keep @$scenario_matrix_file aligned with the mutable tracker state when review findings change task readiness or dependency assumptions.
+EOF
+            ;;
+        *)
+            cat <<EOF
+Keep @$scenario_matrix_file aligned with the mutable tracker state. If matrix and tracker disagree, reconcile the matrix first, then update the tracker and contract.
+EOF
+            ;;
+    esac
+}
+
+append_oversight_note() {
+    local prompt_file="$1"
+    local oversight_markdown="$2"
+
+    if [[ -z "$oversight_markdown" ]]; then
+        return 0
+    fi
+
+    printf '\n%s\n' "$oversight_markdown" >> "$prompt_file"
+}
+
 # Stop the loop when mainline progress has stalled for too many consecutive rounds.
 # Arguments: $1=stall_count, $2=last_verdict
 stop_for_mainline_drift() {
@@ -1388,10 +1557,11 @@ Files:
 }
 
 # Continue review loop when issues are found
-# Arguments: $1=round_number, $2=review_content
+# Arguments: $1=round_number, $2=review_content, $3=latest_implementation_review_content (optional)
 continue_review_loop_with_issues() {
     local round="$1"
     local review_content="$2"
+    local implementation_review_content="${3:-}"
 
     echo "Code review found issues. Continuing review loop..." >&2
 
@@ -1419,6 +1589,10 @@ continue_review_loop_with_issues() {
 ## Remaining Items
 - [List unresolved items, if any]
 
+## Task Packet Feedback (Optional)
+| Task ID | Source | Kind | Summary |
+|---------|--------|------|---------|
+
 ## BitLesson Delta
 - Action: none|add|update
 - Lesson ID(s): NONE
@@ -1426,6 +1600,24 @@ continue_review_loop_with_issues() {
 EOF
     fi
     local next_contract_file="$LOOP_DIR/round-${round}-contract.md"
+    local scenario_matrix_mainline_summary="$SCENARIO_MATRIX_MAINLINE_SUMMARY"
+    local scenario_matrix_reanchor_steps=""
+    local scenario_matrix_mainline_block=""
+    local scenario_matrix_tracker_note=""
+    local scenario_matrix_oversight_markdown=""
+
+    if [[ "$SCENARIO_MATRIX_ENABLED" == "true" ]]; then
+        scenario_matrix_record_code_review_cycle "$SCENARIO_MATRIX_FILE" "$round" "code_review_issues" "$implementation_review_content" || true
+        scenario_matrix_ingest_review_findings "$SCENARIO_MATRIX_FILE" "$round" "review" "$review_content" || true
+        scenario_matrix_reconcile_manager_state "$SCENARIO_MATRIX_FILE" "$round" "review_follow_up" || true
+        scenario_matrix_sync_goal_tracker "$SCENARIO_MATRIX_FILE" "$GOAL_TRACKER_FILE" || true
+        scenario_matrix_write_round_contract_scaffold "$SCENARIO_MATRIX_FILE" "$next_contract_file" "$round" "review" || true
+        scenario_matrix_mainline_summary=$(scenario_matrix_current_mainline_summary "$SCENARIO_MATRIX_FILE" 2>/dev/null || echo "$SCENARIO_MATRIX_MAINLINE_SUMMARY")
+        scenario_matrix_reanchor_steps=$(build_scenario_matrix_reanchor_steps "$SCENARIO_MATRIX_ENABLED" "$SCENARIO_MATRIX_FILE")
+        scenario_matrix_mainline_block=$(build_scenario_matrix_mainline_block "$SCENARIO_MATRIX_ENABLED" "$scenario_matrix_mainline_summary")
+        scenario_matrix_tracker_note=$(build_scenario_matrix_tracker_note "$SCENARIO_MATRIX_ENABLED" "$SCENARIO_MATRIX_FILE" "review")
+        scenario_matrix_oversight_markdown=$(scenario_matrix_current_oversight_markdown "$SCENARIO_MATRIX_FILE" 2>/dev/null || true)
+    fi
 
     local fallback="# Code Review Findings
 
@@ -1451,6 +1643,9 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
         "PLAN_FILE=$PLAN_FILE" \
         "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
         "ROUND_CONTRACT_FILE=$next_contract_file" \
+        "SCENARIO_MATRIX_REANCHOR_STEPS=$scenario_matrix_reanchor_steps" \
+        "SCENARIO_MATRIX_MAINLINE_BLOCK=$scenario_matrix_mainline_block" \
+        "SCENARIO_MATRIX_TRACKER_NOTE=$scenario_matrix_tracker_note" \
         "CURRENT_ROUND=$round" > "$next_prompt_file"
     if [[ "$BITLESSON_REQUIRED" == "true" ]] && ! grep -q 'bitlesson-selector' "$next_prompt_file"; then
         cat >> "$next_prompt_file" << EOF
@@ -1467,6 +1662,10 @@ Reference: @$BITLESSON_FILE
 EOF
     fi
     append_task_tag_routing_note "$next_prompt_file"
+    if [[ "$SCENARIO_MATRIX_ENABLED" == "true" ]]; then
+        append_scenario_matrix_note "$next_prompt_file" "$SCENARIO_MATRIX_FILE" "$scenario_matrix_mainline_summary"
+        append_oversight_note "$next_prompt_file" "$scenario_matrix_oversight_markdown"
+    fi
 
     jq -n \
         --arg reason "$(cat "$next_prompt_file")" \
@@ -1802,7 +2001,7 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
             # Run code review and handle results (may exit on issues/failure/success)
             # Pass CURRENT_ROUND + 1 so all review phase files use the next round number
             echo "Implementation complete. Running initial code review..." >&2
-            run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Simplify and refactor code before completion"
+            run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Simplify and refactor code before completion" "$REVIEW_CONTENT"
         fi
     fi
 fi
@@ -1890,6 +2089,21 @@ upsert_state_fields "$STATE_FILE" \
     "${FIELD_LAST_MAINLINE_VERDICT}=${NEXT_LAST_MAINLINE_VERDICT}" \
     "${FIELD_DRIFT_STATUS}=${NEXT_DRIFT_STATUS}"
 
+NEXT_SCENARIO_MATRIX_MAINLINE_SUMMARY="$SCENARIO_MATRIX_MAINLINE_SUMMARY"
+NEXT_SCENARIO_MATRIX_REANCHOR_STEPS=""
+NEXT_SCENARIO_MATRIX_MAINLINE_BLOCK=""
+NEXT_SCENARIO_MATRIX_TRACKER_NOTE=""
+NEXT_SCENARIO_MATRIX_OVERSIGHT_MARKDOWN=""
+if [[ "$SCENARIO_MATRIX_ENABLED" == "true" ]]; then
+    scenario_matrix_apply_implementation_review "$SCENARIO_MATRIX_FILE" "$NEXT_ROUND" "$NEXT_LAST_MAINLINE_VERDICT" "$REVIEW_CONTENT" || true
+    scenario_matrix_ingest_review_findings "$SCENARIO_MATRIX_FILE" "$NEXT_ROUND" "implementation" "$REVIEW_CONTENT" || true
+    scenario_matrix_reconcile_manager_state "$SCENARIO_MATRIX_FILE" "$NEXT_ROUND" "implementation_follow_up" || true
+    NEXT_SCENARIO_MATRIX_MAINLINE_SUMMARY=$(scenario_matrix_current_mainline_summary "$SCENARIO_MATRIX_FILE" 2>/dev/null || echo "$SCENARIO_MATRIX_MAINLINE_SUMMARY")
+    NEXT_SCENARIO_MATRIX_REANCHOR_STEPS=$(build_scenario_matrix_reanchor_steps "$SCENARIO_MATRIX_ENABLED" "$SCENARIO_MATRIX_FILE")
+    NEXT_SCENARIO_MATRIX_MAINLINE_BLOCK=$(build_scenario_matrix_mainline_block "$SCENARIO_MATRIX_ENABLED" "$NEXT_SCENARIO_MATRIX_MAINLINE_SUMMARY")
+    NEXT_SCENARIO_MATRIX_OVERSIGHT_MARKDOWN=$(scenario_matrix_current_oversight_markdown "$SCENARIO_MATRIX_FILE" 2>/dev/null || true)
+fi
+
 # Create next round prompt
 NEXT_PROMPT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-prompt.md"
 NEXT_SUMMARY_FILE="$LOOP_DIR/round-${NEXT_ROUND}-summary.md"
@@ -1909,6 +2123,10 @@ if [[ ! -f "$NEXT_SUMMARY_FILE" ]]; then
 ## Remaining Items
 - [List unresolved items, if any]
 
+## Task Packet Feedback (Optional)
+| Task ID | Source | Kind | Summary |
+|---------|--------|------|---------|
+
 ## BitLesson Delta
 - Action: none|add|update
 - Lesson ID(s): NONE
@@ -1916,6 +2134,14 @@ if [[ ! -f "$NEXT_SUMMARY_FILE" ]]; then
 EOF
 fi
 NEXT_CONTRACT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-contract.md"
+if [[ "$SCENARIO_MATRIX_ENABLED" == "true" ]]; then
+    scenario_matrix_sync_goal_tracker "$SCENARIO_MATRIX_FILE" "$GOAL_TRACKER_FILE" || true
+    if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
+        scenario_matrix_write_round_contract_scaffold "$SCENARIO_MATRIX_FILE" "$NEXT_CONTRACT_FILE" "$NEXT_ROUND" "recovery" || true
+    else
+        scenario_matrix_write_round_contract_scaffold "$SCENARIO_MATRIX_FILE" "$NEXT_CONTRACT_FILE" "$NEXT_ROUND" "implementation" || true
+    fi
+fi
 
 # Build the next round prompt from templates
 NEXT_ROUND_FALLBACK="# Next Round Instructions
@@ -1955,6 +2181,9 @@ if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
         "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
         "BITLESSON_FILE=$BITLESSON_FILE" \
         "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "SCENARIO_MATRIX_REANCHOR_STEPS=$NEXT_SCENARIO_MATRIX_REANCHOR_STEPS" \
+        "SCENARIO_MATRIX_MAINLINE_BLOCK=$NEXT_SCENARIO_MATRIX_MAINLINE_BLOCK" \
+        "SCENARIO_MATRIX_TRACKER_NOTE=$(build_scenario_matrix_tracker_note "$SCENARIO_MATRIX_ENABLED" "$SCENARIO_MATRIX_FILE" "recovery")" \
         "CURRENT_ROUND=$NEXT_ROUND" \
         "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
         "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
@@ -1965,6 +2194,9 @@ else
         "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
         "BITLESSON_FILE=$BITLESSON_FILE" \
         "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "SCENARIO_MATRIX_REANCHOR_STEPS=$NEXT_SCENARIO_MATRIX_REANCHOR_STEPS" \
+        "SCENARIO_MATRIX_MAINLINE_BLOCK=$NEXT_SCENARIO_MATRIX_MAINLINE_BLOCK" \
+        "SCENARIO_MATRIX_TRACKER_NOTE=$(build_scenario_matrix_tracker_note "$SCENARIO_MATRIX_ENABLED" "$SCENARIO_MATRIX_FILE" "implementation")" \
         "CURRENT_ROUND=$NEXT_ROUND" \
         "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
         "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
@@ -2059,6 +2291,10 @@ Commit your changes and write summary to {{NEXT_SUMMARY_FILE}}"
 load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-footer.md" "$FOOTER_FALLBACK" \
     "NEXT_SUMMARY_FILE=$NEXT_SUMMARY_FILE" >> "$NEXT_PROMPT_FILE"
 append_task_tag_routing_note "$NEXT_PROMPT_FILE"
+if [[ "$SCENARIO_MATRIX_ENABLED" == "true" ]]; then
+    append_scenario_matrix_note "$NEXT_PROMPT_FILE" "$SCENARIO_MATRIX_FILE" "$NEXT_SCENARIO_MATRIX_MAINLINE_SUMMARY"
+    append_oversight_note "$NEXT_PROMPT_FILE" "$NEXT_SCENARIO_MATRIX_OVERSIGHT_MARKDOWN"
+fi
 
 # Add push instruction only if push_every_round is true
 if [[ "$PUSH_EVERY_ROUND" == "true" ]]; then
