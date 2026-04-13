@@ -89,7 +89,7 @@ scan_cmt_blocks() {
         if (closest_marker == "") {
             return ""
         } else {
-            return closest_marker ":" closest_pos
+            return closest_marker "|" closest_pos
         }
     }
 
@@ -189,7 +189,7 @@ scan_cmt_blocks() {
                     break
                 }
 
-                split(marker_info, parts, ":")
+                split(marker_info, parts, "|")
                 found_marker = parts[1]
                 marker_pos = parts[2]
                 token_rel = marker_pos - pos + 1
@@ -244,7 +244,7 @@ scan_cmt_blocks() {
                 break
             }
 
-            split(marker_info, parts, ":")
+            split(marker_info, parts, "|")
             found_marker = parts[1]
             marker_pos = parts[2]
             token_rel = marker_pos - pos + 1
