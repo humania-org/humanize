@@ -67,6 +67,16 @@ if [[ -n "$COMMAND_SIGNATURE" ]]; then
         exit 0
     fi
 
+    # Normalize consecutive slashes (e.g. "humania//scripts" -> "humania/scripts").
+    # CLAUDE_PLUGIN_ROOT may have a trailing slash, producing double slashes when
+    # concatenated with "/scripts/..." in the command template. The setup script
+    # normalizes its own path via cd+pwd (removing double slashes), but the
+    # tool_input.command preserves the original string. Without normalization,
+    # the string comparison below always fails and session_id is never written.
+    # See: https://github.com/humania-org/humanize/issues/67
+    HOOK_COMMAND=$(printf '%s' "$HOOK_COMMAND" | tr -s '/')
+    COMMAND_SIGNATURE=$(printf '%s' "$COMMAND_SIGNATURE" | tr -s '/')
+
     # Boundary-aware match: command must be a valid setup invocation form.
     # Requires the script path to be followed by end-of-string or any POSIX
     # whitespace ([[:space:]]), preventing concatenated forms.
