@@ -135,7 +135,7 @@ if stop_groups is None:
 if not isinstance(stop_groups, list):
     raise SystemExit(f"existing hooks config has invalid Stop array: {hooks_file}")
 
-managed_pattern = re.compile(r"(^|/)hooks/(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh)(\s|$)")
+managed_pattern = re.compile(r"(^|/)hooks/(loop-codex-stop-hook\.sh|pr-loop-stop-hook\.sh)(['\"\s]|$)")
 
 filtered_groups = []
 for group in stop_groups:

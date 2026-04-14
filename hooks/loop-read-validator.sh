@@ -104,6 +104,15 @@ if [[ -n "$_MA_CHECK_DIR" ]]; then
 Path contains traversal segments that cannot be resolved without realpath." >&2
                 exit 2
             fi
+            # Fail closed if the file is a symlink we cannot resolve; the raw
+            # path would skip the project-root prefix guard, allowing a symlink
+            # outside the project to point back at restricted project content.
+            if [[ -L "$FILE_PATH" ]]; then
+                echo "# Read Blocked During Methodology Analysis
+
+Path is a symlink that cannot be resolved without realpath." >&2
+                exit 2
+            fi
             if [[ "$FILE_PATH" == /* ]]; then
                 _ma_real_path="$FILE_PATH"
             else
