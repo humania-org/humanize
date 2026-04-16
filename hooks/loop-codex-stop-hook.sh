@@ -137,8 +137,9 @@ fi
 #
 # This check MUST run before any other gate (phase detection, state parsing,
 # branch / plan / git-clean / summary / max-iter checks, Codex review).
-if has_pending_background_tasks "$HOOK_TRANSCRIPT_PATH" "$LOOP_START_TS"; then
-    PENDING_BG_COUNT=$(count_pending_background_tasks "$HOOK_TRANSCRIPT_PATH" "$LOOP_START_TS")
+PENDING_BG_IDS=$(list_pending_background_task_ids "$HOOK_TRANSCRIPT_PATH" "$LOOP_START_TS" 2>/dev/null) || true
+if [[ -n "$PENDING_BG_IDS" ]]; then
+    PENDING_BG_COUNT=$(printf '%s\n' "$PENDING_BG_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
     # Mark the loop as parked; allows the same session to resume later and
     # makes the cross-session guard above reachable if the user opens a
     # different Claude session in this repo before the bg task completes.
