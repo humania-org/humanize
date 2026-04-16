@@ -268,28 +268,52 @@ extract_transcript_path() {
 }
 
 # Convert an RLCR loop dir basename to a lexically-comparable ISO-8601
-# timestamp suitable for filtering transcript events.
+# UTC timestamp suitable for filtering transcript events.
 #
-# The setup script creates loop dirs named `YYYY-MM-DD_HH-MM-SS`; real
-# Claude transcript events carry timestamps like `2026-04-16T13:19:26.819Z`.
-# String comparison works cleanly once we pad the loop boundary with
-# `.000Z` so sub-second transcript timestamps in the same second always
-# compare greater.
+# `setup-rlcr-loop.sh` creates loop dirs named `YYYY-MM-DD_HH-MM-SS` in
+# the system's LOCAL wall clock (it calls `date +%Y-%m-%d_%H-%M-%S`
+# without `-u`). Claude transcript events carry actual UTC timestamps
+# like `2026-04-16T13:19:26.819Z`. To compare them correctly, this
+# helper converts the local wall-clock parse back to a real UTC moment
+# via a two-step: parse local -> epoch seconds -> format in UTC.
+#
+# The `.000Z` suffix keeps sub-second transcript timestamps in the same
+# second compared greater via lexical string ordering.
 #
 # Usage: derive_loop_start_iso_ts "$loop_dir"
-#   Prints the ISO-8601 timestamp, or empty string when the basename does
-#   not match the expected format.
+#   Prints the ISO-8601 UTC timestamp, or empty string when the
+#   basename does not match the expected format or the local `date`
+#   binary cannot parse it.
 derive_loop_start_iso_ts() {
     local loop_dir="$1"
     local base
     base=$(basename "$loop_dir" 2>/dev/null || echo "")
-    if [[ "$base" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{2})-([0-9]{2})-([0-9]{2})$ ]]; then
-        printf '%sT%s:%s:%s.000Z' \
-            "${BASH_REMATCH[1]}" \
-            "${BASH_REMATCH[2]}" \
-            "${BASH_REMATCH[3]}" \
-            "${BASH_REMATCH[4]}"
+    if [[ ! "$base" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{2})-([0-9]{2})-([0-9]{2})$ ]]; then
+        return
     fi
+    local local_datetime
+    local_datetime="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}:${BASH_REMATCH[3]}:${BASH_REMATCH[4]}"
+
+    # Local wall-clock -> epoch seconds. GNU `date -d` first,
+    # BSD/macOS `date -j -f ...` second. Both honour the caller's TZ
+    # for interpretation, matching setup-rlcr-loop.sh's behaviour at
+    # loop-dir creation time.
+    local epoch
+    epoch=$(date -d "$local_datetime" +%s 2>/dev/null) || epoch=""
+    if [[ -z "$epoch" ]]; then
+        epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$local_datetime" +%s 2>/dev/null) || epoch=""
+    fi
+    if [[ -z "$epoch" ]]; then
+        return
+    fi
+
+    # Epoch -> UTC ISO-8601. Try GNU then BSD.
+    local utc_iso
+    utc_iso=$(date -u -d "@$epoch" "+%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null) || utc_iso=""
+    if [[ -z "$utc_iso" ]]; then
+        utc_iso=$(date -u -r "$epoch" "+%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null) || utc_iso=""
+    fi
+    printf '%s' "$utc_iso"
 }
 
 # Enumerate background-task ids that have been launched but not yet marked

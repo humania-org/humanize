@@ -1214,17 +1214,50 @@ else
 fi
 
 # AC-21b: confirm the derive helper produces the expected ISO-8601 form
-# so real callers get a matching boundary.
+# under TZ=UTC, where local wall clock == UTC so no offset is applied.
 AC21B_DERIVED=$(
     # shellcheck source=/dev/null
     source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+    export TZ="UTC"
     derive_loop_start_iso_ts "/tmp/.humanize/rlcr/2026-03-01_00-00-00"
 )
 if [[ "$AC21B_DERIVED" == "2026-03-01T00:00:00.000Z" ]]; then
-    pass "AC-21b: derive_loop_start_iso_ts emits ISO-8601 with .000Z suffix"
+    pass "AC-21b: derive_loop_start_iso_ts under TZ=UTC preserves the wall-clock"
 else
-    fail "AC-21b: derive_loop_start_iso_ts emits ISO-8601 with .000Z suffix" \
+    fail "AC-21b: derive_loop_start_iso_ts under TZ=UTC preserves the wall-clock" \
         "2026-03-01T00:00:00.000Z" "$AC21B_DERIVED"
+fi
+
+# AC-21d: setup-rlcr-loop.sh names the dir with local wall clock, so a
+# non-UTC caller must see the boundary shifted into actual UTC.
+# JST (UTC+9) example: 09:00 JST == 00:00 UTC.
+AC21D_DERIVED=$(
+    # shellcheck source=/dev/null
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+    export TZ="Asia/Tokyo"
+    derive_loop_start_iso_ts "/tmp/.humanize/rlcr/2026-03-01_09-00-00"
+)
+if [[ "$AC21D_DERIVED" == "2026-03-01T00:00:00.000Z" ]]; then
+    pass "AC-21d: derive_loop_start_iso_ts converts JST wall-clock to correct UTC"
+else
+    fail "AC-21d: derive_loop_start_iso_ts converts JST wall-clock to correct UTC" \
+        "2026-03-01T00:00:00.000Z (9am JST = 0am UTC)" "$AC21D_DERIVED"
+fi
+
+# AC-21e: PST (UTC-8) example. Pick March 1 which is still PST (DST
+# does not start until March 8, 2026), so the offset is a fixed -8h:
+# 00:00 PST == 08:00 UTC.
+AC21E_DERIVED=$(
+    # shellcheck source=/dev/null
+    source "$PROJECT_ROOT/hooks/lib/loop-common.sh"
+    export TZ="America/Los_Angeles"
+    derive_loop_start_iso_ts "/tmp/.humanize/rlcr/2026-03-01_00-00-00"
+)
+if [[ "$AC21E_DERIVED" == "2026-03-01T08:00:00.000Z" ]]; then
+    pass "AC-21e: derive_loop_start_iso_ts converts PST wall-clock to correct UTC"
+else
+    fail "AC-21e: derive_loop_start_iso_ts converts PST wall-clock to correct UTC" \
+        "2026-03-01T08:00:00.000Z (0am PST = 8am UTC before DST)" "$AC21E_DERIVED"
 fi
 
 # AC-21c: end-to-end through the stop hook. Pre-loop launch only -> hook
