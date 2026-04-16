@@ -68,110 +68,19 @@ if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
 
-# Shared state used by both guard blocks and the pending-tasks check below.
-# Loop-start boundary: derived from the loop dir basename (`YYYY-MM-DD_HH-MM-SS`).
-# Empty means derivation failed; helpers treat empty since_ts as no boundary.
-LOOP_START_TS=$(derive_loop_start_iso_ts "$LOOP_DIR")
-HOOK_TRANSCRIPT_PATH=$(extract_transcript_path "$HOOK_INPUT")
-
 # ========================================
-# Ambiguous-Caller Marker Guard
+# Background-Task Guards
 # ========================================
-# If a bg-pending.marker is present but we have no session_id on this
-# hook invocation (typical of scripts/rlcr-stop-gate.sh invoked without
-# --session-id, or any other caller that doesn't forward session_id),
-# we cannot tell whether this caller owns the parked loop. Taking either
-# branch (foreign-session guard below, or same-session cleanup further
-# down) would be wrong in one of the two possible realities. Exit 0
-# silently: the real Claude hook will arrive with session_id populated
-# and drive parking / cleanup from an authoritative context.
-if [[ -f "$LOOP_DIR/bg-pending.marker" ]] && [[ -z "$HOOK_SESSION_ID" ]]; then
-    exit 0
-fi
-
-# ========================================
-# Cross-Session Parked-Loop Guard
-# ========================================
-# If find_active_loop handed this dir over via the marker fallback, the
-# loop is parked by a different session waiting on a background task. The
-# current session has no authority to inspect or advance that loop - its
-# transcript sees none of the foreign bg activity - so the only safe
-# response is to exit 0 with a distinct systemMessage and leave every
-# on-disk artifact (state file, stored session_id, marker) untouched.
-#
-# Both sides of the session-id comparison must be non-empty for this
-# branch to trigger: an empty HOOK_SESSION_ID has already exited above
-# via the ambiguous-caller guard, and an empty stored session_id keeps
-# the backward-compat "matches any" semantics from find_active_loop.
-if [[ -f "$LOOP_DIR/bg-pending.marker" ]]; then
-    GUARD_STATE_FILE=$(resolve_active_state_file "$LOOP_DIR")
-    if [[ -n "$GUARD_STATE_FILE" ]]; then
-        GUARD_STORED_SID=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/^'"${FIELD_SESSION_ID}"': *//; p; } }' "$GUARD_STATE_FILE" 2>/dev/null | tr -d ' ')
-        if [[ -n "$GUARD_STORED_SID" ]] \
-           && [[ -n "$HOOK_SESSION_ID" ]] \
-           && [[ "$GUARD_STORED_SID" != "$HOOK_SESSION_ID" ]]; then
-            jq -n \
-                '{systemMessage: "RLCR loop in this repo is parked by another Claude session waiting for background work. Stop allowed; your session leaves the loop untouched. If that session ended, run /humanize:cancel-rlcr-loop to clean up."}'
-            exit 0
-        fi
-    fi
-fi
-
-# ========================================
-# Early Exit: Pending Background Tasks
-# ========================================
-# When the main Claude Code session has dispatched background work (Agent with
-# run_in_background=true, or Bash with run_in_background=true) whose
-# completion notifications have not yet arrived, the natural "stop" is simply
-# "I am waiting for the background task". Running git/summary/BitLesson/Codex
-# gates in that state wastes Codex tokens and produces low-signal reviews.
-#
-# Allow the stop (exit 0) and emit a user-visible systemMessage so nobody
-# mistakes the pause for loop completion. The on-disk loop state is left
-# untouched -- the next natural stop (after background work finishes) will
-# re-enter this hook with no pending tasks and run the normal flow.
-#
-# LOOP_START_TS confines the transcript scan to launches that actually
-# happened during this loop; earlier session-wide bg activity cannot pin
-# the loop.
-#
-# This check MUST run before any other gate (phase detection, state parsing,
-# branch / plan / git-clean / summary / max-iter checks, Codex review).
-PENDING_BG_IDS=$(list_pending_background_task_ids "$HOOK_TRANSCRIPT_PATH" "$LOOP_START_TS" 2>/dev/null) || true
-if [[ -n "$PENDING_BG_IDS" ]]; then
-    PENDING_BG_COUNT=$(printf '%s\n' "$PENDING_BG_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-    # Mark the loop as parked; allows the same session to resume later and
-    # makes the cross-session guard above reachable if the user opens a
-    # different Claude session in this repo before the bg task completes.
-    : > "$LOOP_DIR/bg-pending.marker" 2>/dev/null || true
-    jq -n --arg count "$PENDING_BG_COUNT" \
-        '{systemMessage: ("RLCR loop active. " + $count + " background task(s) still running - stop allowed naturally; loop has NOT terminated and will resume on completion.")}'
-    exit 0
-fi
-
-# Same-session resume after background task finished: the cross-session
-# guard above already exited for every foreign session, so reaching here
-# with the marker present means the CURRENT session parked the loop and
-# has now come back with a transcript showing no pending bg events.
-# Remove the stale marker before the normal flow takes over.
-#
-# Two-part guard to make sure we never drop the parked-state signal
-# without evidence:
-#   (a) list_pending_background_task_ids returned exit 0 -- the
-#       transcript was present, readable, AND parsed successfully.
-#       The helper is fail-closed on missing files, empty paths,
-#       jq parse failure, and truncation, so a non-zero exit blocks
-#       cleanup here even when the transcript "file" exists.
-#   (b) its output is empty -- proves "no pending" was authoritatively
-#       verified, not inferred from a failure.
-# The check uses a single fresh call so we capture both the exit code
-# and the emptiness without double-running jq.
-if [[ -f "$LOOP_DIR/bg-pending.marker" ]]; then
-    if PENDING_BG_CHECK=$(list_pending_background_task_ids "$HOOK_TRANSCRIPT_PATH" "$LOOP_START_TS" 2>/dev/null) \
-       && [[ -z "$PENDING_BG_CHECK" ]]; then
-        rm -f "$LOOP_DIR/bg-pending.marker" 2>/dev/null || true
-    fi
-fi
+# Delegates to handle_bg_task_short_circuit (hooks/lib/loop-bg-tasks.sh),
+# which runs four cohesive guards in order:
+#   1. Ambiguous-caller marker guard (no session_id + marker present)
+#   2. Cross-session parked-loop guard (foreign session walking in)
+#   3. Pending-bg short-circuit (this session has async work in flight)
+#   4. Same-session stale-marker cleanup (bg work just finished)
+# When any guard short-circuits, it emits the appropriate JSON on stdout
+# and `exit 0`s directly; we never return from that call. When no guard
+# fires we continue into the normal gate logic below.
+handle_bg_task_short_circuit "$LOOP_DIR" "$HOOK_INPUT" "$HOOK_SESSION_ID"
 
 # ========================================
 # Detect Loop Phase: Normal or Finalize

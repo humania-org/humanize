@@ -203,5 +203,80 @@ else
     fail "rlcr-stop-gate reports ALLOW when no active loop" "output containing ALLOW:" "$OUTPUT5"
 fi
 
+# Test 6: Empty session_id must NOT drop transcript_path from the hook
+# input JSON (regression: a `select(length > 0)` used as a plain object
+# value would collapse the whole enclosing object to empty whenever any
+# selected field was empty, wiping forwarded fields like transcript_path
+# even though only session_id was missing). The fix replaces the plain
+# select with explicit if/then/else so each field independently becomes
+# null on empty input.
+T6_DIR="$TEST_DIR/t6"
+mkdir -p "$T6_DIR/bin"
+
+# Mock hook that echoes the raw stdin it received, so we can inspect the
+# JSON rlcr-stop-gate.sh builds without depending on the real hook's
+# pending-bg logic.
+cat > "$T6_DIR/bin/loop-codex-stop-hook.sh" <<'MOCK_HOOK_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+INPUT="$(cat)"
+# Emit a JSON block so the gate wrapper walks the non-"allow on empty"
+# branch. We set decision:"block" AND include a recognizable reason the
+# test can grep for.
+printf '%s\n' "$INPUT" > "${MOCK_HOOK_INPUT_LOG:-/dev/null}"
+printf '%s\n' '{"decision":"block","reason":"mock-hook","systemMessage":"mock"}'
+MOCK_HOOK_EOF
+chmod +x "$T6_DIR/bin/loop-codex-stop-hook.sh"
+
+# Layout expected by rlcr-stop-gate.sh: HUMANIZE_ROOT/hooks/loop-codex-stop-hook.sh.
+# We stage a fake plugin root pointing at the mock hook and copy the gate
+# wrapper next to it so the relative resolution resolves to the mock.
+mkdir -p "$T6_DIR/plugin/scripts" "$T6_DIR/plugin/hooks"
+cp "$T6_DIR/bin/loop-codex-stop-hook.sh" "$T6_DIR/plugin/hooks/loop-codex-stop-hook.sh"
+cp "$GATE_SCRIPT" "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh"
+chmod +x "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh"
+
+T6_INPUT_LOG="$T6_DIR/hook-input.json"
+T6_TRANSCRIPT="$T6_DIR/fake-transcript.jsonl"
+: > "$T6_TRANSCRIPT"
+
+set +e
+(
+    cd "$T6_DIR"
+    MOCK_HOOK_INPUT_LOG="$T6_INPUT_LOG" \
+    "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh" \
+        --transcript-path "$T6_TRANSCRIPT" \
+        --json
+) > "$T6_DIR/out.txt" 2>&1
+EXIT6=$?
+set -e
+
+if [[ ! -f "$T6_INPUT_LOG" ]]; then
+    fail "rlcr-stop-gate forwards transcript_path when session_id is empty" \
+        "mock hook to capture hook input JSON" \
+        "captured input log missing; gate output: $(cat "$T6_DIR/out.txt" 2>/dev/null || true)"
+else
+    T6_TRANSCRIPT_SEEN=$(jq -r '.transcript_path // "__MISSING__"' "$T6_INPUT_LOG" 2>/dev/null || echo "__PARSE_ERROR__")
+    T6_SESSION_SEEN=$(jq -r '.session_id | if . == null then "__NULL__" else . end' "$T6_INPUT_LOG" 2>/dev/null || echo "__PARSE_ERROR__")
+    if [[ "$T6_TRANSCRIPT_SEEN" == "$T6_TRANSCRIPT" ]] && [[ "$T6_SESSION_SEEN" == "__NULL__" ]]; then
+        pass "rlcr-stop-gate forwards transcript_path when session_id is empty (jq object-collapse fix)"
+    else
+        fail "rlcr-stop-gate forwards transcript_path when session_id is empty (jq object-collapse fix)" \
+            "transcript_path=$T6_TRANSCRIPT, session_id=__NULL__" \
+            "transcript_path=$T6_TRANSCRIPT_SEEN, session_id=$T6_SESSION_SEEN; raw: $(cat "$T6_INPUT_LOG" 2>/dev/null || true)"
+    fi
+fi
+
+# Exit 10 because the mock hook always returns decision:"block"; ensure
+# the wrapper reached the decision branch rather than exiting 20
+# (wrapper error) or 0 (bogus ALLOW from lost transcript_path).
+if [[ "$EXIT6" -eq 10 ]]; then
+    pass "rlcr-stop-gate reaches decision branch with empty session_id + real transcript_path"
+else
+    T6_BODY=$(cat "$T6_DIR/out.txt" 2>/dev/null || true)
+    fail "rlcr-stop-gate reaches decision branch with empty session_id + real transcript_path" \
+        "exit 10 (mock hook returns block)" "exit $EXIT6; output: $T6_BODY"
+fi
+
 print_test_summary "RLCR Stop Gate Wrapper Test Summary"
 exit $?

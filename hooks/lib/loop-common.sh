@@ -242,209 +242,11 @@ extract_session_id() {
     printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null || echo ""
 }
 
-# Expand a leading "~" or "~/" in a path to "$HOME" without using eval.
-# Only the bare "~" and "~/..." forms are expanded; "~user/..." and every
-# other input (absolute path, relative path, empty string) is returned verbatim.
-#
-# Usage: expand_leading_tilde "$path"
-#   Prints the normalized path to stdout.
-expand_leading_tilde() {
-    local path="$1"
-    case "$path" in
-        '~')   printf '%s' "${HOME:-}" ;;
-        '~/'*) printf '%s/%s' "${HOME:-}" "${path#'~/'}" ;;
-        *)     printf '%s' "$path" ;;
-    esac
-}
-
-# Extract transcript_path from hook JSON input and expand any leading tilde.
-# Usage: extract_transcript_path "$json_input"
-# Outputs the transcript_path to stdout, or empty string if not available.
-extract_transcript_path() {
-    local input="$1"
-    local raw
-    raw=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
-    expand_leading_tilde "$raw"
-}
-
-# Convert an RLCR loop dir basename to a lexically-comparable ISO-8601
-# UTC timestamp suitable for filtering transcript events.
-#
-# `setup-rlcr-loop.sh` creates loop dirs named `YYYY-MM-DD_HH-MM-SS` in
-# the system's LOCAL wall clock (it calls `date +%Y-%m-%d_%H-%M-%S`
-# without `-u`). Claude transcript events carry actual UTC timestamps
-# like `2026-04-16T13:19:26.819Z`. To compare them correctly, this
-# helper converts the local wall-clock parse back to a real UTC moment
-# via a two-step: parse local -> epoch seconds -> format in UTC.
-#
-# The `.000Z` suffix keeps sub-second transcript timestamps in the same
-# second compared greater via lexical string ordering.
-#
-# Usage: derive_loop_start_iso_ts "$loop_dir"
-#   Prints the ISO-8601 UTC timestamp, or empty string when the
-#   basename does not match the expected format or the local `date`
-#   binary cannot parse it.
-derive_loop_start_iso_ts() {
-    local loop_dir="$1"
-    local base
-    base=$(basename "$loop_dir" 2>/dev/null || echo "")
-    if [[ ! "$base" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{2})-([0-9]{2})-([0-9]{2})$ ]]; then
-        return
-    fi
-    local local_datetime
-    local_datetime="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}:${BASH_REMATCH[3]}:${BASH_REMATCH[4]}"
-
-    # Local wall-clock -> epoch seconds. GNU `date -d` first,
-    # BSD/macOS `date -j -f ...` second. Both honour the caller's TZ
-    # for interpretation, matching setup-rlcr-loop.sh's behaviour at
-    # loop-dir creation time.
-    local epoch
-    epoch=$(date -d "$local_datetime" +%s 2>/dev/null) || epoch=""
-    if [[ -z "$epoch" ]]; then
-        epoch=$(date -j -f "%Y-%m-%d %H:%M:%S" "$local_datetime" +%s 2>/dev/null) || epoch=""
-    fi
-    if [[ -z "$epoch" ]]; then
-        return
-    fi
-
-    # Epoch -> UTC ISO-8601. Try GNU then BSD.
-    local utc_iso
-    utc_iso=$(date -u -d "@$epoch" "+%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null) || utc_iso=""
-    if [[ -z "$utc_iso" ]]; then
-        utc_iso=$(date -u -r "$epoch" "+%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null) || utc_iso=""
-    fi
-    printf '%s' "$utc_iso"
-}
-
-# Enumerate background-task ids that have been launched but not yet marked
-# completed in a Claude Code transcript.jsonl.
-#
-# Launch events (inspected in tool_result "user" messages):
-#   - Background subagent: toolUseResult.isAsync == true
-#     -> id is toolUseResult.agentId
-#   - Background shell: toolUseResult.backgroundTaskId non-empty
-#     -> id is toolUseResult.backgroundTaskId
-#
-# Completion events are recognised from two Claude Code transcript forms:
-#
-#   1. Structured SDK record
-#      (see SDKTaskNotificationMessage in docs/typescript.md):
-#      `type == "system"`, `subtype == "task_notification"`,
-#      `task_id` is the completed id. Any `status` value
-#      (completed, failed, stopped, ...) is treated as terminal.
-#
-#   2. Legacy queue-operation enqueue whose `content` embeds a
-#      `<task-notification>` XML block with `<task-id>...</task-id>`;
-#      kept for transcripts produced by older Claude Code versions.
-#
-# pending := launched \ completed
-#
-# Optional second argument `since_ts` (ISO-8601 string, e.g. the value
-# returned by `derive_loop_start_iso_ts`): when provided, only launch
-# events whose top-level `.timestamp` field is >= `since_ts` count as
-# candidate launches. Events without a `.timestamp` are included (keeps
-# fixture transcripts and older record formats working). This keeps
-# pre-loop session-wide background work from pinning an RLCR loop that
-# has no pending work of its own.
-#
-# Usage: list_pending_background_task_ids "$transcript_path" [since_ts]
-#   - Outputs one id per line on stdout (possibly empty).
-#   - Returns 0 when the transcript is readable (including when there are
-#     no pending tasks). Returns 1 when the transcript path is empty, not
-#     a regular file, or jq is unavailable, so callers must treat non-zero
-#     as "unknown -> do not short-circuit".
-list_pending_background_task_ids() {
-    local transcript_path="$1"
-    local since_ts="${2:-}"
-
-    # Normalize a leading tilde so direct callers (tests, ad-hoc scripts)
-    # work correctly even when transcript_path was not routed through
-    # extract_transcript_path.
-    transcript_path=$(expand_leading_tilde "$transcript_path")
-
-    if [[ -z "$transcript_path" ]] || [[ ! -f "$transcript_path" ]]; then
-        return 1
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-        return 1
-    fi
-
-    local launched completed
-    launched=$(jq -r --arg since_ts "$since_ts" '
-        select(.toolUseResult != null)
-        | select(
-            ($since_ts == ""
-             or ((.timestamp // "") == "")
-             or ((.timestamp // "") >= $since_ts))
-          )
-        | select(
-            (.toolUseResult.isAsync == true and (.toolUseResult.agentId // "") != "")
-            or ((.toolUseResult.backgroundTaskId // "") != "")
-          )
-        | (.toolUseResult.agentId // .toolUseResult.backgroundTaskId)
-    ' "$transcript_path" 2>/dev/null | sort -u) || return 1
-
-    # Union of both completion formats. Either source alone is enough to
-    # mark a launched id terminal.
-    #
-    # The `grep -oE || true` guard on the legacy branch keeps `set -o
-    # pipefail` from poisoning the combined pipeline when no legacy
-    # queue-operation records exist in the transcript (grep with `-o`
-    # exits 1 on no matches, which would otherwise wipe out any SDK
-    # task_notification results collected above).
-    completed=$(
-        {
-            jq -r '
-                select(.type == "system" and .subtype == "task_notification")
-                | (.task_id // empty)
-            ' "$transcript_path" 2>/dev/null
-            jq -r '
-                select(.type == "queue-operation" and .operation == "enqueue")
-                | (.content // "" | tostring)
-                | select(contains("<task-notification>"))
-            ' "$transcript_path" 2>/dev/null \
-                | { grep -oE '<task-id>[^<]+</task-id>' || true; } \
-                | sed -E 's|</?task-id>||g'
-        } | sort -u | sed '/^$/d'
-    ) || completed=""
-
-    # Emit launched ids that have no matching completion notification.
-    comm -23 \
-        <(printf '%s\n' "$launched" | sed '/^$/d') \
-        <(printf '%s\n' "$completed" | sed '/^$/d')
-}
-
-# Returns 0 when the transcript shows at least one pending background task.
-# Returns 1 when no pending tasks are detected (including fail-closed cases
-# like missing transcript, non-file path, or jq unavailable).
-#
-# Usage: has_pending_background_tasks "$transcript_path" [since_ts]
-has_pending_background_tasks() {
-    local transcript_path="$1"
-    local since_ts="${2:-}"
-    local pending
-    pending=$(list_pending_background_task_ids "$transcript_path" "$since_ts" 2>/dev/null) || return 1
-    [[ -n "$pending" ]]
-}
-
-# Prints the count of pending background tasks to stdout. Prints 0 for any
-# error case so callers can still format messages safely.
-#
-# Usage: count_pending_background_tasks "$transcript_path" [since_ts]
-count_pending_background_tasks() {
-    local transcript_path="$1"
-    local since_ts="${2:-}"
-    local pending
-    pending=$(list_pending_background_task_ids "$transcript_path" "$since_ts" 2>/dev/null) || {
-        echo 0
-        return 0
-    }
-    if [[ -z "$pending" ]]; then
-        echo 0
-    else
-        printf '%s\n' "$pending" | sed '/^$/d' | wc -l | tr -d ' '
-    fi
-}
+# Background-task helpers (expand_leading_tilde, extract_transcript_path,
+# derive_loop_start_iso_ts, list/has/count_pending_background_task[_ids],
+# handle_bg_task_short_circuit) live in loop-bg-tasks.sh and are sourced
+# at the bottom of this file so every existing consumer of loop-common.sh
+# continues to get them transparently.
 
 # Resolve the active state file for a loop directory
 # Checks for finalize-state.md first, then state.md
@@ -1712,3 +1514,15 @@ end_loop() {
         return 1
     fi
 }
+
+# Source background-task helpers. Sourced at the bottom so every function
+# above is available to callers that only need loop-common.sh, while bg-aware
+# callers (the stop hook, the test suite) still get the bg helpers via a
+# single source of loop-common.sh.
+#
+# _LOOP_COMMON_DIR is set here instead of at the top of the file because
+# loop-bg-tasks.sh lives in the same directory as this file and we want to
+# locate it regardless of how loop-common.sh was sourced.
+_LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=loop-bg-tasks.sh
+source "$_LOOP_COMMON_DIR/loop-bg-tasks.sh"
