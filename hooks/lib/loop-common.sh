@@ -1322,6 +1322,13 @@ IMPORTANT: The commit message must NOT contain the literal string \".humanize\" 
 # Return success if local Humanize runtime state has entered git tracking or the index.
 # Untracked .humanize state is allowed; tracked or staged state must be blocked.
 # Usage: git_has_tracked_humanize_state [project_root]
+#
+# Intentionally scoped to .humanize/ to stay consistent with git_adds_humanize,
+# which explicitly allows unrelated paths like .humanize-backup or
+# .humanizeconfig (see tests/test-humanize-escape.sh). ls-files covers both
+# committed entries and paths staged via git add; paths the user has staged for
+# removal via git rm --cached are correctly omitted so the user can unstick
+# themselves without being re-blocked.
 git_has_tracked_humanize_state() {
     local project_root="${1:-.}"
 
@@ -1329,14 +1336,7 @@ git_has_tracked_humanize_state() {
         return 1
     fi
 
-    if git -C "$project_root" ls-files --error-unmatch .humanize >/dev/null 2>&1; then
-        return 0
-    fi
-    if git -C "$project_root" ls-files '.humanize/*' '.humanize-*' | grep -q '.'; then
-        return 0
-    fi
-
-    if git -C "$project_root" diff --cached --name-only -- .humanize '.humanize-*' | grep -q '.'; then
+    if git -C "$project_root" ls-files -- .humanize 2>/dev/null | grep -q '.'; then
         return 0
     fi
 
@@ -1348,19 +1348,15 @@ git_has_tracked_humanize_state() {
 git_tracked_humanize_blocked_message() {
     local fallback="# Tracked Humanize State Blocked
 
-Detected tracked or staged files under \`.humanize/\` (or legacy \`.humanize-*\`).
+Detected tracked or staged files under \`.humanize/\`.
 
 These files are local Humanize loop state and must remain outside version control.
 
 ## Required Fix
 
-1. Remove Humanize state from the index, for example:
+1. Remove Humanize state from the index:
 
        git rm --cached -r .humanize
-
-   If legacy tracked state exists, remove those entries too:
-
-       git rm --cached -r .humanize-*
 
 2. Keep only real project files staged.
 3. Retry the stop action after the local state is no longer tracked.
