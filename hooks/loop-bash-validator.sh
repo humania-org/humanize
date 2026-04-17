@@ -84,10 +84,23 @@ if [[ -n "$_MA_BASH_DIR" ]] && [[ -f "$_MA_BASH_DIR/methodology-analysis-state.m
     # token with no embedded whitespace, otherwise commands like
     # `bash cancel-rlcr-loop.sh` or `tee cancel-rlcr-loop.sh` would match.
     # The script name must be followed by whitespace or end-of-line so trailing
-    # tokens cannot hide additional arguments. Reject if chained with shell
-    # operators.
-    if echo "$COMMAND_LOWER" | grep -qE '^[[:space:]]*"?([^[:space:]"]+/)?cancel-rlcr-loop\.sh"?([[:space:]]|$)' && \
-       ! echo "$COMMAND_LOWER" | grep -qE '[;|&]'; then
+    # tokens cannot hide additional arguments.
+    #
+    # Also reject any shell metacharacter that can inject or redirect work
+    # after the cancel invocation: pipes/sequence/background operators,
+    # command substitution ($(...) or backticks), redirection (<, >), and
+    # multi-line payloads. The earlier narrower check only rejected ; | &,
+    # letting payloads like `cancel-rlcr-loop.sh $(touch /tmp/pwn)` or a
+    # newline-delimited second command slip past this early exit and reach
+    # arbitrary file modifications before the downstream blockers run.
+    _ma_has_shell_meta=false
+    case "$COMMAND_LOWER" in
+        *';'*|*'|'*|*'&'*|*'`'*|*'>'*|*'<'*|*'$('*|*$'\n'*)
+            _ma_has_shell_meta=true
+            ;;
+    esac
+    if [[ "$_ma_has_shell_meta" != "true" ]] && \
+       echo "$COMMAND_LOWER" | grep -qE '^[[:space:]]*"?([^[:space:]"]+/)?cancel-rlcr-loop\.sh"?([[:space:]]|$)'; then
         exit 0
     fi
     # Block git commands that modify the working tree
