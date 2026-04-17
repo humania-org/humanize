@@ -80,8 +80,13 @@ _MA_BASH_DIR="$ACTIVE_LOOP_DIR"
 
 if [[ -n "$_MA_BASH_DIR" ]] && [[ -f "$_MA_BASH_DIR/methodology-analysis-state.md" ]]; then
     # Allow cancel-rlcr-loop.sh only as the leading command (not as an argument
-    # to another command like cp/mv). Reject if chained with shell operators.
-    if echo "$COMMAND_LOWER" | grep -qE '^[[:space:]]*("?[^"]*/?)?cancel-rlcr-loop\.sh' && \
+    # to another command like cp/mv). The optional path prefix must be a single
+    # token with no embedded whitespace, otherwise commands like
+    # `bash cancel-rlcr-loop.sh` or `tee cancel-rlcr-loop.sh` would match.
+    # The script name must be followed by whitespace or end-of-line so trailing
+    # tokens cannot hide additional arguments. Reject if chained with shell
+    # operators.
+    if echo "$COMMAND_LOWER" | grep -qE '^[[:space:]]*"?([^[:space:]"]+/)?cancel-rlcr-loop\.sh"?([[:space:]]|$)' && \
        ! echo "$COMMAND_LOWER" | grep -qE '[;|&]'; then
         exit 0
     fi
