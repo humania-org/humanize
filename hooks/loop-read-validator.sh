@@ -54,7 +54,7 @@ HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 # ========================================
 
 if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    PROJECT_ROOT="$(resolve_project_root)" || exit 0
     LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
     LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
     if [[ -z "$LOOP_DIR" ]] || ! is_allowlisted_file "$FILE_PATH" "$LOOP_DIR"; then
@@ -73,7 +73,8 @@ fi
 # This check MUST come before the summary/prompt early exit below,
 # otherwise non-summary/prompt files in the loop dir escape restriction.
 
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_project_root 2>/dev/null || true)}"
+[[ -z "$PROJECT_ROOT" ]] && exit 0
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
 # Use only the session-matched loop. Do NOT fall back to an unfiltered search,
 # as that would incorrectly restrict unrelated sessions opened in the same repo.
@@ -303,7 +304,11 @@ fi
 
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
-if [[ "$FILE_PATH" != "$CORRECT_PATH" ]]; then
+# Compare canonical (symlink-resolved) forms -- see loop-write-validator.sh
+# for the rationale; the same reasoning applies to read paths.
+_READ_FILE_REAL=$(canonicalize_path "$FILE_PATH")
+_READ_CORRECT_REAL=$(canonicalize_path "$CORRECT_PATH")
+if [[ "${_READ_FILE_REAL:-$FILE_PATH}" != "${_READ_CORRECT_REAL:-$CORRECT_PATH}" ]]; then
     FALLBACK="# Wrong Directory Path
 
 You tried to {{ACTION}} {{FILE_PATH}} but the correct path is {{CORRECT_PATH}}"

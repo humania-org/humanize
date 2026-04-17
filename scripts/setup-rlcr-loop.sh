@@ -323,7 +323,11 @@ done
 # Validate Prerequisites
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine humanize project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 
 # loop-common.sh already sourced above (provides find_active_loop, etc.)
 

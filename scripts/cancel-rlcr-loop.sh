@@ -66,12 +66,16 @@ done
 # Find Loop Directory
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-
-# Source shared loop library for find_active_loop
+# Source shared loop library for find_active_loop and resolve_project_root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/../hooks/lib/loop-common.sh"
+
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine humanize project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 3
+}
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 
 # PRODUCT DECISION: Cancel operates globally (no session_id filtering).
 #

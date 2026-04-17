@@ -38,7 +38,7 @@ HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 # ========================================
 
 if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    PROJECT_ROOT="$(resolve_project_root)" || exit 0
     LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
     LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
     if [[ -z "$LOOP_DIR" ]] || ! is_allowlisted_file "$FILE_PATH" "$LOOP_DIR"; then
@@ -59,7 +59,8 @@ fi
 # This prevents source code modifications after Codex has signed off.
 # This check MUST come before the humanize loop dir early exit below.
 
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_project_root 2>/dev/null || true)}"
+[[ -z "$PROJECT_ROOT" ]] && exit 0
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
 # Use only the session-matched loop. Do NOT fall back to an unfiltered search,
 # as that would incorrectly restrict unrelated sessions opened in the same repo.
@@ -124,7 +125,8 @@ fi
 # Find Active Loop and Current Round
 # ========================================
 
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_project_root 2>/dev/null || true)}"
+[[ -z "$PROJECT_ROOT" ]] && exit 0
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
 ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
 

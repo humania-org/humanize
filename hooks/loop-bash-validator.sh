@@ -49,7 +49,7 @@ COMMAND_LOWER=$(to_lower "$COMMAND")
 # Find Active Loops (needed for multiple checks)
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_ROOT="$(resolve_project_root)" || exit 0
 
 # Extract session_id from hook input for session-aware loop filtering
 HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")

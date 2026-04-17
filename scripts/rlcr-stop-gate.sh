@@ -18,7 +18,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 HUMANIZE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# Deterministic project-root resolver (CLAUDE_PROJECT_DIR -> git toplevel, no pwd fallback).
+# Overridable via --project-root for non-hook callers; the flag handler below
+# always wins because it runs after this default assignment.
+source "$HUMANIZE_ROOT/hooks/lib/project-root.sh"
+PROJECT_ROOT="$(resolve_project_root 2>/dev/null || true)"
 HOOK_SCRIPT="$HUMANIZE_ROOT/hooks/loop-codex-stop-hook.sh"
 
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
@@ -72,6 +77,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -z "$PROJECT_ROOT" ]]; then
+    # No humanize project context reachable from here -- nothing to enforce.
+    # Allow the stop to proceed instead of returning a wrapper error so that
+    # invoking the gate outside any project (or any git repo) is benign.
+    echo "ALLOW: no humanize project root resolved."
+    exit 0
+fi
 
 if [[ ! -x "$HOOK_SCRIPT" ]]; then
     echo "Error: Hook script not found or not executable: $HOOK_SCRIPT" >&2

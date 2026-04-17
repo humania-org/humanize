@@ -55,7 +55,7 @@ HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 # ========================================
 
 if is_round_file_type "$FILE_PATH_LOWER" "todos"; then
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    PROJECT_ROOT="$(resolve_project_root)" || exit 0
     LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
     LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
     if [[ -z "$LOOP_DIR" ]] || ! is_allowlisted_file "$FILE_PATH" "$LOOP_DIR"; then
@@ -76,7 +76,8 @@ fi
 # This prevents source code modifications after Codex has signed off.
 # This check MUST come before the file type early exits below.
 
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_project_root 2>/dev/null || true)}"
+[[ -z "$PROJECT_ROOT" ]] && exit 0
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
 # Use only the session-matched loop. Do NOT fall back to an unfiltered search,
 # as that would incorrectly restrict unrelated sessions opened in the same repo.
@@ -160,7 +161,8 @@ fi
 # ========================================
 
 # Re-initialize if not set by earlier todos check
-PROJECT_ROOT="${PROJECT_ROOT:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_project_root 2>/dev/null || true)}"
+[[ -z "$PROJECT_ROOT" ]] && exit 0
 LOOP_BASE_DIR="${LOOP_BASE_DIR:-$PROJECT_ROOT/.humanize/rlcr}"
 ACTIVE_LOOP_DIR="${LOOP_DIR:-$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")}"
 
@@ -329,7 +331,14 @@ fi
 
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
-if [[ "$FILE_PATH" != "$CORRECT_PATH" ]]; then
+# Compare canonical (symlink-resolved) forms so the check is not fooled by
+# equivalent paths expressed in different prefix forms (e.g. /var/... vs
+# /private/var/... on macOS). A raw string compare would mis-handle a
+# symlinked project prefix whenever one side was canonicalized upstream
+# (e.g. by resolve_project_root) and the other was not.
+_WRITE_FILE_REAL=$(canonicalize_path "$FILE_PATH")
+_WRITE_CORRECT_REAL=$(canonicalize_path "$CORRECT_PATH")
+if [[ "${_WRITE_FILE_REAL:-$FILE_PATH}" != "${_WRITE_CORRECT_REAL:-$CORRECT_PATH}" ]]; then
     FALLBACK="# Wrong Directory Path
 
 You tried to {{ACTION}} {{FILE_PATH}} but the correct path is {{CORRECT_PATH}}"

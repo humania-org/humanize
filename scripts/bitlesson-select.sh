@@ -9,9 +9,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/config-loader.sh"
 source "$SCRIPT_DIR/lib/model-router.sh"
+source "$SCRIPT_DIR/../hooks/lib/project-root.sh"
 
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$PROJECT_ROOT")"
 BITLESSON_MODEL="$(get_config_value "$MERGED_CONFIG" "bitlesson_model")"
 BITLESSON_MODEL="${BITLESSON_MODEL:-haiku}"

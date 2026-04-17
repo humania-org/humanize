@@ -11,10 +11,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 # Source shared loop functions and template loader
 source "$SCRIPT_DIR/lib/loop-common.sh"
+
+PROJECT_ROOT="$(resolve_project_root)" || exit 0
 
 # Source portable timeout wrapper for git operations
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -39,12 +39,12 @@ HOOK_INPUT=$(cat)
 # Find Active Loop
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-
 # Source shared loop functions and template loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
+
+PROJECT_ROOT="$(resolve_project_root)" || exit 0
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
 
 # Source portable timeout wrapper for git operations
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

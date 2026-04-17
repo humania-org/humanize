@@ -29,6 +29,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # Source portable timeout wrapper
 source "$SCRIPT_DIR/portable-timeout.sh"
 
+# Shared project-root resolver (CLAUDE_PROJECT_DIR -> git toplevel, realpath-canonical)
+source "$SCRIPT_DIR/../hooks/lib/project-root.sh"
+
 # ========================================
 # Default Configuration
 # ========================================
@@ -168,11 +171,11 @@ fi
 # Detect Project Root
 # ========================================
 
-if git rev-parse --show-toplevel &>/dev/null; then
-    PROJECT_ROOT=$(git rev-parse --show-toplevel)
-else
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-fi
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 
 # ========================================
 # Create Storage Directories

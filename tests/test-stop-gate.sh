@@ -231,9 +231,12 @@ chmod +x "$T6_DIR/bin/loop-codex-stop-hook.sh"
 # Layout expected by rlcr-stop-gate.sh: HUMANIZE_ROOT/hooks/loop-codex-stop-hook.sh.
 # We stage a fake plugin root pointing at the mock hook and copy the gate
 # wrapper next to it so the relative resolution resolves to the mock.
-mkdir -p "$T6_DIR/plugin/scripts" "$T6_DIR/plugin/hooks"
+mkdir -p "$T6_DIR/plugin/scripts" "$T6_DIR/plugin/hooks/lib"
 cp "$T6_DIR/bin/loop-codex-stop-hook.sh" "$T6_DIR/plugin/hooks/loop-codex-stop-hook.sh"
 cp "$GATE_SCRIPT" "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh"
+# rlcr-stop-gate sources hooks/lib/project-root.sh for PROJECT_ROOT resolution.
+REAL_PROJECT_ROOT_LIB="$(dirname "$GATE_SCRIPT")/../hooks/lib/project-root.sh"
+cp "$REAL_PROJECT_ROOT_LIB" "$T6_DIR/plugin/hooks/lib/project-root.sh"
 chmod +x "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh"
 
 T6_INPUT_LOG="$T6_DIR/hook-input.json"
@@ -243,6 +246,11 @@ T6_TRANSCRIPT="$T6_DIR/fake-transcript.jsonl"
 set +e
 (
     cd "$T6_DIR"
+    # Pin CLAUDE_PROJECT_DIR so rlcr-stop-gate resolves a root even though
+    # the fixture is not a git repo. This test exercises the JSON-object-
+    # collapse regression for empty session_id; project-root resolution is
+    # orthogonal and must not short-circuit the gate with an ALLOW.
+    CLAUDE_PROJECT_DIR="$T6_DIR" \
     MOCK_HOOK_INPUT_LOG="$T6_INPUT_LOG" \
     "$T6_DIR/plugin/scripts/rlcr-stop-gate.sh" \
         --transcript-path "$T6_TRANSCRIPT" \
