@@ -70,6 +70,19 @@ setup_mock_codex() {
     mkdir -p "$bin_dir"
     cat > "$bin_dir/codex" <<EOF
 #!/usr/bin/env bash
+# The stop hook probes feature support with \`codex --help\`; advertise
+# --disable so the nested invocation is expected to include it.
+if [[ "\$1" == "--help" ]]; then
+    cat <<HELP
+Usage: codex [OPTIONS] <COMMAND>
+
+Options:
+  --disable <HOOK>         Disable a specific Codex hook (e.g. codex_hooks)
+  --skip-git-repo-check    Skip git repo validation
+HELP
+    exit 0
+fi
+
 printf '%s\n' "\$*" > "$args_file"
 
 subcommand=""

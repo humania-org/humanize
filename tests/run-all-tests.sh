@@ -87,6 +87,7 @@ TEST_SUITES=(
     "test-config-error-handling.sh"
     "test-codex-hook-install.sh"
     "test-unified-codex-config.sh"
+    "test-disable-nested-codex-hooks.sh"
     # Session ID and Agent Teams tests
     "test-session-id.sh"
     "test-agent-teams.sh"
