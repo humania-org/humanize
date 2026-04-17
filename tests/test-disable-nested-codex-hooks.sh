@@ -188,22 +188,22 @@ REPO_IMPL="$TEST_DIR/repo-impl"
 setup_repo "$REPO_IMPL"
 run_loop_hook "$REPO_IMPL" "$TEST_DIR/impl.args" "false"
 
-if grep -q -- '--disable codex_hooks exec' "$TEST_DIR/impl.args"; then
+if grep -q -- 'exec --disable codex_hooks' "$TEST_DIR/impl.args"; then
     pass "implementation-phase stop hook disables codex_hooks for codex exec"
 else
     fail "implementation-phase stop hook disables codex_hooks for codex exec" \
-        "--disable codex_hooks exec" "$(cat "$TEST_DIR/impl.args" 2>/dev/null || echo missing)"
+        "exec --disable codex_hooks" "$(cat "$TEST_DIR/impl.args" 2>/dev/null || echo missing)"
 fi
 
 REPO_REVIEW="$TEST_DIR/repo-review"
 setup_repo "$REPO_REVIEW"
 run_loop_hook "$REPO_REVIEW" "$TEST_DIR/review.args" "true"
 
-if grep -q -- '--disable codex_hooks review' "$TEST_DIR/review.args"; then
+if grep -q -- 'review --disable codex_hooks' "$TEST_DIR/review.args"; then
     pass "review-phase stop hook disables codex_hooks for codex review"
 else
     fail "review-phase stop hook disables codex_hooks for codex review" \
-        "--disable codex_hooks review" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
+        "review --disable codex_hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
 fi
 
 echo ""
