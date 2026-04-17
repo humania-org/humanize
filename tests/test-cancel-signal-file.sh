@@ -1342,6 +1342,37 @@ else
     pass "is_cancel_authorized rejects hidden variables"
 fi
 
+echo "HELPER TEST 8: is_cancel_authorized accepts symlinked-prefix path"
+# Regression test: when the user supplies the active-loop path through a
+# symlinked prefix (e.g. /var/... on macOS resolves to /private/var/...),
+# the authorization check must canonicalize both sides so it still matches.
+# We simulate the scenario by creating an all-lowercase sibling layout
+# (mktemp dirs contain mixed case, which would defeat realpath once the
+# command is lowercased on case-sensitive filesystems), then symlinking
+# from there back to the real loop dir.
+setup_test_loop "helper-8"
+touch "$LOOP_DIR/.cancel-requested"
+
+SYMLINK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/humanize-symlink-XXXXXXXX" | tr '[:upper:]' '[:lower:]')
+# mktemp already lowercases when we pipe it; re-run if the resulting dir does
+# not actually exist (shouldn't happen but defensive for portability).
+[[ -d "$SYMLINK_ROOT" ]] || { rm -rf "$SYMLINK_ROOT" 2>/dev/null; SYMLINK_ROOT="${TMPDIR:-/tmp}/humanize-symlink-lowercase-$$"; mkdir -p "$SYMLINK_ROOT"; }
+
+SYMLINK_LOOP_DIR="$SYMLINK_ROOT/via-symlink"
+ln -sfn "$LOOP_DIR" "$SYMLINK_LOOP_DIR"
+
+CANONICAL_LOOP_DIR="$(cd "$LOOP_DIR" && pwd -P)"
+COMMAND_LOWER="mv ${SYMLINK_LOOP_DIR}/state.md ${SYMLINK_LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$CANONICAL_LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "is_cancel_authorized accepts symlinked-prefix path after realpath"
+else
+    fail "helper symlink prefix" "returns 0 (authorized)" "returns non-zero"
+fi
+
+rm -rf "$SYMLINK_ROOT" 2>/dev/null || true
+
 # ========================================
 # Summary
 # ========================================
