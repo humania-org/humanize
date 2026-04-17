@@ -85,6 +85,16 @@ if [[ -n "$_MA_LOOP_DIR" ]] && [[ -f "$_MA_LOOP_DIR/methodology-analysis-state.m
 Path contains traversal segments that cannot be resolved without realpath." >&2
             exit 2
         fi
+        # Fail closed if the leaf is a symlink we cannot resolve; the raw
+        # path would satisfy the loop-dir prefix check while pointing at a
+        # target outside the loop, letting the basename allowlist approve
+        # edits to arbitrary files during methodology-analysis mode.
+        if [[ -L "$FILE_PATH" ]]; then
+            echo "# Edit Blocked During Methodology Analysis
+
+Path is a symlink that cannot be resolved without realpath." >&2
+            exit 2
+        fi
         if [[ "$FILE_PATH" == /* ]]; then
             _ma_real_path="$FILE_PATH"
         else
