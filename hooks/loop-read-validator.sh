@@ -304,10 +304,12 @@ fi
 
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
-# Compare canonical (symlink-resolved) forms -- see loop-write-validator.sh
-# for the rationale; the same reasoning applies to read paths.
-_READ_FILE_REAL=$(canonicalize_path "$FILE_PATH")
-_READ_CORRECT_REAL=$(canonicalize_path "$CORRECT_PATH")
+# Compare prefix-canonical forms -- see loop-write-validator.sh for the
+# rationale; the same reasoning applies to read paths. A planted symlink
+# at the leaf would otherwise let a Read follow the link outside the loop
+# dir and still pass this validator.
+_READ_FILE_REAL=$(canonicalize_path_prefix "$FILE_PATH")
+_READ_CORRECT_REAL=$(canonicalize_path_prefix "$CORRECT_PATH")
 if [[ "${_READ_FILE_REAL:-$FILE_PATH}" != "${_READ_CORRECT_REAL:-$CORRECT_PATH}" ]]; then
     FALLBACK="# Wrong Directory Path
 

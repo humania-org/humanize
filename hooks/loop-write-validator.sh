@@ -331,13 +331,15 @@ fi
 
 CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
 
-# Compare canonical (symlink-resolved) forms so the check is not fooled by
-# equivalent paths expressed in different prefix forms (e.g. /var/... vs
-# /private/var/... on macOS). A raw string compare would mis-handle a
-# symlinked project prefix whenever one side was canonicalized upstream
-# (e.g. by resolve_project_root) and the other was not.
-_WRITE_FILE_REAL=$(canonicalize_path "$FILE_PATH")
-_WRITE_CORRECT_REAL=$(canonicalize_path "$CORRECT_PATH")
+# Compare prefix-canonical forms so the check is not fooled by equivalent
+# paths expressed in different ancestor forms (e.g. /var/... vs /private/var/...
+# on macOS) -- without dereferencing the leaf. Using full realpath here
+# would let a planted symlink at <loop>/<CLAUDE_FILENAME> pointing outside
+# the loop dir approve a write through the link, escalating Claude's write
+# reach beyond the loop dir. canonicalize_path_prefix resolves the parent
+# directory only; the basename is compared verbatim.
+_WRITE_FILE_REAL=$(canonicalize_path_prefix "$FILE_PATH")
+_WRITE_CORRECT_REAL=$(canonicalize_path_prefix "$CORRECT_PATH")
 if [[ "${_WRITE_FILE_REAL:-$FILE_PATH}" != "${_WRITE_CORRECT_REAL:-$CORRECT_PATH}" ]]; then
     FALLBACK="# Wrong Directory Path
 

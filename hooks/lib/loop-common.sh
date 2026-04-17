@@ -1190,15 +1190,21 @@ is_cancel_authorized() {
 
     # Normalize and validate source path.
     #
-    # Canonicalize the user-provided path so a symlinked prefix in the caller's
-    # command (e.g. /Users/x vs /private/Users/x on macOS, or /var vs
-    # /private/var) matches canonical_loop_dir resolved via resolve_project_root.
+    # Use canonicalize_path_prefix (NOT canonicalize_path): we need to resolve
+    # symlinks in the parent directory so a symlinked project prefix matches
+    # canonical_loop_dir, but we MUST NOT dereference a symlink at the leaf.
+    # Otherwise a symlink like /tmp/alias -> <loop>/state.md would canonicalize
+    # to <loop>/state.md and pass the check, but `mv` would then operate on
+    # the link path itself, escaping the loop directory and/or corrupting
+    # loop state. The on-disk symlink rejection below (src_original check)
+    # still fires because it probes the real state.md under canonical_loop_dir.
+    #
     # Re-lowercase after canonicalization because realpath on case-insensitive
     # filesystems may restore the original casing of path components, which
     # would diverge from the already-lowercased expected_* values.
     src=$(_normalize_path "$src")
     local src_canonical
-    src_canonical="$(canonicalize_path "$src")"
+    src_canonical="$(canonicalize_path_prefix "$src")"
     src_canonical="${src_canonical:-$src}"
     src_canonical=$(echo "$src_canonical" | tr '[:upper:]' '[:lower:]')
     local expected_src_state="${loop_dir_lower}state.md"
@@ -1208,11 +1214,14 @@ is_cancel_authorized() {
         return 5
     fi
 
-    # Normalize and validate destination path (same canonicalize+lowercase
-    # transformation as source; see src comment above for rationale).
+    # Normalize and validate destination path. Uses canonicalize_path_prefix
+    # for the same reason as src: a symlink alias pointing at the real
+    # cancel-state.md must NOT pass authorization, because `mv` onto a
+    # symlink replaces the link rather than creating <loop>/cancel-state.md,
+    # corrupting loop state and moving state.md outside the loop dir.
     dest=$(_normalize_path "$dest")
     local dest_canonical
-    dest_canonical="$(canonicalize_path "$dest")"
+    dest_canonical="$(canonicalize_path_prefix "$dest")"
     dest_canonical="${dest_canonical:-$dest}"
     dest_canonical=$(echo "$dest_canonical" | tr '[:upper:]' '[:lower:]')
     local expected_dest="${loop_dir_lower}cancel-state.md"

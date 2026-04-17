@@ -52,6 +52,49 @@ resolve_project_root() {
     printf '%s\n' "${canonical:-$root}"
 }
 
+# canonicalize_path_prefix
+#
+# Resolves symlinks ONLY in the parent directory and reattaches the
+# original basename verbatim. This is the right helper for comparing
+# user-supplied filenames against an expected path inside a known
+# directory: a symlink at /tmp/alias pointing at /real/loop/state.md
+# MUST NOT canonicalize to /real/loop/state.md for comparison purposes,
+# because `mv` operates on the link path itself. Resolving only the
+# parent still lets a symlinked project prefix (e.g. /var vs /private/var
+# on macOS) match a canonical expected path.
+#
+# If realpath on the parent fails, falls back to returning the input
+# path unchanged (prefix cannot be canonicalized -> caller's comparison
+# will correctly fail against a canonical expected path).
+#
+# Empty input prints nothing and returns 0.
+#
+canonicalize_path_prefix() {
+    local path="$1"
+    if [[ -z "$path" ]]; then
+        return 0
+    fi
+
+    local parent base parent_real
+    parent=$(dirname -- "$path")
+    base=$(basename -- "$path")
+
+    if parent_real=$(realpath "$parent" 2>/dev/null) && [[ -n "$parent_real" ]]; then
+        printf '%s/%s\n' "${parent_real%/}" "$base"
+        return 0
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        parent_real=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$parent" 2>/dev/null || true)
+        if [[ -n "$parent_real" ]]; then
+            printf '%s/%s\n' "${parent_real%/}" "$base"
+            return 0
+        fi
+    fi
+
+    printf '%s\n' "$path"
+}
+
 # canonicalize_path
 #
 # Prints the realpath of the input path. If the path itself does not
@@ -59,6 +102,11 @@ resolve_project_root() {
 # canonicalizes the parent directory and reattaches the basename.
 # If realpath is unavailable and python3 is missing, prints the input
 # path verbatim.
+#
+# SECURITY NOTE: This helper dereferences symlinks at the leaf when
+# the leaf exists. Do NOT use it to authorize a user-supplied path
+# against an expected filename -- use canonicalize_path_prefix instead,
+# which only resolves the parent.
 #
 # Empty input prints nothing and returns 0.
 #

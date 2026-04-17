@@ -1373,6 +1373,51 @@ fi
 
 rm -rf "$SYMLINK_ROOT" 2>/dev/null || true
 
+echo "HELPER TEST 9: is_cancel_authorized rejects destination symlink alias"
+# Regression test for a P1 security issue: if the destination argument is a
+# symlink that points at <loop>/cancel-state.md, canonicalizing the full
+# path (leaf dereferenced) would let the alias pass authorization. `mv`
+# would then operate on the link path itself, corrupting loop state and
+# leaking state.md contents outside the loop dir. The fix resolves symlinks
+# only in the parent directory and preserves the basename verbatim.
+setup_test_loop "helper-9"
+touch "$LOOP_DIR/.cancel-requested"
+# Create the target file so the symlink would resolve if the prefix-only
+# canonicalizer were relaxed back to full canonicalization.
+touch "$LOOP_DIR/cancel-state.md"
+ln -sfn "$LOOP_DIR/cancel-state.md" "$TEST_DIR/dest-alias"
+
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md ${TEST_DIR}/dest-alias"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper dest symlink alias" "returns non-zero (rejected)" "returns 0 (authorized)"
+else
+    pass "is_cancel_authorized rejects destination symlink alias"
+fi
+rm -f "$TEST_DIR/dest-alias" "$LOOP_DIR/cancel-state.md"
+
+echo "HELPER TEST 10: is_cancel_authorized rejects source symlink alias"
+# Regression test for a P1 security issue: if the source argument is a
+# symlink aliasing <loop>/state.md, dereferencing the leaf would let it
+# pass authorization. The on-disk symlink check (src_original) below
+# would still catch this specific case because it probes the real path,
+# but we defend in depth: the path comparison must reject the alias on
+# its own.
+setup_test_loop "helper-10"
+touch "$LOOP_DIR/.cancel-requested"
+ln -sfn "$LOOP_DIR/state.md" "$TEST_DIR/src-alias"
+
+COMMAND_LOWER="mv ${TEST_DIR}/src-alias ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper src symlink alias" "returns non-zero (rejected)" "returns 0 (authorized)"
+else
+    pass "is_cancel_authorized rejects source symlink alias"
+fi
+rm -f "$TEST_DIR/src-alias"
+
 # ========================================
 # Summary
 # ========================================
