@@ -1142,6 +1142,50 @@ def _is_terminal_status(status):
     return status not in (None, '', 'active', 'analyzing', 'finalizing', 'unknown')
 
 
+# Terminal-state marker filenames produced by the RLCR loop. Mirrors
+# parser.detect_session_status's map but kept local here so the
+# SSE hot loop can probe disk without importing parser internals.
+_TERMINAL_STATE_FILES = (
+    'complete-state.md',
+    'cancel-state.md',
+    'stop-state.md',
+    'maxiter-state.md',
+    'unexpected-state.md',
+    'methodology-analysis-state.md',
+    'finalize-state.md',
+)
+
+
+def _session_is_terminal_cheap(session_id):
+    """Fast path for the SSE EOF check.
+
+    The 250 ms SSE poll loop used to call ``_get_session(session_id,
+    force_refresh=True)`` every tick, which re-runs the full
+    parse_session pipeline (re-scans every round file, parses the
+    goal tracker, re-reads the methodology report, and shells out to
+    ``git`` once or twice for the git-status summary). On long
+    sessions with many rounds and multiple live SSE clients, that
+    quickly becomes the bottleneck.
+
+    Terminal state is trivially detectable from on-disk markers:
+    whenever any *-state.md file other than state.md is present the
+    loop has stopped writing logs. Check that directly so the hot
+    loop doesn't drag the full parser behind it. False negatives
+    just defer the EOF by one poll cycle; they never corrupt the
+    stream because the file-system watcher still drives every
+    append.
+    """
+    session_dir = _get_session_dir(session_id)
+    if not session_dir:
+        # The directory vanished or was renamed — treat as terminal
+        # so the SSE generator closes cleanly.
+        return True
+    for name in _TERMINAL_STATE_FILES:
+        if os.path.isfile(os.path.join(session_dir, name)):
+            return True
+    return False
+
+
 def _ensure_cache_watcher(cache_dir):
     """Start at most one CacheLogWatcher per cache directory.
 
@@ -1245,8 +1289,11 @@ def stream_session_log(session_id, basename):
                     yield _sse_frame(event)
                     client_last_id = event['id']
 
-            session = _get_session(session_id, force_refresh=True)
-            if session is not None and _is_terminal_status(session.get('status')):
+            # Cheap disk probe instead of a full parse_session on
+            # every SSE tick. Avoids re-scanning round files, goal
+            # tracker, and the `git status` subprocesses just to
+            # decide whether to emit EOF.
+            if _session_is_terminal_cheap(session_id):
                 for event in stream.mark_eof():
                     yield _sse_frame(event)
                     client_last_id = event['id']
