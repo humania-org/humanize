@@ -286,5 +286,36 @@ else
         "exit 10 (mock hook returns block)" "exit $EXIT6; output: $T6_BODY"
 fi
 
+# Assertions about ignoring an inherited CLAUDE_PROJECT_DIR were
+# removed during the rebase onto upstream/dev: upstream's
+# `resolve_project_root` deliberately honors CLAUDE_PROJECT_DIR as
+# the first-choice signal (CLAUDE_PROJECT_DIR -> git toplevel, no
+# pwd fallback). That is an intentional upstream design choice, not
+# a regression, so those two old assertions are no longer
+# applicable. The --project-root explicit-override check below still
+# holds and is the right contract for the CLI flag.
+
+# --project-root MUST still override the default cwd / inherited env
+# so callers can explicitly target a different repository.
+T5_DIR="$TEST_DIR/t5-explicit-override"
+mkdir -p "$T5_DIR/empty-cwd"
+setup_active_loop_fixture "$T5_DIR/target-project"
+
+set +e
+(
+    cd "$T5_DIR/empty-cwd"
+    CLAUDE_PROJECT_DIR="$T5_DIR/empty-cwd" "$GATE_SCRIPT" --project-root "$T5_DIR/target-project"
+) > "$T5_DIR/out.txt" 2>&1
+EXIT5=$?
+set -e
+
+if [[ "$EXIT5" -eq 10 ]]; then
+    pass "[P1 Round 18] --project-root override still wins over cwd + inherited env"
+else
+    OUTPUT5=$(cat "$T5_DIR/out.txt" 2>/dev/null || true)
+    fail "[P1 Round 18] --project-root override no longer works" \
+        "exit 10 (target has active loop)" "exit $EXIT5; output: $OUTPUT5"
+fi
+
 print_test_summary "RLCR Stop Gate Wrapper Test Summary"
 exit $?
