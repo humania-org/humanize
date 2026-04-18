@@ -524,17 +524,65 @@ def api_analytics():
     return jsonify(analytics)
 
 
+def _report_is_stale(session_dir, report_path):
+    """True when the on-disk methodology report predates any round
+    summary / review-result under ``session_dir``.
+
+    The cached report was generated against an earlier snapshot of
+    the session; any new summary or review file that lands after
+    its mtime invalidates it. Activities after the report:
+      - a new round's summary was written (loop kept going)
+      - an existing round's review-result changed (verdict flipped)
+    Either way, returning the stale cached text on /generate-report
+    would feed Codex/users an analysis of a session that has since
+    moved on.
+
+    Returns False when the report is missing or empty (caller will
+    generate from scratch), or when it's present and at least as
+    new as every source file.
+    """
+    try:
+        report_mtime = os.path.getmtime(report_path)
+    except OSError:
+        return False
+    import glob as _glob
+    sources = _glob.glob(os.path.join(session_dir, 'round-*-summary.md'))
+    sources += _glob.glob(os.path.join(session_dir, 'round-*-review-result.md'))
+    for src in sources:
+        try:
+            if os.path.getmtime(src) > report_mtime:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 @app.route('/api/sessions/<session_id>/generate-report', methods=['POST'])
 def api_generate_report(session_id):
-    """Generate a methodology analysis report by invoking local Claude CLI."""
+    """Generate a methodology analysis report by invoking local Claude CLI.
+
+    The ``?force=1`` query parameter bypasses the "report already
+    exists" shortcut and always re-runs Claude. Without it the
+    route still re-runs when the cached report predates any round
+    summary or review-result file — the old "exists => done" path
+    let users see stale analyses on sessions that had advanced
+    since the last preview.
+    """
     session_dir = _get_session_dir(session_id)
     if not session_dir:
         abort(404)
 
     report_path = os.path.join(session_dir, 'methodology-analysis-report.md')
+    force_regen = request.args.get('force', '').strip() in ('1', 'true', 'yes')
 
-    # If report already exists, just return it
-    if os.path.exists(report_path) and os.path.getsize(report_path) > 0:
+    # Serve the cached report only when it's present, non-empty,
+    # and still newer than every source file that contributes to
+    # the analysis. A stale cache would otherwise survive indefinitely
+    # across new rounds on an active session.
+    if (not force_regen
+            and os.path.exists(report_path)
+            and os.path.getsize(report_path) > 0
+            and not _report_is_stale(session_dir, report_path)):
         with open(report_path, 'r', encoding='utf-8') as f:
             return jsonify({'status': 'exists', 'content': f.read()})
 
