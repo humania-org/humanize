@@ -14,6 +14,7 @@ import subprocess
 import threading
 from flask import Flask, Response, jsonify, request, send_from_directory, abort
 from flask_sock import Sock
+from werkzeug.utils import safe_join
 
 # Add server directory to path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -416,8 +417,19 @@ def index():
 def static_files(path):
     if path.startswith('api/'):
         abort(404)
-    full_path = os.path.join(STATIC_DIR, path)
-    if os.path.isfile(full_path):
+    # Reject traversal / absolute paths BEFORE probing the filesystem.
+    # The earlier implementation did ``os.path.isfile(os.path.join(
+    # STATIC_DIR, path))`` for any client-supplied ``path``, which
+    # turned an intentionally-open endpoint into an unauthenticated
+    # filesystem-existence oracle: a request containing ``..``
+    # segments took the ``send_from_directory`` branch (404) when the
+    # target existed, but fell through to the SPA fallback (200) when
+    # it did not. Werkzeug's ``safe_join`` returns ``None`` for any
+    # path that would escape STATIC_DIR, so we skip the probe entirely
+    # in that case and go straight to the SPA fallback — the response
+    # is identical whether the traversal target existed or not.
+    safe_path = safe_join(STATIC_DIR, path)
+    if safe_path is not None and os.path.isfile(safe_path):
         return send_from_directory(STATIC_DIR, path)
     # SPA fallback
     return send_from_directory(STATIC_DIR, 'index.html')
