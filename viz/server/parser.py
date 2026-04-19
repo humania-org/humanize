@@ -694,6 +694,18 @@ def _determine_phase(session_dir, round_num, session_status, current_round=None)
     dashboard timeline preserves the real per-round breakdown
     instead of relabelling everything as finalize.
     """
+    # A finalizing session's *current* round is the live finalize
+    # step. It must win over the ``code_review`` classification below
+    # (a finalize round sits past ``build_finish_round`` and would
+    # otherwise short-circuit as code_review), so the phase timeline
+    # / duration metrics reflect the actual finalize work rather than
+    # silently bucketing it as another review round.
+    is_live_finalize_round = (
+        session_status == 'finalizing'
+        and current_round is not None
+        and round_num == current_round
+    )
+
     review_started_file = os.path.join(session_dir, '.review-phase-started')
     if os.path.exists(review_started_file):
         try:
@@ -710,15 +722,13 @@ def _determine_phase(session_dir, round_num, session_status, current_round=None)
                 # round including round 0 is review-only work in that
                 # case.
                 if re.search(r'^skip_impl=true\s*$', content, re.MULTILINE):
-                    return 'code_review'
+                    return 'finalize' if is_live_finalize_round else 'code_review'
                 if round_num > build_round:
-                    return 'code_review'
+                    return 'finalize' if is_live_finalize_round else 'code_review'
         except (PermissionError, OSError):
             pass
 
-    if (session_status == 'finalizing'
-            and current_round is not None
-            and round_num == current_round):
+    if is_live_finalize_round:
         return 'finalize'
 
     return 'implementation'
