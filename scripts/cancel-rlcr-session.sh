@@ -54,6 +54,27 @@ if [[ -z "$SESSION_ID" ]]; then
     exit 3
 fi
 
+# Reject session ids that could escape the per-project rlcr directory.
+# Valid ids are produced by ``setup-rlcr-loop.sh`` from
+# ``date +"%Y-%m-%d_%H-%M-%S"`` (digits, dashes, underscores). Allow
+# the same shape plus a handful of safe extras (alphanumerics, dots as
+# non-traversal separators) and explicitly reject path separators,
+# leading dots, and any parent-directory token so values like
+# ``../foo`` or ``/etc/passwd`` cannot rename state files outside the
+# session tree.
+if [[ "$SESSION_ID" == *"/"* || "$SESSION_ID" == *"\\"* ]]; then
+    echo "Error: invalid --session-id (contains path separator): $SESSION_ID" >&2
+    exit 3
+fi
+if [[ "$SESSION_ID" == "." || "$SESSION_ID" == ".." || "$SESSION_ID" == ..* || "$SESSION_ID" == .* ]]; then
+    echo "Error: invalid --session-id (leading dot or parent token): $SESSION_ID" >&2
+    exit 3
+fi
+if [[ ! "$SESSION_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "Error: invalid --session-id (allowed: alphanumerics, dot, underscore, dash): $SESSION_ID" >&2
+    exit 3
+fi
+
 if [[ -z "$PROJECT_ROOT" ]]; then
     PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 fi

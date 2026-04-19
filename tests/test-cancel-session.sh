@@ -123,7 +123,33 @@ else
     _fail "finalize-phase --force failed: rc=$rc out=$out"
 fi
 
-# ─── Test 9: legacy positional argument form still works ───
+# ─── Test 9a: session ids attempting path traversal are rejected ───
+# Place a state.md in a sibling directory so a traversal bypass would
+# rename it; after the call, that file must still exist untouched.
+SIBLING_DIR="$PROJECT_ROOT/.humanize/sibling"
+mkdir -p "$SIBLING_DIR"
+: > "$SIBLING_DIR/state.md"
+
+for malicious_id in "../sibling" "../../etc" "/absolute/path" "..\\foo" "foo/bar" ".hidden" "."; do
+    if "$HELPER" --project "$PROJECT_ROOT" --session-id "$malicious_id" >/dev/null 2>&1; then
+        _fail "path-traversal session-id should be rejected: $malicious_id"
+    else
+        rc=$?
+        if [[ "$rc" -eq 3 ]]; then
+            _pass "rejects unsafe session-id '$malicious_id' with exit 3"
+        else
+            _fail "unsafe session-id '$malicious_id' should exit 3, got $rc"
+        fi
+    fi
+done
+
+if [[ -f "$SIBLING_DIR/state.md" ]]; then
+    _pass "sibling state.md untouched after traversal attempts"
+else
+    _fail "sibling state.md was mutated by a traversal attempt"
+fi
+
+# ─── Test 10: legacy positional argument form still works ───
 SESSION_LEGACY="2026-04-17_13-00-00"
 mkdir -p "$RLCR_DIR/$SESSION_LEGACY"
 : > "$RLCR_DIR/$SESSION_LEGACY/state.md"
