@@ -1368,17 +1368,26 @@ def _release_cache_watcher(cache_dir):
             pass
 
 
-def _get_or_create_log_stream(session_id, basename):
-    """Return the shared LogStream instance for ``(session_id, basename)``.
+def _acquire_log_stream(session_id, basename):
+    """Acquire the shared LogStream for ``(session_id, basename)``.
 
-    The caller (the SSE route) is responsible for pairing
+    Increments the registry refcount so the caller owns one release.
+    The caller (the SSE route) MUST pair this with
+    :func:`_release_log_stream` and
     :func:`_acquire_cache_watcher` / :func:`_release_cache_watcher`
-    around the generator body so watcher lifetime tracks active
-    stream consumers rather than process lifetime.
+    around the generator body so stream + watcher lifetimes track
+    active SSE consumers instead of process lifetime. Without the
+    release, the registry retains the 256-event deque (often large
+    base64 payloads) for every session the user ever browsed.
     """
     cache_dir = rlcr_sources.cache_dir_for_session(PROJECT_DIR, session_id)
-    stream = _log_stream_registry.get_or_create(cache_dir, session_id, basename)
+    stream = _log_stream_registry.acquire(cache_dir, session_id, basename)
     return stream
+
+
+def _release_log_stream(session_id, basename):
+    """Release one :func:`_acquire_log_stream` reservation."""
+    _log_stream_registry.release(session_id, basename)
 
 
 @app.route('/api/sessions/<session_id>/logs/<basename>')
@@ -1400,12 +1409,11 @@ def stream_session_log(session_id, basename):
     if session_dir is None:
         abort(404)
 
-    stream = _get_or_create_log_stream(session_id, basename)
+    stream = _acquire_log_stream(session_id, basename)
     # Resolve the cache directory once up-front so the generator's
-    # acquire/release pair (and any early error paths) can reference
-    # the same key. _get_or_create_log_stream resolves this internally
-    # but does not expose it; we re-derive via the same helper so the
-    # refcount key matches the watcher registry exactly.
+    # watcher acquire/release pair references the same key. The
+    # registry helper derives it internally; re-derive here so the
+    # cache-watcher refcount key matches the stream registry's.
     cache_dir = rlcr_sources.cache_dir_for_session(PROJECT_DIR, session_id)
 
     last_event_id = 0
@@ -1421,7 +1429,9 @@ def stream_session_log(session_id, basename):
         # stream. The paired release in the finally block below is
         # what lets long-running dashboard instances stop leaking
         # inotify handles (one per distinct session the user browses)
-        # after clients disconnect.
+        # after clients disconnect. The log-stream refcount acquired
+        # at route entry is released here too so its retention deque
+        # can be freed once the last client has seen EOF.
         _acquire_cache_watcher(cache_dir)
         try:
             client_last_id = last_event_id
@@ -1479,8 +1489,14 @@ def stream_session_log(session_id, basename):
         finally:
             # Runs on normal EOF return, GeneratorExit (client
             # disconnect), or any propagated exception, so the
-            # refcount always balances the earlier acquire.
+            # refcount always balances the earlier acquire. The
+            # log-stream release evicts the stream's retention deque
+            # once its final client disconnects AND EOF has already
+            # been delivered; active sessions without a current
+            # client stay resident so reconnects get the replay
+            # window the streaming contract requires.
             _release_cache_watcher(cache_dir)
+            _release_log_stream(session_id, basename)
 
     response = Response(generate(), mimetype='text/event-stream')
     response.headers['Cache-Control'] = 'no-cache'

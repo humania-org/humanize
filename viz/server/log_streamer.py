@@ -122,6 +122,18 @@ class LogStream:
         with self.lock:
             return self._retained[-1]["id"] if self._retained else 0
 
+    @property
+    def eof_emitted(self) -> bool:
+        """Public view of the ``_eof_emitted`` flag.
+
+        The registry's release path consults this to decide whether a
+        stream with no active clients can be evicted — once EOF has
+        been delivered nobody will receive retained events, so the
+        retention buffer (up to 256 base64 payloads) is safe to free.
+        """
+        with self.lock:
+            return self._eof_emitted
+
     def _emit(self, event: Dict) -> Dict:
         event_with_id = {"id": self._next_id, **event}
         self._next_id += 1
@@ -332,9 +344,24 @@ class LogStreamRegistry:
 
     def __init__(self):
         self._streams: Dict[Tuple[str, str], LogStream] = {}
+        # Per-key active-consumer refcount. ``acquire`` / ``release``
+        # pair around each SSE generator so the registry can drop a
+        # stream (and its retention buffer) once the final client has
+        # disconnected AND EOF has already been delivered. Live
+        # sessions without a current client keep their stream resident
+        # so reconnects still hit the 256-event replay window that
+        # the streaming contract mandates.
+        self._refcounts: Dict[Tuple[str, str], int] = {}
         self._lock = threading.Lock()
 
     def get_or_create(self, cache_dir: str, session_id: str, basename: str) -> LogStream:
+        """Return the registry-owned stream, creating it if needed.
+
+        Does NOT change the refcount. Tests use this to inspect
+        registry sharing semantics; the SSE route uses ``acquire`` /
+        ``release`` instead so the stream is evicted once its last
+        client disconnects.
+        """
         key = (session_id, basename)
         with self._lock:
             stream = self._streams.get(key)
@@ -342,6 +369,51 @@ class LogStreamRegistry:
                 stream = LogStream(cache_dir, basename)
                 self._streams[key] = stream
             return stream
+
+    def acquire(self, cache_dir: str, session_id: str, basename: str) -> LogStream:
+        """Get-or-create the stream and record one active consumer.
+
+        Must be paired with :meth:`release` — typically from the
+        ``finally`` block of the SSE generator so normal EOF, client
+        disconnect, and exception paths all balance the refcount.
+        """
+        key = (session_id, basename)
+        with self._lock:
+            stream = self._streams.get(key)
+            if stream is None:
+                stream = LogStream(cache_dir, basename)
+                self._streams[key] = stream
+            self._refcounts[key] = self._refcounts.get(key, 0) + 1
+            return stream
+
+    def release(self, session_id: str, basename: str) -> None:
+        """Decrement the consumer count and evict idle terminal streams.
+
+        Eviction conditions: refcount reaches zero AND the stream has
+        already emitted ``eof``. Dropping the entry frees the 256-event
+        retention deque (which can hold large base64 snapshot chunks),
+        so long-running dashboard instances do not accumulate stale
+        per-session buffers after the sessions terminate. Streams
+        whose sessions are still active stay resident so reconnects
+        receive the contract-required replay or resync(overflow)
+        sequence.
+        """
+        key = (session_id, basename)
+        to_drop: Optional[LogStream] = None
+        with self._lock:
+            remaining = self._refcounts.get(key, 0) - 1
+            if remaining > 0:
+                self._refcounts[key] = remaining
+                return
+            self._refcounts.pop(key, None)
+            stream = self._streams.get(key)
+            if stream is not None and stream.eof_emitted:
+                to_drop = self._streams.pop(key, None)
+        # Nothing to clean up outside the lock today, but the variable
+        # keeps the intent explicit and localised in case LogStream
+        # later grows an explicit close/free method (e.g. mmap release
+        # for large retention windows).
+        del to_drop
 
     def get(self, session_id: str, basename: str) -> Optional[LogStream]:
         with self._lock:
