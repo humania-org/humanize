@@ -471,6 +471,54 @@ else
     _fail "out-of-window reconnect wrong: $OUTPUT"
 fi
 
+# ─── Idle stream eviction without follow-up release ───
+# Regression: a stream whose refcount drops to zero without EOF should
+# not survive forever when no subsequent release() ever fires. Sweeps
+# must also run on other registry interactions (acquire,
+# streams_in_cache_dir) so idle retention deques are reclaimed under
+# low-churn traffic.
+SWEEPLOG="$CACHE_DIR/round-9-codex-run.log"
+: > "$SWEEPLOG"
+
+OUTPUT="$(_run_py "
+import time
+from log_streamer import LogStreamRegistry
+# Use a non-zero TTL and rewind the recorded idle timestamp so the
+# next sweep observes the TTL as elapsed without real waiting. Reaching
+# into a private dict is acceptable in a white-box regression test:
+# the point is to verify which call-sites sweep, not real-time timing.
+reg = LogStreamRegistry(idle_ttl_seconds=60.0)
+# Stream A: one-off disconnect, no EOF, no further release on the same key.
+reg.acquire('$CACHE_DIR', 'sid-sweep-A', 'round-9-codex-run.log')
+reg.release('sid-sweep-A', 'round-9-codex-run.log')
+print('A_PRESENT_BEFORE_SWEEP:', ('sid-sweep-A', 'round-9-codex-run.log') in reg)
+# Force A's idle_since far in the past so any subsequent sweep evicts it.
+reg._idle_since[('sid-sweep-A', 'round-9-codex-run.log')] = time.monotonic() - 1e6
+# New acquire on a different session must trigger the sweep.
+reg.acquire('$CACHE_DIR', 'sid-sweep-B', 'round-9-codex-run.log')
+print('A_EVICTED_BY_ACQUIRE:', ('sid-sweep-A', 'round-9-codex-run.log') not in reg)
+print('B_PRESENT:', ('sid-sweep-B', 'round-9-codex-run.log') in reg)
+
+# Independent registry: verify streams_in_cache_dir() (invoked by the
+# cache watcher callback on every observed write) also evicts idle
+# streams even when no release() follows.
+reg2 = LogStreamRegistry(idle_ttl_seconds=60.0)
+reg2.acquire('$CACHE_DIR', 'sid-sweep-C', 'round-9-codex-run.log')
+reg2.release('sid-sweep-C', 'round-9-codex-run.log')
+reg2._idle_since[('sid-sweep-C', 'round-9-codex-run.log')] = time.monotonic() - 1e6
+_ = reg2.streams_in_cache_dir('$CACHE_DIR', 'round-9-codex-run.log')
+print('C_EVICTED_BY_STREAMS_LOOKUP:', ('sid-sweep-C', 'round-9-codex-run.log') not in reg2)
+")"
+
+if grep -q '^A_PRESENT_BEFORE_SWEEP: True$' <<<"$OUTPUT" && \
+   grep -q '^A_EVICTED_BY_ACQUIRE: True$' <<<"$OUTPUT" && \
+   grep -q '^B_PRESENT: True$' <<<"$OUTPUT" && \
+   grep -q '^C_EVICTED_BY_STREAMS_LOOKUP: True$' <<<"$OUTPUT"; then
+    _pass "idle streams are evicted by acquire() and streams_in_cache_dir(), not only by a follow-up release()"
+else
+    _fail "idle-stream sweep regression: $OUTPUT"
+fi
+
 # ─── Summary ───
 echo
 echo "========================================"

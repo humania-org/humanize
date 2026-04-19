@@ -398,6 +398,13 @@ class LogStreamRegistry:
         """
         key = (session_id, basename)
         with self._lock:
+            # Every new acquire is also a chance to drop OTHER entries
+            # whose idle TTL has elapsed without a follow-up release.
+            # Without this, a refcount=0 stream that is never released
+            # again (one-off disconnect on a long-lived session) would
+            # stay resident for the process lifetime and leak its
+            # retention deque.
+            self._sweep_idle_streams_locked()
             stream = self._streams.get(key)
             if stream is None:
                 stream = LogStream(cache_dir, basename)
@@ -475,6 +482,12 @@ class LogStreamRegistry:
     def streams_in_cache_dir(self, cache_dir: str, basename: str) -> List[LogStream]:
         """Return all streams that observe a specific cache file."""
         with self._lock:
+            # Piggyback a sweep: this method is invoked from the cache
+            # watcher callback on every observed write, so leveraging
+            # it keeps idle eviction driven by ongoing activity rather
+            # than only by the next ``release()`` call, which may
+            # never happen on long-lived dashboards with low churn.
+            self._sweep_idle_streams_locked()
             return [
                 s for s in self._streams.values()
                 if s.cache_dir == cache_dir and s.basename == basename
