@@ -593,12 +593,15 @@ def parse_session(session_dir, project_dir=None):
         except (PermissionError, OSError):
             pass
 
-    # Compute session duration from first/last round timestamps
+    # Compute session duration from first/last round timestamps.
+    # Mirror the on-disk expansion used above so sessions whose
+    # ``current_round`` lags behind the highest round present on disk
+    # still report a full duration instead of an undercount or None.
     session_duration_minutes = None
     if len(rounds) >= 2:
         first_mtime = None
         last_mtime = None
-        for rn in range(current_round + 1):
+        for rn in range(max_disk_round + 1):
             sf = os.path.join(session_dir, f'round-{rn}-summary.md')
             if os.path.exists(sf):
                 mt = os.path.getmtime(sf)

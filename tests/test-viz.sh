@@ -234,6 +234,52 @@ else
     fail "Parser: malformed session skip" "" "$SKIP_OUTPUT"
 fi
 
+# ─── Regression: session_duration_minutes covers full on-disk round range ───
+# When state.current_round lags behind summaries already present on disk
+# (parser expands rounds up to max_disk_round), duration must span every
+# summary file's mtime, not just range(current_round+1). Fixture: two
+# summary files with mtimes ~120s apart; state.current_round=0; expect
+# duration close to 2.0 minutes rather than None or 0.
+DURATION_SESSION="$MOCK_PROJECT/.humanize/rlcr/2026-03-01_01-02-03"
+mkdir -p "$DURATION_SESSION"
+cat > "$DURATION_SESSION/state.md" << 'DSTATE'
+---
+session_id: duration-regression
+current_round: 0
+max_iterations: 42
+plan_file: plan.md
+start_branch: main
+status: active
+---
+DSTATE
+: > "$DURATION_SESSION/round-0-summary.md"
+: > "$DURATION_SESSION/round-1-summary.md"
+: > "$DURATION_SESSION/round-2-summary.md"
+# Stagger mtimes by 120s so duration is ~4.0 minutes total (r0 -> r2).
+python3 -c "
+import os
+base = 1_700_000_000
+for n, offset in ((0, 0), (1, 120), (2, 240)):
+    path = '$DURATION_SESSION/round-%d-summary.md' % n
+    os.utime(path, (base + offset, base + offset))
+"
+
+DURATION_OUTPUT=$(python3 -c "
+import sys
+sys.path.insert(0, '$SERVER_DIR')
+from parser import parse_session
+s = parse_session('$DURATION_SESSION')
+print('DURATION:', s.get('duration_minutes'))
+print('ROUND_COUNT:', len(s.get('rounds', [])))
+" 2>&1)
+
+if echo "$DURATION_OUTPUT" | grep -qE '^DURATION: 4\.0$' && \
+   echo "$DURATION_OUTPUT" | grep -qE '^ROUND_COUNT: 3$'; then
+    pass "Parser: session_duration_minutes spans every on-disk round summary, not only range(current_round+1)"
+else
+    fail "Parser: duration regression (expected 4.0 mins across 3 rounds)" "" "$DURATION_OUTPUT"
+fi
+
 # ========================================
 # Test Group 4: Analyzer Tests
 # ========================================
