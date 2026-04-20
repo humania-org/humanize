@@ -16,13 +16,13 @@ Read and execute below with ultrathink.
 
 ## Hard Constraint: Draft-Only Output
 
-This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the single output draft file produced in Phase 4. All exploration subagents run read-only.
+This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the single output draft file produced in Phase 4; prerequisite directory creation for the default `.humanize/ideas/` path by the validation script is permitted as part of that write. All exploration subagents run read-only.
 
 This command transforms a loose idea into a repo-grounded draft suitable as input to `/humanize:gen-plan`. It applies directed-diversity exploration: a lead picks N orthogonal directions, N parallel `Explore` subagents develop each, the lead synthesizes a draft with one primary direction plus N-1 alternatives. Each direction carries objective evidence from the repo.
 
 ## Workflow Overview
 
-> Sequential Execution Constraint: All phases MUST execute strictly in order. Each phase fully completes before the next.
+> **Sequential Execution Constraint**: All phases MUST execute strictly in order. Each phase fully completes before the next.
 
 1. Parse Input
 2. IO Validation
@@ -70,7 +70,7 @@ Generate exactly `N` orthogonal directions for exploring the idea.
 
 ### Context to Gather
 
-Before generating directions, read:
+Before generating directions, read (paths relative to the project root, which is `$(git rev-parse --show-toplevel)`):
 - `README.md` at the project root.
 - `CLAUDE.md` at the project root (if it exists).
 - `.claude/CLAUDE.md` (if it exists).
@@ -133,7 +133,7 @@ Collect all subagent responses. For each response:
 - If fewer than 2 proposals survive, stop with error: `exploration phase degraded; retry.`
 - Otherwise continue with the surviving proposals.
 
-Associate each surviving proposal with its originating direction index, preserving the original ordering for Alt-N numbering in Phase 4.
+Associate each surviving proposal with its originating direction (so Phase 4 can label it with the original direction name). When numbering alternatives in Phase 4 after any drops, renumber survivors sequentially as Alt-1..Alt-K (where K is the count of surviving non-primary directions). Do not preserve gaps from dropped proposals.
 
 ---
 
@@ -147,7 +147,7 @@ Review all surviving proposals. Choose the strongest as the primary based on:
 3. Implementation surface area — prefer smaller surface where quality is otherwise comparable.
 4. Declared `CONFIDENCE` — `high` > `medium` > `low` as tiebreaker.
 
-Record the chosen direction as `PRIMARY`; the remaining directions become the Alt-1..Alt-(N-1) list in their original ordering.
+Record the chosen direction as `PRIMARY`; the remaining surviving directions become the Alt-1..Alt-K list (where K is the number of non-primary survivors, K ≤ N-1), numbered sequentially in their original direction order with no gaps for any dropped proposals.
 
 ### Step 4.2: Infer Title
 
@@ -163,9 +163,9 @@ Produce the finalized draft content in memory by replacing placeholders:
 - `<PRIMARY_NAME>` — primary direction's short name.
 - `<PRIMARY_RATIONALE>` — primary direction's rationale (from Phase 2).
 - `<PRIMARY_APPROACH_SUMMARY>` — primary proposal's `APPROACH_SUMMARY`.
-- `<PRIMARY_OBJECTIVE_EVIDENCE>` — primary proposal's `OBJECTIVE_EVIDENCE`, rendered as a bullet list.
+- `<PRIMARY_OBJECTIVE_EVIDENCE>` — primary proposal's `OBJECTIVE_EVIDENCE`, rendered as a bullet list. If the subagent returned only the literal sentinel `exploratory, no concrete precedent`, render it as a single bullet: `- exploratory, no concrete precedent`.
 - `<PRIMARY_KNOWN_RISKS>` — primary proposal's `KNOWN_RISKS`, rendered as a bullet list.
-- `<ALTERNATIVES>` — for each remaining direction at index `i` (1-based in user-facing output), emit:
+- `<ALTERNATIVES>` — for each non-primary survivor at its Alt index `i` (1-based, sequential per Step 4.1), emit:
 
   ```markdown
   ### Alt-<i>: <name>
