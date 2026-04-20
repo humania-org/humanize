@@ -51,7 +51,7 @@ Run:
 ```
 
 Handle exit codes:
-- `0`: Parse stdout to extract `INPUT_MODE`, `IDEA_BODY_FILE`, `OUTPUT_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). Continue to Phase 2.
+- `0`: Parse stdout to extract `INPUT_MODE`, `IDEA_BODY_FILE`, `OUTPUT_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). Continue to Phase 2. (`SLUG` is informational — the script has already incorporated it into `OUTPUT_FILE`, so later phases do not need to use `SLUG` directly.)
 - `1`: Report "Missing or empty idea input" and stop.
 - `2`: Report "Input looks like a file path but is missing, not readable, or not `.md`" and stop.
 - `3`: Report "Output directory does not exist — please create it or choose a different path" and stop.
@@ -59,6 +59,8 @@ Handle exit codes:
 - `5`: Report "No write permission to output directory" and stop.
 - `6`: Report "Invalid arguments" with the stdout usage text and stop.
 - `7`: Report "Template file missing — plugin configuration error" and stop.
+
+Before `VALIDATION_SUCCESS`, stdout may contain one or more lines starting with `WARNING:` (for example, `WARNING: short idea (<N> chars); proceeding` when an inline idea is under 10 characters). Surface these warnings to the user in your final report but continue Phase 2 normally. `WARNING:` lines are informational, not errors.
 
 Read the full contents of `IDEA_BODY_FILE` using the `Read` tool. Preserve byte-identical content in memory for later phases.
 

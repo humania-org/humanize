@@ -127,6 +127,9 @@ else
     TMPFILE="$(mktemp "${TMPDIR:-/tmp}/gen-idea-inline-XXXXXX")"
     printf '%s\n' "$IDEA_INPUT" > "$TMPFILE"
     IDEA_BODY_FILE="$TMPFILE"
+    if (( ${#IDEA_INPUT} < 10 )); then
+        echo "WARNING: short idea (${#IDEA_INPUT} chars); proceeding"
+    fi
     slug_raw="$(printf '%s' "$IDEA_INPUT" | head -c 40 | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/-+/-/g' | sed -E 's/^-+//; s/-+$//')"
     if [[ -z "$slug_raw" ]]; then
         slug_raw="idea"
