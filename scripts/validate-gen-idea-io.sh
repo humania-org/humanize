@@ -86,6 +86,12 @@ INPUT_MODE=""
 IDEA_BODY_FILE=""
 SLUG=""
 
+# Detect whether IDEA_INPUT is meant as a file path. The `-f` test on line
+# below is the primary gate; this heuristic only matters when that test fails
+# and we must decide whether to emit INPUT_NOT_FOUND (user meant a path) or
+# treat the text as inline. Limitation: a path that contains spaces AND does
+# not exist falls through to inline mode silently, because the space rule is
+# how we avoid misclassifying inline ideas that happen to contain "/".
 looks_like_path=false
 if [[ "$IDEA_INPUT" == *.md ]]; then
     looks_like_path=true
@@ -105,7 +111,7 @@ if [[ -f "$IDEA_INPUT" ]]; then
         exit 1
     fi
     INPUT_MODE="file"
-    IDEA_BODY_FILE="$(realpath "$IDEA_INPUT")"
+    IDEA_BODY_FILE="$(realpath "$IDEA_INPUT" 2>/dev/null || echo "$IDEA_INPUT")"
     base="$(basename "$IDEA_INPUT")"
     SLUG="${base%.md}"
 elif [[ "$looks_like_path" == true ]]; then
@@ -114,6 +120,10 @@ elif [[ "$looks_like_path" == true ]]; then
     exit 2
 else
     INPUT_MODE="inline"
+    # Deliberately no `trap ... EXIT` to remove TMPFILE: the caller consumes
+    # IDEA_BODY_FILE after this script exits, so a naive trap would delete
+    # the file the caller needs. On error paths the tempfile is leaked in
+    # $TMPDIR; the OS sweeps $TMPDIR on reboot and the cost is negligible.
     TMPFILE="$(mktemp "${TMPDIR:-/tmp}/gen-idea-inline-XXXXXX")"
     printf '%s\n' "$IDEA_INPUT" > "$TMPFILE"
     IDEA_BODY_FILE="$TMPFILE"
