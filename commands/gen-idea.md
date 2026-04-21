@@ -51,7 +51,7 @@ Run:
 ```
 
 Handle exit codes:
-- `0`: Parse stdout to extract `INPUT_MODE`, `IDEA_BODY_FILE`, `OUTPUT_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). Continue to Phase 2. (`SLUG` is informational — the script has already incorporated it into `OUTPUT_FILE`, so later phases do not need to use `SLUG` directly.)
+- `0`: Parse stdout to extract `INPUT_MODE`, `OUTPUT_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). When `INPUT_MODE` is `file`, stdout additionally contains an `IDEA_BODY_FILE: <path>` line; extract that too. Continue to Phase 2. (`SLUG` is informational — the script has already incorporated it into `OUTPUT_FILE`, so later phases do not need to use `SLUG` directly.)
 - `1`: Report "Missing or empty idea input" and stop.
 - `2`: Report "Input looks like a file path but is missing, not readable, or not `.md`" and stop.
 - `3`: Report "Output directory does not exist — please create it or choose a different path" and stop.
@@ -62,7 +62,11 @@ Handle exit codes:
 
 Before `VALIDATION_SUCCESS`, stdout may contain one or more lines starting with `WARNING:` (for example, `WARNING: short idea (<N> chars); proceeding` when an inline idea is under 10 characters). Surface these warnings to the user in your final report but continue Phase 2 normally. `WARNING:` lines are informational, not errors.
 
-Read the full contents of `IDEA_BODY_FILE` using the `Read` tool. Preserve byte-identical content in memory for later phases.
+Obtain the idea body into memory as `IDEA_BODY`, based on `INPUT_MODE`:
+- `inline`: stdout contains a sentinel block at the end of the success output; extract all text between the `=== IDEA_BODY_BEGIN ===` and `=== IDEA_BODY_END ===` lines (exclusive). The script emits a trailing newline after the last body line.
+- `file`: read the full contents of `IDEA_BODY_FILE` using the `Read` tool.
+
+Preserve byte-identical content in memory for later phases. No on-disk tempfile is created in inline mode — the stdout sentinel block is the authoritative source.
 
 ---
 
@@ -109,7 +113,7 @@ Dispatch all directions in a **single Task-tool message** containing one Task in
 
 For each direction in `DIRECTIONS`, launch one `Explore` subagent. Each invocation prompt MUST include:
 
-1. A verbatim copy of the idea body loaded from `IDEA_BODY_FILE` in Phase 1.
+1. A verbatim copy of the idea body (`IDEA_BODY`) captured in Phase 1.
 2. The assigned direction (name + rationale).
 3. The following instruction block (reproduce verbatim in the subagent prompt):
 
@@ -161,7 +165,7 @@ Read the template file located at `TEMPLATE_FILE` (from Phase 1 stdout).
 
 Produce the finalized draft content in memory by replacing placeholders:
 - `<TITLE>` — the inferred title.
-- `<ORIGINAL_IDEA>` — byte-identical contents of `IDEA_BODY_FILE`. Preserve line breaks, trailing newline, and all formatting. Do NOT paraphrase or re-indent.
+- `<ORIGINAL_IDEA>` — byte-identical value of `IDEA_BODY` captured in Phase 1. Preserve line breaks, trailing newline, and all formatting. Do NOT paraphrase or re-indent.
 - `<PRIMARY_NAME>` — primary direction's short name.
 - `<PRIMARY_RATIONALE>` — primary direction's rationale (from Phase 2).
 - `<PRIMARY_APPROACH_SUMMARY>` — primary proposal's `APPROACH_SUMMARY`.

@@ -125,14 +125,10 @@ elif [[ "$looks_like_path" == true ]]; then
     echo "Looks like a file path but does not exist: $IDEA_INPUT"
     exit 2
 else
+    # Inline mode emits the idea body on stdout inside a sentinel block,
+    # so the caller does not need to consume an on-disk tempfile. This
+    # avoids leaking user-provided text under $TMPDIR on repeated runs.
     INPUT_MODE="inline"
-    # Deliberately no `trap ... EXIT` to remove TMPFILE: the caller consumes
-    # IDEA_BODY_FILE after this script exits, so a naive trap would delete
-    # the file the caller needs. On error paths the tempfile is leaked in
-    # $TMPDIR; the OS sweeps $TMPDIR on reboot and the cost is negligible.
-    TMPFILE="$(mktemp "${TMPDIR:-/tmp}/gen-idea-inline-XXXXXX")"
-    printf '%s\n' "$IDEA_INPUT" > "$TMPFILE"
-    IDEA_BODY_FILE="$TMPFILE"
     if (( ${#IDEA_INPUT} < 10 )); then
         echo "WARNING: short idea (${#IDEA_INPUT} chars); proceeding"
     fi
@@ -192,9 +188,16 @@ fi
 
 echo "VALIDATION_SUCCESS"
 echo "INPUT_MODE: $INPUT_MODE"
-echo "IDEA_BODY_FILE: $IDEA_BODY_FILE"
+if [[ "$INPUT_MODE" == "file" ]]; then
+    echo "IDEA_BODY_FILE: $IDEA_BODY_FILE"
+fi
 echo "OUTPUT_FILE: $OUTPUT_FILE"
 echo "SLUG: $SLUG"
 echo "TEMPLATE_FILE: $TEMPLATE_FILE"
 echo "N: $N"
+if [[ "$INPUT_MODE" == "inline" ]]; then
+    echo "=== IDEA_BODY_BEGIN ==="
+    printf '%s\n' "$IDEA_INPUT"
+    echo "=== IDEA_BODY_END ==="
+fi
 exit 0
