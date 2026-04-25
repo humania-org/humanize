@@ -1,6 +1,6 @@
 ---
 description: "Start iterative loop with Codex review"
-argument-hint: "[path/to/plan.md | --plan-file path/to/plan.md] [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--track-plan-file] [--push-every-round] [--base-branch BRANCH] [--full-review-round N] [--skip-impl] [--claude-answer-codex] [--agent-teams] [--yolo] [--skip-quiz]"
+argument-hint: "[path/to/plan.md | --plan-file path/to/plan.md] [--max N] [--codex-model MODEL:EFFORT] [--codex-timeout SECONDS] [--track-plan-file] [--push-every-round] [--base-branch BRANCH] [--full-review-round N] [--skip-impl] [--claude-answer-codex] [--agent-teams] [--yolo] [--skip-quiz] [--privacy]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"
   - "Read"
@@ -126,6 +126,15 @@ This command starts an iterative development loop where:
 6. In Review Phase, `codex review --base <branch>` performs code review
 7. If code review finds issues (`[P0-9]` markers), you fix them and continue
 8. When no issues are found, the loop ends with a Finalize Phase
+
+## What Is a Round
+
+**One round = the agent believes the entire plan is finished.** A round boundary is when the agent writes a summary and attempts to exit, triggering Codex review. This is the fundamental semantic:
+
+- A round is NOT one task, one milestone, one stage, or one layer of the plan.
+- If the plan has multiple stages or milestones, they are all completed within a single round before writing the round summary.
+- Intermediate progress checks (e.g., verifying a stage before starting the next) should use manual `ask-codex` calls, not round boundaries.
+- Only write `round-N-summary.md` and attempt to exit when you believe ALL tasks in the plan are done.
 
 ## Goal Tracker System
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Ask Codex - One-shot consultation with Codex
 #
@@ -55,7 +55,7 @@ USAGE:
 
 OPTIONS:
   --codex-model <MODEL:EFFORT>
-                       Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
+                       Codex model and reasoning effort (default from config, fallback gpt-5.5:high)
   --codex-timeout <SECONDS>
                        Timeout for the Codex query in seconds (default: 3600)
   -h, --help           Show this help message
@@ -68,7 +68,7 @@ DESCRIPTION:
 
 EXAMPLES:
   /humanize:ask-codex How should I structure the authentication module?
-  /humanize:ask-codex --codex-model gpt-5.4:high What are the performance bottlenecks?
+  /humanize:ask-codex --codex-model gpt-5.5:high What are the performance bottlenecks?
   /humanize:ask-codex --codex-timeout 300 Review the error handling in src/api/
 
 ENVIRONMENT:
@@ -189,11 +189,11 @@ fi
 # Detect Project Root
 # ========================================
 
-if git rev-parse --show-toplevel &>/dev/null; then
-    PROJECT_ROOT=$(git rev-parse --show-toplevel)
-else
-    PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-fi
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 
 # ========================================
 # Create Storage Directories
@@ -234,6 +234,7 @@ $QUESTION
 - Effort: $CODEX_EFFORT
 - Timeout: ${CODEX_TIMEOUT}s
 - Timestamp: $TIMESTAMP
+- Tool: codex
 EOF
 
 # ========================================
@@ -317,6 +318,7 @@ if [[ $CODEX_EXIT_CODE -eq 124 ]]; then
     # Save metadata even on timeout
     cat > "$SKILL_DIR/metadata.md" << EOF
 ---
+tool: codex
 model: $CODEX_MODEL
 effort: $CODEX_EFFORT
 timeout: $CODEX_TIMEOUT
@@ -343,6 +345,7 @@ if [[ $CODEX_EXIT_CODE -ne 0 ]]; then
     # Save metadata
     cat > "$SKILL_DIR/metadata.md" << EOF
 ---
+tool: codex
 model: $CODEX_MODEL
 effort: $CODEX_EFFORT
 timeout: $CODEX_TIMEOUT
@@ -368,6 +371,7 @@ if [[ ! -s "$CODEX_STDOUT_FILE" ]]; then
 
     cat > "$SKILL_DIR/metadata.md" << EOF
 ---
+tool: codex
 model: $CODEX_MODEL
 effort: $CODEX_EFFORT
 timeout: $CODEX_TIMEOUT
@@ -390,6 +394,7 @@ cp "$CODEX_STDOUT_FILE" "$SKILL_DIR/output.md"
 # Save metadata
 cat > "$SKILL_DIR/metadata.md" << EOF
 ---
+tool: codex
 model: $CODEX_MODEL
 effort: $CODEX_EFFORT
 timeout: $CODEX_TIMEOUT

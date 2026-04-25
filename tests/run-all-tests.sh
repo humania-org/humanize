@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Run all test suites for the Humanize plugin (parallel execution)
 #
@@ -68,6 +68,7 @@ TEST_SUITES=(
     "test-templates-comprehensive.sh"
     "test-plan-file-hooks.sh"
     "test-stop-hook-legacy-compat.sh"
+    "test-stop-hook-bg-allow.sh"
     "test-error-scenarios.sh"
     "test-ansi-parsing.sh"
     "test-allowlist-validators.sh"
@@ -84,11 +85,9 @@ TEST_SUITES=(
     "test-task-tag-routing.sh"
     "test-config-merge.sh"
     "test-config-error-handling.sh"
+    "test-codex-hook-install.sh"
     "test-unified-codex-config.sh"
-    "test-pr-loop-1-scripts.sh"
-    "test-pr-loop-2-hooks.sh"
-    "test-pr-loop-3-stophook.sh"
-    "test-pr-loop-system.sh"
+    "test-disable-nested-codex-hooks.sh"
     # Session ID and Agent Teams tests
     "test-session-id.sh"
     "test-agent-teams.sh"
@@ -117,8 +116,6 @@ TEST_SUITES=(
     "robustness/test-hook-system-robustness.sh"
     "robustness/test-template-error-robustness.sh"
     "robustness/test-state-transition-robustness.sh"
-    "robustness/test-pr-loop-api-fetch.sh"
-    "robustness/test-pr-loop-api-poll.sh"
 )
 
 # Tests that must be run with zsh (not bash)
@@ -136,7 +133,7 @@ trap "rm -rf $OUTPUT_DIR" EXIT
 if ! command -v codex &>/dev/null; then
     mkdir -p "$OUTPUT_DIR/mock-bin"
     cat > "$OUTPUT_DIR/mock-bin/codex" << 'MOCK_CODEX'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 MOCK_CODEX
     chmod +x "$OUTPUT_DIR/mock-bin/codex"

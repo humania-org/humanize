@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for plan file hooks during RLCR loop
 #
@@ -40,7 +40,7 @@ mkdir -p "$XDG_CACHE_HOME"
 setup_mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-plan-file-hooks.sh
 if [[ "$1" == "exec" ]]; then
     echo "Mock review output"
@@ -59,6 +59,21 @@ setup_mock_codex
 
 # Default branch name (set after first git init)
 DEFAULT_BRANCH=""
+
+create_round_contract() {
+    local loop_dir="$1"
+    local round="$2"
+
+    cat > "$loop_dir/round-${round}-contract.md" << EOF
+# Round $round Contract
+
+- Mainline Objective: Keep plan-file integrity checks aligned
+- Target ACs: AC-1
+- Blocking Side Issues In Scope: none
+- Queued Side Issues Out of Scope: none
+- Success Criteria: current round artifacts are present and coherent
+EOF
+}
 
 setup_test_loop() {
     cd "$TEST_DIR"
@@ -80,6 +95,7 @@ setup_test_loop() {
 
     # Create loop directory structure
     LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_12-00-00"
+    rm -rf "$LOOP_DIR"
     mkdir -p "$LOOP_DIR"
 
     # Create plan file (gitignored)
@@ -91,7 +107,12 @@ Test the RLCR loop
 ## Requirements
 - Requirement 1
 EOF
-    echo "plans/" >> .gitignore
+    cat >> .gitignore << 'EOF'
+plans/
+.humanize*
+.cache/
+bin/
+EOF
     git add .gitignore
     git -c commit.gpgsign=false commit -q -m "Add gitignore"
 
@@ -109,8 +130,13 @@ plan_tracked: false
 start_branch: $CURRENT_BRANCH
 base_branch: $CURRENT_BRANCH
 review_started: false
+mainline_stall_count: 0
+last_mainline_verdict: unknown
+drift_status: normal
 ---
 EOF
+
+    create_round_contract "$LOOP_DIR" 0
 }
 
 echo "=== Test: UserPromptSubmit Hook ==="
@@ -466,6 +492,38 @@ else
     fail "Stop hook YAML parsing" "no YAML parse errors" "output: $RESULT"
 fi
 
+# Test 8.8b: Stop hook blocks when round contract is missing
+echo "Test 8.8b: Stop hook blocks when round contract is missing"
+setup_test_loop
+rm -f "$LOOP_DIR/round-0-contract.md"
+cat > "$LOOP_DIR/round-0-summary.md" << 'EOF'
+# Summary
+Work done.
+EOF
+cat > "$LOOP_DIR/goal-tracker.md" << 'EOF'
+# Goal Tracker
+## IMMUTABLE SECTION
+### Ultimate Goal
+Test goal
+### Acceptance Criteria
+- Criterion 1
+## MUTABLE SECTION
+### Plan Version: 1 (Updated: Round 0)
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| Task 1 | AC1 | done | - |
+EOF
+set +e
+RESULT=$(echo '{}' | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if echo "$RESULT" | grep -q '"decision"' && echo "$RESULT" | grep -qi "contract"; then
+    pass "Stop hook blocks when round contract is missing"
+else
+    fail "Stop hook missing round contract" "block with contract error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 # Test 8.9: Hook handles plan_file path with hyphens correctly
 echo "Test 8.9: Hook handles plan_file with hyphens in path"
 setup_test_loop
@@ -642,6 +700,7 @@ cat > "$TRACKED_LOOP_DIR/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$TRACKED_LOOP_DIR" 0
 cat > "$TRACKED_LOOP_DIR/goal-tracker.md" << 'EOF'
 # Goal Tracker
 ## IMMUTABLE SECTION
@@ -738,6 +797,7 @@ cat > "$TRACKED_LOOP_DIR/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$TRACKED_LOOP_DIR" 0
 cat > "$TRACKED_LOOP_DIR/goal-tracker.md" << 'EOF'
 # Goal Tracker
 ## IMMUTABLE SECTION
@@ -822,6 +882,7 @@ cat > "$LOOP_DIR_14_1/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$LOOP_DIR_14_1" 0
 # Goal tracker with ONLY Ultimate Goal placeholder (AC and Tasks are filled)
 cat > "$LOOP_DIR_14_1/goal-tracker.md" << 'EOF'
 # Goal Tracker
@@ -893,6 +954,7 @@ cat > "$LOOP_DIR_14_2/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$LOOP_DIR_14_2" 0
 # Goal tracker with ONLY AC placeholder (Goal and Tasks are filled)
 cat > "$LOOP_DIR_14_2/goal-tracker.md" << 'EOF'
 # Goal Tracker
@@ -964,6 +1026,7 @@ cat > "$LOOP_DIR_14_3/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$LOOP_DIR_14_3" 0
 # Goal tracker with ONLY Active Tasks placeholder (Goal and AC are filled)
 cat > "$LOOP_DIR_14_3/goal-tracker.md" << 'EOF'
 # Goal Tracker
@@ -1033,6 +1096,7 @@ cat > "$LOOP_DIR_14_4/round-0-summary.md" << 'EOF'
 # Summary
 Work done.
 EOF
+create_round_contract "$LOOP_DIR_14_4" 0
 # Goal tracker with ALL placeholders
 cat > "$LOOP_DIR_14_4/goal-tracker.md" << 'EOF'
 # Goal Tracker

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for error handling in scripts/lib/config-loader.sh
 #

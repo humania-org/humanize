@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Tests for model-router.sh
 set -euo pipefail
 
@@ -20,7 +20,7 @@ create_mock_binary() {
 
     mkdir -p "$bin_dir"
     cat > "$bin_dir/$binary_name" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 EOF
     chmod +x "$bin_dir/$binary_name"

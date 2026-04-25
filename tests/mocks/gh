@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Mock gh CLI for testing PR loop functionality
+# Mock gh CLI for testing GitHub API interactions
 #
 # This mock intercepts gh commands and returns predefined responses
 # based on environment variables and fixture files.

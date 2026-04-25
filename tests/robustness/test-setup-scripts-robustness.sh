@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for setup scripts
 #
-# Tests setup-rlcr-loop.sh and setup-pr-loop.sh under edge cases:
+# Tests setup-rlcr-loop.sh under edge cases:
 # - Argument parsing edge cases
 # - Plan file validation edge cases
 # - Git repository edge cases
@@ -62,6 +62,23 @@ init_basic_git_repo() {
     cd - > /dev/null
 }
 
+# Create a minimal PATH toolset in a test bin directory so scripts using
+# '/usr/bin/env bash' still run even in restricted PATH scenarios.
+prepare_runtime_bin() {
+    local bin_dir="$1"
+    local tool
+    local tool_path
+
+    mkdir -p "$bin_dir"
+
+    for tool in bash env git dirname cat sed awk grep mkdir date head od tr wc sort ls rm cp mv chmod ln readlink printf timeout gtimeout; do
+        tool_path=$(command -v "$tool" 2>/dev/null || true)
+        if [[ -n "$tool_path" && -x "$tool_path" && ! -e "$bin_dir/$tool" ]]; then
+            ln -s "$tool_path" "$bin_dir/$tool"
+        fi
+    done
+}
+
 # Run setup-rlcr-loop.sh with proper isolation from real RLCR loop
 # Usage: run_rlcr_setup <test_repo_dir> [args...]
 run_rlcr_setup() {
@@ -72,17 +89,6 @@ run_rlcr_setup() {
         # Set CLAUDE_PROJECT_DIR to isolate from any real active loops
         # Preserve PATH to ensure git/gh/etc are available
         CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" "$@"
-    )
-}
-
-# Run setup-pr-loop.sh with proper isolation from real PR loop
-# Usage: run_pr_setup <test_repo_dir> [args...]
-run_pr_setup() {
-    local repo_dir="$1"
-    shift
-    (
-        cd "$repo_dir"
-        CLAUDE_PROJECT_DIR="$repo_dir" "$PROJECT_ROOT/scripts/setup-pr-loop.sh" "$@"
     )
 }
 
@@ -239,7 +245,7 @@ git -C "$TEST_DIR/repo9" add .gitignore && git -C "$TEST_DIR/repo9" commit -q -m
 
 # Create mock codex
 mkdir -p "$TEST_DIR/repo9/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo9/bin/codex"
 chmod +x "$TEST_DIR/repo9/bin/codex"
 
@@ -265,7 +271,7 @@ echo "plan.md" >> "$TEST_DIR/repo10/.gitignore"
 git -C "$TEST_DIR/repo10" add .gitignore && git -C "$TEST_DIR/repo10" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo10/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo10/bin/codex"
 chmod +x "$TEST_DIR/repo10/bin/codex"
 
@@ -288,7 +294,7 @@ echo "path with spaces/" >> "$TEST_DIR/repo11/.gitignore"
 git -C "$TEST_DIR/repo11" add .gitignore && git -C "$TEST_DIR/repo11" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo11/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo11/bin/codex"
 chmod +x "$TEST_DIR/repo11/bin/codex"
 
@@ -307,7 +313,7 @@ mkdir -p "$TEST_DIR/repo12"
 init_basic_git_repo "$TEST_DIR/repo12"
 
 mkdir -p "$TEST_DIR/repo12/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo12/bin/codex"
 chmod +x "$TEST_DIR/repo12/bin/codex"
 
@@ -328,7 +334,7 @@ init_basic_git_repo "$TEST_DIR/repo13"
 create_minimal_plan "$TEST_DIR/repo13"
 
 mkdir -p "$TEST_DIR/repo13/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo13/bin/codex"
 chmod +x "$TEST_DIR/repo13/bin/codex"
 
@@ -357,7 +363,7 @@ echo "plan.md" >> "$TEST_DIR/repo14/.gitignore"
 git -C "$TEST_DIR/repo14" add .gitignore && git -C "$TEST_DIR/repo14" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo14/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo14/bin/codex"
 chmod +x "$TEST_DIR/repo14/bin/codex"
 
@@ -389,7 +395,7 @@ echo "plan.md" >> "$TEST_DIR/repo15/.gitignore"
 git -C "$TEST_DIR/repo15" add .gitignore && git -C "$TEST_DIR/repo15" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo15/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo15/bin/codex"
 chmod +x "$TEST_DIR/repo15/bin/codex"
 
@@ -433,7 +439,7 @@ git -C "$TEST_DIR/repo16b" add .gitignore && git -C "$TEST_DIR/repo16b" commit -
 touch "$TEST_DIR/repo16b/.humanizeconfig"
 
 mkdir -p "$TEST_DIR/repo16b/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo16b/bin/codex"
 chmod +x "$TEST_DIR/repo16b/bin/codex"
 
@@ -473,7 +479,7 @@ create_minimal_plan "$TEST_DIR/repo18"
 git -C "$TEST_DIR/repo18" add plan.md && git -C "$TEST_DIR/repo18" commit -q -m "Add plan"
 
 mkdir -p "$TEST_DIR/repo18/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo18/bin/codex"
 chmod +x "$TEST_DIR/repo18/bin/codex"
 
@@ -483,68 +489,6 @@ if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "gitignored\|track-plan-f
     pass "Tracked plan file without flag rejected"
 else
     fail "Tracked plan without flag" "rejection" "exit=$EXIT_CODE"
-fi
-
-# ========================================
-# Setup PR Loop Tests
-# ========================================
-
-echo ""
-echo "--- Setup PR Loop Argument Tests ---"
-echo ""
-
-# Test 19: Help flag displays usage
-echo "Test 19: PR loop help flag displays usage"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --help 2>&1) || true
-if echo "$OUTPUT" | grep -q "USAGE\|start-pr-loop"; then
-    pass "PR loop help flag displays usage"
-else
-    fail "PR loop help" "USAGE text" "no usage found"
-fi
-
-# Test 20: Missing bot flag shows error
-echo ""
-echo "Test 20: PR loop missing bot flag shows error"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "at least one bot flag"; then
-    pass "PR loop missing bot flag shows error"
-else
-    fail "Missing bot flag" "error message" "exit=$EXIT_CODE"
-fi
-
-# Test 21: Unknown option rejected
-echo ""
-echo "Test 21: PR loop unknown option rejected"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --unknown-option 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "unknown option"; then
-    pass "PR loop unknown option rejected"
-else
-    fail "PR loop unknown option" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 22: --max with non-numeric value rejected
-echo ""
-echo "Test 22: PR loop --max with non-numeric value rejected"
-OUTPUT=$("$PROJECT_ROOT/scripts/setup-pr-loop.sh" --claude --max abc 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
-    pass "PR loop --max non-numeric rejected"
-else
-    fail "PR loop --max validation" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 23: Non-git directory rejected
-echo ""
-echo "Test 23: PR loop non-git directory rejected"
-mkdir -p "$TEST_DIR/pr-nongit"
-OUTPUT=$(run_pr_setup "$TEST_DIR/pr-nongit" --claude 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "git repository"; then
-    pass "PR loop non-git directory rejected"
-else
-    fail "PR loop non-git" "rejection" "exit=$EXIT_CODE"
 fi
 
 # ========================================
@@ -573,7 +517,7 @@ max_iterations: 42
 EOF
 
 mkdir -p "$TEST_DIR/repo24/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo24/bin/codex"
 chmod +x "$TEST_DIR/repo24/bin/codex"
 
@@ -583,38 +527,6 @@ if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "already active"; then
     pass "Active RLCR loop blocks new RLCR loop"
 else
     fail "RLCR mutual exclusion" "rejection" "exit=$EXIT_CODE"
-fi
-
-# Test 25: PR loop blocks starting RLCR loop
-echo ""
-echo "Test 25: Active PR loop blocks new RLCR loop"
-mkdir -p "$TEST_DIR/repo25"
-init_basic_git_repo "$TEST_DIR/repo25"
-create_minimal_plan "$TEST_DIR/repo25"
-echo "plan.md" >> "$TEST_DIR/repo25/.gitignore"
-git -C "$TEST_DIR/repo25" add .gitignore && git -C "$TEST_DIR/repo25" commit -q -m "Add gitignore"
-
-# Create fake active PR loop
-mkdir -p "$TEST_DIR/repo25/.humanize/pr-loop/2026-01-19_00-00-00"
-cat > "$TEST_DIR/repo25/.humanize/pr-loop/2026-01-19_00-00-00/state.md" << 'EOF'
----
-current_round: 0
-max_iterations: 42
-pr_number: 123
----
-EOF
-
-mkdir -p "$TEST_DIR/repo25/bin"
-echo '#!/bin/bash
-exit 0' > "$TEST_DIR/repo25/bin/codex"
-chmod +x "$TEST_DIR/repo25/bin/codex"
-
-OUTPUT=$(PATH="$TEST_DIR/repo25/bin:$PATH" run_rlcr_setup "$TEST_DIR/repo25" plan.md 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "pr loop.*already active\|already active"; then
-    pass "Active PR loop blocks new RLCR loop"
-else
-    fail "PR loop blocks RLCR" "rejection" "exit=$EXIT_CODE"
 fi
 
 # ========================================
@@ -636,7 +548,7 @@ echo "symlink-plan.md" >> "$TEST_DIR/repo26/.gitignore"
 git -C "$TEST_DIR/repo26" add .gitignore && git -C "$TEST_DIR/repo26" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo26/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo26/bin/codex"
 chmod +x "$TEST_DIR/repo26/bin/codex"
 
@@ -664,7 +576,7 @@ echo "symlink-dir" >> "$TEST_DIR/repo27/.gitignore"
 git -C "$TEST_DIR/repo27" add .gitignore && git -C "$TEST_DIR/repo27" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo27/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo27/bin/codex"
 chmod +x "$TEST_DIR/repo27/bin/codex"
 
@@ -734,33 +646,6 @@ else
     pass "Valid numeric arguments accepted (--max 10, --codex-timeout 3600)"
 fi
 
-# Test 30: Valid PR loop setup proceeds past argument validation
-echo ""
-echo "Test 30: Valid PR loop setup proceeds past argument validation"
-mkdir -p "$TEST_DIR/repo30"
-init_basic_git_repo "$TEST_DIR/repo30"
-
-# Create mock gh that fails auth check (to test dependency handling)
-mkdir -p "$TEST_DIR/repo30/bin"
-cat > "$TEST_DIR/repo30/bin/gh" << 'EOF'
-#!/bin/bash
-if [[ "$1" == "auth" && "$2" == "status" ]]; then
-    echo "Not logged in" >&2
-    exit 1
-fi
-exit 0
-EOF
-chmod +x "$TEST_DIR/repo30/bin/gh"
-
-OUTPUT=$(PATH="$TEST_DIR/repo30/bin:$PATH" run_pr_setup "$TEST_DIR/repo30" --claude 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-# Should fail at gh auth check, not argument parsing
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "gh\|auth\|logged"; then
-    pass "Valid PR loop setup proceeds to gh auth check"
-else
-    fail "Valid PR loop setup" "fail at gh auth check" "exit=$EXIT_CODE"
-fi
-
 # ========================================
 # Timeout Scenario Tests
 # ========================================
@@ -785,20 +670,6 @@ if echo "$OUTPUT" | grep -qi "positive integer"; then
     fail "--codex-timeout 0" "accepted" "rejected as not positive integer"
 else
     pass "--codex-timeout 0 accepted (non-negative integer validation)"
-fi
-
-# Test 32: --codex-timeout with non-numeric value rejected (PR loop)
-echo ""
-echo "Test 32: PR loop --codex-timeout with non-numeric value rejected"
-mkdir -p "$TEST_DIR/repo32"
-init_basic_git_repo "$TEST_DIR/repo32"
-mkdir -p "$TEST_DIR/repo32/bin"
-OUTPUT=$(PATH="$TEST_DIR/repo32/bin:$PATH" run_pr_setup "$TEST_DIR/repo32" --claude --codex-timeout "abc" 2>&1) || EXIT_CODE=$?
-EXIT_CODE=${EXIT_CODE:-0}
-if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "positive integer"; then
-    pass "PR loop --codex-timeout non-numeric rejected"
-else
-    fail "PR loop --codex-timeout non-numeric" "rejection with 'positive integer'" "exit=$EXIT_CODE, output=$OUTPUT"
 fi
 
 # Test 33: Very large timeout value accepted
@@ -839,7 +710,7 @@ REAL_GIT=$(command -v git)
 
 # Mock timeout that returns 124 for git rev-parse (first check in setup script)
 cat > "$TEST_DIR/repo34/bin/timeout" << TIMEOUTEOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock timeout that returns 124 for git rev-parse to simulate timeout
 if [[ "\$*" == *"git"*"rev-parse"* ]]; then
     exit 124
@@ -856,7 +727,7 @@ chmod +x "$TEST_DIR/repo34/bin/gtimeout"
 
 # Create mock codex
 cat > "$TEST_DIR/repo34/bin/codex" << 'CODEXEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 CODEXEOF
 chmod +x "$TEST_DIR/repo34/bin/codex"
@@ -1023,7 +894,7 @@ git -C "$TEST_DIR/repo42" add .gitignore && git -C "$TEST_DIR/repo42" commit -q 
 
 # Create mock codex
 mkdir -p "$TEST_DIR/repo42/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo42/bin/codex"
 chmod +x "$TEST_DIR/repo42/bin/codex"
 
@@ -1085,6 +956,32 @@ else
     fail "--skip-impl summary scaffold" "round-0-summary.md exists" "not found"
 fi
 
+# Test 44c: --skip-impl creates round-0-contract.md
+echo ""
+echo "Test 44c: --skip-impl creates round-0-contract.md"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/round-0-contract.md" ]]; then
+    if grep -qi "Mainline Objective" "$LOOP_DIR/round-0-contract.md"; then
+        pass "--skip-impl creates round-0-contract.md with mainline objective"
+    else
+        fail "--skip-impl round contract content" "Mainline Objective text" "$(cat "$LOOP_DIR/round-0-contract.md")"
+    fi
+else
+    fail "--skip-impl round contract" "round-0-contract.md exists" "not found"
+fi
+
+# Test 44d: --skip-impl prompt references the round contract
+echo ""
+echo "Test 44d: --skip-impl prompt references round-0-contract.md"
+if [[ -n "$LOOP_DIR" ]] && [[ -f "$LOOP_DIR/round-0-prompt.md" ]]; then
+    if grep -q "round-0-contract.md" "$LOOP_DIR/round-0-prompt.md"; then
+        pass "--skip-impl prompt references round-0-contract.md"
+    else
+        fail "--skip-impl prompt contract reference" "prompt mentions round-0-contract.md" "$(cat "$LOOP_DIR/round-0-prompt.md")"
+    fi
+else
+    fail "--skip-impl prompt contract reference" "round-0-prompt.md exists" "not found"
+fi
+
 # Test 45: --skip-impl with plan file still works
 echo ""
 echo "Test 45: --skip-impl with plan file still works"
@@ -1095,7 +992,7 @@ printf 'plan.md\nbin/\n' >> "$TEST_DIR/repo45/.gitignore"
 git -C "$TEST_DIR/repo45" add .gitignore && git -C "$TEST_DIR/repo45" commit -q -m "Add gitignore"
 
 mkdir -p "$TEST_DIR/repo45/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo45/bin/codex"
 chmod +x "$TEST_DIR/repo45/bin/codex"
 
@@ -1111,6 +1008,44 @@ else
     else
         pass "--skip-impl with plan file works"
     fi
+fi
+
+LOOP_DIR_45=$(find "$TEST_DIR/repo45/.humanize/rlcr" -maxdepth 1 -type d -name "20*" 2>/dev/null | head -1)
+
+echo ""
+echo "Test 45b: --skip-impl with plan file preserves plan goal in goal-tracker"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/goal-tracker.md" ]]; then
+    if grep -q "Test the setup script robustness" "$LOOP_DIR_45/goal-tracker.md"; then
+        pass "--skip-impl with plan preserves plan goal anchor"
+    else
+        fail "--skip-impl plan goal anchor" "goal-tracker contains plan goal" "$(cat "$LOOP_DIR_45/goal-tracker.md")"
+    fi
+else
+    fail "--skip-impl plan goal anchor" "goal-tracker.md exists" "not found"
+fi
+
+echo ""
+echo "Test 45c: --skip-impl with plan file prompt references original plan"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/round-0-prompt.md" ]]; then
+    if grep -q "@plan.md" "$LOOP_DIR_45/round-0-prompt.md"; then
+        pass "--skip-impl with plan prompt references original plan"
+    else
+        fail "--skip-impl plan prompt anchor" "round-0-prompt references @plan.md" "$(cat "$LOOP_DIR_45/round-0-prompt.md")"
+    fi
+else
+    fail "--skip-impl plan prompt anchor" "round-0-prompt.md exists" "not found"
+fi
+
+echo ""
+echo "Test 45d: --skip-impl with plan file contract references original plan alignment"
+if [[ -n "$LOOP_DIR_45" ]] && [[ -f "$LOOP_DIR_45/round-0-contract.md" ]]; then
+    if grep -qi "aligned with @plan.md" "$LOOP_DIR_45/round-0-contract.md"; then
+        pass "--skip-impl with plan contract references original plan"
+    else
+        fail "--skip-impl plan contract anchor" "round-0-contract references @plan.md" "$(cat "$LOOP_DIR_45/round-0-contract.md")"
+    fi
+else
+    fail "--skip-impl plan contract anchor" "round-0-contract.md exists" "not found"
 fi
 
 # ========================================
@@ -1131,13 +1066,14 @@ git -C "$TEST_DIR/repo46" add .gitignore && git -C "$TEST_DIR/repo46" commit -q 
 
 # Create bin dir with jq but no codex
 mkdir -p "$TEST_DIR/repo46/bin"
+prepare_runtime_bin "$TEST_DIR/repo46/bin"
 cat > "$TEST_DIR/repo46/bin/jq" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 EOF
 chmod +x "$TEST_DIR/repo46/bin/jq"
-# Hide system codex by making the only codex on PATH our empty bin dir
-OUTPUT=$(PATH="$TEST_DIR/repo46/bin:/usr/bin:/bin" run_rlcr_setup "$TEST_DIR/repo46" plan.md 2>&1) || EXIT_CODE=$?
+# Hide system codex by making the only codex on PATH our test bin dir
+OUTPUT=$(PATH="$TEST_DIR/repo46/bin" run_rlcr_setup "$TEST_DIR/repo46" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "Missing required dependencies" && echo "$OUTPUT" | grep -q "codex"; then
     pass "Missing codex detected in dependency check"
@@ -1160,13 +1096,14 @@ git -C "$TEST_DIR/repo47" add .gitignore && git -C "$TEST_DIR/repo47" commit -q 
 
 # Create bin dir with codex but no jq
 mkdir -p "$TEST_DIR/repo47/bin"
+prepare_runtime_bin "$TEST_DIR/repo47/bin"
 cat > "$TEST_DIR/repo47/bin/codex" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 exit 0
 EOF
 chmod +x "$TEST_DIR/repo47/bin/codex"
-# Use a restricted PATH that has git but no jq
-OUTPUT=$(PATH="$TEST_DIR/repo47/bin:/usr/bin:/bin" run_rlcr_setup "$TEST_DIR/repo47" plan.md 2>&1) || EXIT_CODE=$?
+# Use a restricted PATH with required runtime tools but no jq
+OUTPUT=$(PATH="$TEST_DIR/repo47/bin" run_rlcr_setup "$TEST_DIR/repo47" plan.md 2>&1) || EXIT_CODE=$?
 EXIT_CODE=${EXIT_CODE:-0}
 if [[ $EXIT_CODE -ne 0 ]] && echo "$OUTPUT" | grep -qi "Missing required dependencies" && echo "$OUTPUT" | grep -q "jq"; then
     pass "Missing jq detected in dependency check"
@@ -1231,10 +1168,10 @@ git -C "$TEST_DIR/repo49" add .gitignore && git -C "$TEST_DIR/repo49" commit -q 
 
 # Create mock codex and jq
 mkdir -p "$TEST_DIR/repo49/bin"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo49/bin/codex"
 chmod +x "$TEST_DIR/repo49/bin/codex"
-echo '#!/bin/bash
+echo '#!/usr/bin/env bash
 exit 0' > "$TEST_DIR/repo49/bin/jq"
 chmod +x "$TEST_DIR/repo49/bin/jq"
 

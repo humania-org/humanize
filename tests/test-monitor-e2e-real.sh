@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # TRUE End-to-End Monitor Tests for monitor tests
 #
@@ -105,7 +105,7 @@ GOALTRACKER_EOF1
     # Create the test runner script
     # This script runs the REAL _humanize_monitor_codex function
     cat > "$TEST_PROJECT/run_real_monitor.sh" << 'MONITOR_SCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_codex function
 
 PROJECT_DIR="$1"
@@ -426,7 +426,7 @@ GOALTRACKER_SIGINT
 
     # Create the test runner script for SIGINT test
     cat > "$TEST_PROJECT_SIGINT/run_real_monitor_sigint.sh" << 'SIGINT_SCRIPT_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Run the REAL _humanize_monitor_codex function for SIGINT testing
 
 PROJECT_DIR="$1"
@@ -686,317 +686,6 @@ ZSH_SIGINT_SCRIPT
 }
 
 # ========================================
-# Test 5: Real _humanize_monitor_pr with directory deletion
-# ========================================
-monitor_test_pr_deletion() {
-    echo ""
-    echo "Test 5: Real _humanize_monitor_pr with directory deletion"
-    echo ""
-
-    # Create test project directory for PR monitor
-    TEST_PROJECT_PR="$TEST_BASE/project_pr"
-    mkdir -p "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00"
-
-    # Create valid PR loop state.md file
-    cat > "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00/state.md" << 'STATE'
-current_round: 1
-max_iterations: 42
-pr_number: 123
-start_branch: test-branch
-configured_bots:
-  - claude
-  - codex
-active_bots:
-  - claude
-codex_model: gpt-5.4
-codex_effort: medium
-codex_timeout: 900
-poll_interval: 30
-poll_timeout: 900
-started_at: 2026-01-18T10:00:00Z
-STATE
-
-    # Create goal-tracker.md for PR loop
-    cat > "$TEST_PROJECT_PR/.humanize/pr-loop/2026-01-18_12-00-00/goal-tracker.md" << 'GOALTRACKER_EOF'
-# PR Review Goal Tracker
-
-## PR Information
-- PR Number: #123
-- Branch: test-branch
-- Started: 2026-01-18T10:00:00Z
-
-## Issue Summary
-| Round | Reviewer | Issues Found | Status |
-|-------|----------|--------------|--------|
-| 0     | -        | 0            | Initial |
-
-## Total Statistics
-- Total Issues Found: 0
-- Remaining: 0
-GOALTRACKER_EOF
-
-    # Create fake HOME for PR monitor test
-    FAKE_HOME_PR="$TEST_BASE/home_pr"
-    mkdir -p "$FAKE_HOME_PR"
-
-    # Create cache directory for PR monitor
-    SANITIZED_PROJECT_PR=$(echo "$TEST_PROJECT_PR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
-    CACHE_DIR_PR="$FAKE_HOME_PR/.cache/humanize/$SANITIZED_PROJECT_PR/2026-01-18_12-00-00"
-    mkdir -p "$CACHE_DIR_PR"
-    echo "PR round 1 started" > "$CACHE_DIR_PR/round-1-codex-run.log"
-
-    # Create bash test runner script for PR monitor
-    cat > "$TEST_PROJECT_PR/run_real_monitor_pr.sh" << 'MONITOR_SCRIPT'
-#!/bin/bash
-# Run the REAL _humanize_monitor_pr function
-
-PROJECT_DIR="$1"
-PROJECT_ROOT="$2"
-FAKE_HOME="$3"
-
-cd "$PROJECT_DIR"
-
-# Override HOME and XDG_CACHE_HOME
-export HOME="$FAKE_HOME"
-export XDG_CACHE_HOME="$FAKE_HOME/.cache"
-
-# Create shim functions for terminal commands
-tput() {
-    case "$1" in
-        cols) echo "80" ;;
-        lines) echo "24" ;;
-        *) : ;;
-    esac
-}
-
-# Stub terminal control
-printf() {
-    case "$1" in
-        *\\033*) : ;;  # Ignore escape sequences
-        *) builtin printf "$@" ;;
-    esac
-}
-
-# Source the humanize script (loads all functions)
-source "$PROJECT_ROOT/scripts/humanize.sh"
-
-# Override _pr_cleanup for testing
-_pr_cleanup() {
-    echo "CLEANUP_CALLED_PR"
-}
-
-# Start monitor with --once flag (single iteration)
-# Then delete directory after brief delay
-(
-    sleep 0.5
-    rm -rf "$PROJECT_DIR/.humanize/pr-loop/2026-01-18_12-00-00"
-) &
-cleanup_pid=$!
-
-# Run monitor in foreground (will detect deletion)
-humanize monitor pr --once 2>&1
-
-echo "EXIT_CODE:$?"
-
-# Cleanup background process
-kill $cleanup_pid 2>/dev/null || true
-wait $cleanup_pid 2>/dev/null || true
-MONITOR_SCRIPT
-
-    chmod +x "$TEST_PROJECT_PR/run_real_monitor_pr.sh"
-
-    # Run the PR monitor test
-    output_pr=$("$TEST_PROJECT_PR/run_real_monitor_pr.sh" "$TEST_PROJECT_PR" "$PROJECT_ROOT" "$FAKE_HOME_PR" 2>&1) || true
-
-    # Verify: PR monitor e2e - graceful exit
-    if echo "$output_pr" | grep -qE 'Stopped|gracefully|EXIT_CODE:0'; then
-        pass "PR monitor e2e - graceful exit on directory deletion"
-    else
-        # Alternative: check for any clean exit indication
-        if echo "$output_pr" | grep -q "EXIT_CODE:0"; then
-            pass "PR monitor e2e - clean exit"
-        else
-            fail "PR monitor e2e" "Expected graceful stop or EXIT_CODE:0, got: $output_pr"
-        fi
-    fi
-
-    # Verify no glob errors in PR monitor output
-    if echo "$output_pr" | grep -qE 'no matches found|bad pattern'; then
-        fail "PR monitor glob errors" "Found glob errors: $(echo "$output_pr" | grep -E 'no matches found|bad pattern')"
-    else
-        pass "PR monitor no glob errors"
-    fi
-}
-
-# ========================================
-# Test 6: Real _humanize_monitor_pr without --once with SIGINT
-# ========================================
-monitor_test_pr_sigint() {
-    echo ""
-    echo "Test 6: Real _humanize_monitor_pr without --once with SIGINT"
-    echo ""
-
-    # Create test project directory for PR monitor without --once
-    TEST_PROJECT_PR_NO_ONCE="$TEST_BASE/project_pr_no_once"
-    mkdir -p "$TEST_PROJECT_PR_NO_ONCE/.humanize/pr-loop/2026-01-18_13-00-00"
-
-    # Create valid PR loop state.md file
-    cat > "$TEST_PROJECT_PR_NO_ONCE/.humanize/pr-loop/2026-01-18_13-00-00/state.md" << 'STATE'
-current_round: 1
-max_iterations: 42
-pr_number: 456
-start_branch: test-branch-no-once
-configured_bots:
-  - claude
-  - codex
-active_bots:
-  - claude
-codex_model: gpt-5.4
-codex_effort: medium
-codex_timeout: 900
-poll_interval: 2
-poll_timeout: 60
-started_at: 2026-01-18T13:00:00Z
-STATE
-
-    # Create goal-tracker.md for PR loop
-    cat > "$TEST_PROJECT_PR_NO_ONCE/.humanize/pr-loop/2026-01-18_13-00-00/goal-tracker.md" << 'PR_GOAL_EOF'
-# PR Review Goal Tracker
-
-## PR Information
-- PR Number: #456
-- Branch: test-branch-no-once
-- Started: 2026-01-18T13:00:00Z
-
-## Issue Summary
-| Round | Reviewer | Issues Found | Status |
-|-------|----------|--------------|--------|
-| 0     | -        | 0            | Initial |
-
-## Total Statistics
-- Total Issues Found: 0
-- Remaining: 0
-PR_GOAL_EOF
-
-    # Create fake HOME for PR monitor test without --once
-    FAKE_HOME_PR_NO_ONCE="$TEST_BASE/home_pr_no_once"
-    mkdir -p "$FAKE_HOME_PR_NO_ONCE"
-
-    # Create cache directory for PR monitor
-    SANITIZED_PROJECT_PR_NO_ONCE=$(echo "$TEST_PROJECT_PR_NO_ONCE" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
-    CACHE_DIR_PR_NO_ONCE="$FAKE_HOME_PR_NO_ONCE/.cache/humanize/$SANITIZED_PROJECT_PR_NO_ONCE/2026-01-18_13-00-00"
-    mkdir -p "$CACHE_DIR_PR_NO_ONCE"
-    echo "PR round 1 started" > "$CACHE_DIR_PR_NO_ONCE/round-1-codex-run.log"
-
-    # Create bash test runner script for PR monitor without --once
-    cat > "$TEST_PROJECT_PR_NO_ONCE/run_real_monitor_pr_no_once.sh" << 'PR_NO_ONCE_EOF'
-#!/bin/bash
-# Run the REAL _humanize_monitor_pr function WITHOUT --once flag
-
-PROJECT_DIR="$1"
-PROJECT_ROOT="$2"
-FAKE_HOME="$3"
-
-cd "$PROJECT_DIR"
-
-# Override HOME and XDG_CACHE_HOME
-export HOME="$FAKE_HOME"
-export XDG_CACHE_HOME="$FAKE_HOME/.cache"
-
-# Create shim functions for terminal commands
-tput() {
-    case "$1" in
-        cols) echo "80" ;;
-        lines) echo "24" ;;
-        *) : ;;
-    esac
-}
-
-# Stub terminal control
-printf() {
-    case "$1" in
-        *\\033*) : ;;  # Ignore escape sequences
-        *) builtin printf "$@" ;;
-    esac
-}
-
-# Source the humanize script (loads all functions)
-source "$PROJECT_ROOT/scripts/humanize.sh"
-
-# Run monitor in foreground WITHOUT --once flag
-# This runs the actual poll loop (not just one iteration)
-humanize monitor pr 2>&1
-exit_code=$?
-
-echo "EXIT_CODE:$exit_code"
-PR_NO_ONCE_EOF
-
-    chmod +x "$TEST_PROJECT_PR_NO_ONCE/run_real_monitor_pr_no_once.sh"
-
-    # Run the PR monitor in background (no --once means it will loop until interrupted)
-    OUTPUT_FILE_PR_NO_ONCE="$TEST_BASE/output_pr_no_once.txt"
-    bash "$TEST_PROJECT_PR_NO_ONCE/run_real_monitor_pr_no_once.sh" "$TEST_PROJECT_PR_NO_ONCE" "$PROJECT_ROOT" "$FAKE_HOME_PR_NO_ONCE" > "$OUTPUT_FILE_PR_NO_ONCE" 2>&1 &
-    MONITOR_PID_PR_NO_ONCE=$!
-
-    # Wait for monitor to start running its poll loop
-    sleep 3
-
-    # Verify monitor is running before sending SIGINT
-    if kill -0 $MONITOR_PID_PR_NO_ONCE 2>/dev/null; then
-        # Send SIGINT to stop the continuous monitor (simulates Ctrl+C)
-        # Using negative PID sends to entire process group
-        kill -INT -$MONITOR_PID_PR_NO_ONCE 2>/dev/null || kill -INT $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-
-        # Wait for monitor to exit gracefully after SIGINT
-        WAIT_COUNT=0
-        while kill -0 $MONITOR_PID_PR_NO_ONCE 2>/dev/null && [[ $WAIT_COUNT -lt 20 ]]; do
-            sleep 0.5
-            WAIT_COUNT=$((WAIT_COUNT + 1))
-        done
-
-        # Force kill if still running
-        if kill -0 $MONITOR_PID_PR_NO_ONCE 2>/dev/null; then
-            # Try SIGTERM before SIGKILL
-            kill -TERM $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-            sleep 1
-            if kill -0 $MONITOR_PID_PR_NO_ONCE 2>/dev/null; then
-                kill -9 $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-            fi
-            wait $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-            # Still count as pass if the monitor ran and was terminated (SIGINT delivery is complex)
-            pass "PR monitor (no --once) handled via SIGTERM"
-        else
-            wait $MONITOR_PID_PR_NO_ONCE 2>/dev/null || true
-            pass "PR monitor (no --once) exited after SIGINT"
-        fi
-    else
-        fail "PR monitor (no --once) start" "Monitor did not start properly"
-    fi
-
-    # Read captured output
-    output_pr_no_once=$(cat "$OUTPUT_FILE_PR_NO_ONCE" 2>/dev/null || echo "")
-
-    # Verify clean exit after SIGINT
-    if echo "$output_pr_no_once" | grep -qE 'Stopped|Monitor stopped|EXIT_CODE:[01]'; then
-        pass "PR monitor (no --once) clean SIGINT exit"
-    else
-        # Check for any indication the monitor ran properly before SIGINT
-        if echo "$output_pr_no_once" | grep -qE 'PR|loop|Waiting|session'; then
-            pass "PR monitor (no --once) ran before SIGINT"
-        else
-            fail "PR monitor (no --once) SIGINT cleanup" "Expected cleanup message, got: $(head -c 300 <<< "$output_pr_no_once" | tr '\n' ' ')"
-        fi
-    fi
-
-    # Verify no glob errors in PR monitor output
-    if echo "$output_pr_no_once" | grep -qE 'no matches found|bad pattern'; then
-        fail "PR monitor (no --once) glob errors" "Found glob errors"
-    else
-        pass "PR monitor (no --once) no glob errors"
-    fi
-}
-
-# ========================================
 # Run all tests and print summary when executed directly
 # ========================================
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -1009,8 +698,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     monitor_test_zsh_deletion
     monitor_test_bash_sigint
     monitor_test_zsh_sigint
-    monitor_test_pr_deletion
-    monitor_test_pr_sigint
 
     # Summary
     echo ""
@@ -1029,7 +716,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "VERIFIED: Terminal state restored"
         echo "VERIFIED: Works in bash and zsh"
         echo "VERIFIED: Real SIGINT/Ctrl+C handling (bash and zsh)"
-        echo "VERIFIED: PR monitor e2e works (with and without --once)"
         exit 0
     else
         echo ""

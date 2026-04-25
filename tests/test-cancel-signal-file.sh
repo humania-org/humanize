@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for cancel-rlcr-loop signal file mechanism
 #
@@ -1341,6 +1341,82 @@ if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
 else
     pass "is_cancel_authorized rejects hidden variables"
 fi
+
+echo "HELPER TEST 8: is_cancel_authorized accepts symlinked-prefix path"
+# Regression test: when the user supplies the active-loop path through a
+# symlinked prefix (e.g. /var/... on macOS resolves to /private/var/...),
+# the authorization check must canonicalize both sides so it still matches.
+# We simulate the scenario by creating an all-lowercase sibling layout
+# (mktemp dirs contain mixed case, which would defeat realpath once the
+# command is lowercased on case-sensitive filesystems), then symlinking
+# from there back to the real loop dir.
+setup_test_loop "helper-8"
+touch "$LOOP_DIR/.cancel-requested"
+
+SYMLINK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/humanize-symlink-XXXXXXXX" | tr '[:upper:]' '[:lower:]')
+# mktemp already lowercases when we pipe it; re-run if the resulting dir does
+# not actually exist (shouldn't happen but defensive for portability).
+[[ -d "$SYMLINK_ROOT" ]] || { rm -rf "$SYMLINK_ROOT" 2>/dev/null; SYMLINK_ROOT="${TMPDIR:-/tmp}/humanize-symlink-lowercase-$$"; mkdir -p "$SYMLINK_ROOT"; }
+
+SYMLINK_LOOP_DIR="$SYMLINK_ROOT/via-symlink"
+ln -sfn "$LOOP_DIR" "$SYMLINK_LOOP_DIR"
+
+CANONICAL_LOOP_DIR="$(cd "$LOOP_DIR" && pwd -P)"
+COMMAND_LOWER="mv ${SYMLINK_LOOP_DIR}/state.md ${SYMLINK_LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$CANONICAL_LOOP_DIR" "$COMMAND_LOWER"; then
+    pass "is_cancel_authorized accepts symlinked-prefix path after realpath"
+else
+    fail "helper symlink prefix" "returns 0 (authorized)" "returns non-zero"
+fi
+
+rm -rf "$SYMLINK_ROOT" 2>/dev/null || true
+
+echo "HELPER TEST 9: is_cancel_authorized rejects destination symlink alias"
+# Regression test for a P1 security issue: if the destination argument is a
+# symlink that points at <loop>/cancel-state.md, canonicalizing the full
+# path (leaf dereferenced) would let the alias pass authorization. `mv`
+# would then operate on the link path itself, corrupting loop state and
+# leaking state.md contents outside the loop dir. The fix resolves symlinks
+# only in the parent directory and preserves the basename verbatim.
+setup_test_loop "helper-9"
+touch "$LOOP_DIR/.cancel-requested"
+# Create the target file so the symlink would resolve if the prefix-only
+# canonicalizer were relaxed back to full canonicalization.
+touch "$LOOP_DIR/cancel-state.md"
+ln -sfn "$LOOP_DIR/cancel-state.md" "$TEST_DIR/dest-alias"
+
+COMMAND_LOWER="mv ${LOOP_DIR}/state.md ${TEST_DIR}/dest-alias"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper dest symlink alias" "returns non-zero (rejected)" "returns 0 (authorized)"
+else
+    pass "is_cancel_authorized rejects destination symlink alias"
+fi
+rm -f "$TEST_DIR/dest-alias" "$LOOP_DIR/cancel-state.md"
+
+echo "HELPER TEST 10: is_cancel_authorized rejects source symlink alias"
+# Regression test for a P1 security issue: if the source argument is a
+# symlink aliasing <loop>/state.md, dereferencing the leaf would let it
+# pass authorization. The on-disk symlink check (src_original) below
+# would still catch this specific case because it probes the real path,
+# but we defend in depth: the path comparison must reject the alias on
+# its own.
+setup_test_loop "helper-10"
+touch "$LOOP_DIR/.cancel-requested"
+ln -sfn "$LOOP_DIR/state.md" "$TEST_DIR/src-alias"
+
+COMMAND_LOWER="mv ${TEST_DIR}/src-alias ${LOOP_DIR}/cancel-state.md"
+COMMAND_LOWER=$(to_lower "$COMMAND_LOWER")
+
+if is_cancel_authorized "$LOOP_DIR" "$COMMAND_LOWER"; then
+    fail "helper src symlink alias" "returns non-zero (rejected)" "returns 0 (authorized)"
+else
+    pass "is_cancel_authorized rejects source symlink alias"
+fi
+rm -f "$TEST_DIR/src-alias"
 
 # ========================================
 # Summary

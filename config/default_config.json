@@ -1,5 +1,5 @@
 {
-  "codex_model": "gpt-5.4",
+  "codex_model": "gpt-5.5",
   "codex_effort": "high",
   "bitlesson_model": "haiku",
   "agent_teams": false,

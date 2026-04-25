@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Portable timeout wrapper for macOS/Linux compatibility
 # Usage: source portable-timeout.sh; run_with_timeout <seconds> <command> [args...]

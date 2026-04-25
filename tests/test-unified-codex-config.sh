@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for unified codex_model/codex_effort configuration
 #
@@ -65,8 +65,8 @@ DEFAULT_CONFIG="$PROJECT_ROOT/config/default_config.json"
 if ! command -v jq >/dev/null 2>&1; then
     skip "default config tests require jq" "jq not found"
 else
-    assert_eq "default_config.json: codex_model is gpt-5.4" \
-        "gpt-5.4" "$(jq -r '.codex_model' "$DEFAULT_CONFIG")"
+    assert_eq "default_config.json: codex_model is gpt-5.5" \
+        "gpt-5.5" "$(jq -r '.codex_model' "$DEFAULT_CONFIG")"
 
     assert_eq "default_config.json: codex_effort is high" \
         "high" "$(jq -r '.codex_effort' "$DEFAULT_CONFIG")"
@@ -100,8 +100,8 @@ else
 
     merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
 
-    assert_eq "default-only: codex_model defaults to gpt-5.4" \
-        "gpt-5.4" "$(get_config_value "$merged" "codex_model")"
+    assert_eq "default-only: codex_model defaults to gpt-5.5" \
+        "gpt-5.5" "$(get_config_value "$merged" "codex_model")"
 
     assert_eq "default-only: codex_effort defaults to high" \
         "high" "$(get_config_value "$merged" "codex_effort")"
@@ -141,7 +141,7 @@ else
     " 2>/dev/null || echo "ERROR")
 
     assert_eq "loop-common.sh: DEFAULT_CODEX_MODEL is set" \
-        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
+        "gpt-5.5" "$(echo "$result" | cut -d'|' -f1)"
 
     assert_eq "loop-common.sh: DEFAULT_CODEX_EFFORT is set" \
         "high" "$(echo "$result" | cut -d'|' -f2)"
@@ -208,8 +208,8 @@ else
 
     result_line="$(printf '%s\n' "$result" | grep '^RESULT:' | tail -n 1)"
 
-    assert_eq "invalid config: codex_model falls back to gpt-5.4" \
-        "gpt-5.4" "$(echo "$result_line" | cut -d':' -f2 | cut -d'|' -f1)"
+    assert_eq "invalid config: codex_model falls back to gpt-5.5" \
+        "gpt-5.5" "$(echo "$result_line" | cut -d':' -f2 | cut -d'|' -f1)"
 
     assert_eq "invalid config: codex_effort falls back to high" \
         "high" "$(echo "$result_line" | cut -d'|' -f2)"
@@ -236,8 +236,8 @@ else
 
         result_line="$(printf '%s\n' "$result" | grep '^RESULT:' | tail -n 1)"
 
-        assert_eq "non-Codex config ($invalid_model): codex_model falls back to gpt-5.4" \
-            "gpt-5.4" "$(echo "$result_line" | cut -d':' -f2 | cut -d'|' -f1)"
+        assert_eq "non-Codex config ($invalid_model): codex_model falls back to gpt-5.5" \
+            "gpt-5.5" "$(echo "$result_line" | cut -d':' -f2 | cut -d'|' -f1)"
 
         assert_eq "non-Codex config ($invalid_model): codex_effort stays at high fallback" \
             "high" "$(echo "$result_line" | cut -d'|' -f2)"
@@ -324,8 +324,8 @@ BARE_EOF
         echo \"\$EXEC_MODEL|\$EXEC_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
-    assert_eq "bare state: falls back to DEFAULT_CODEX_MODEL (gpt-5.4)" \
-        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
+    assert_eq "bare state: falls back to DEFAULT_CODEX_MODEL (gpt-5.5)" \
+        "gpt-5.5" "$(echo "$result" | cut -d'|' -f1)"
 
     assert_eq "bare state: falls back to DEFAULT_CODEX_EFFORT (high)" \
         "high" "$(echo "$result" | cut -d'|' -f2)"
@@ -422,7 +422,7 @@ else
 ---
 current_round: 1
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 push_every_round: false
@@ -460,8 +460,8 @@ STALE_EOF
         echo \"\$STATE_CODEX_MODEL|\$STATE_CODEX_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
-    assert_eq "stale state: STATE_CODEX_MODEL still parsed (gpt-5.4)" \
-        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
+    assert_eq "stale state: STATE_CODEX_MODEL still parsed (gpt-5.5)" \
+        "gpt-5.5" "$(echo "$result" | cut -d'|' -f1)"
 
     assert_eq "stale state: STATE_CODEX_EFFORT still parsed (high)" \
         "high" "$(echo "$result" | cut -d'|' -f2)"
@@ -491,7 +491,7 @@ else
 ---
 current_round: 1
 max_iterations: 10
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: superhigh
 codex_timeout: 3600
 push_every_round: false
@@ -512,7 +512,7 @@ HOOK_STATE_EOF
     STUB_BIN="$TEST_DIR/stub-bin"
     mkdir -p "$STUB_BIN"
     cat > "$STUB_BIN/codex" << 'STUB_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 echo "CODEX_INVOKED" >> "$CODEX_INVOCATION_LOG"
 exit 0
 STUB_EOF
@@ -640,14 +640,14 @@ echo ""
 echo "--- Input validation ---"
 
 # Test invalid model name (has spaces) - test the validation regex directly
-model_with_spaces="gpt 5.4 bad"
+model_with_spaces="gpt 5.5 bad"
 if [[ ! "$model_with_spaces" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     pass "validation: model with spaces is rejected by regex"
 else
     fail "validation: model with spaces is rejected by regex"
 fi
 
-model_with_shell="gpt-5.4;rm-rf"
+model_with_shell="gpt-5.5;rm-rf"
 if [[ ! "$model_with_shell" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     pass "validation: model with shell metacharacters is rejected"
 else
@@ -670,76 +670,6 @@ for effort in xhigh high medium low; do
         fail "validation: effort '$effort' is accepted"
     fi
 done
-
-echo ""
-
-# ========================================
-# PR loop respects config-backed codex_model (AC-5)
-# ========================================
-
-echo "--- PR loop config-backed defaults ---"
-
-SETUP_PR_LOOP="$PROJECT_ROOT/scripts/setup-pr-loop.sh"
-PR_STOP_HOOK="$PROJECT_ROOT/hooks/pr-loop-stop-hook.sh"
-
-if [[ ! -f "$LOOP_COMMON" ]]; then
-    skip "PR loop config tests require loop-common.sh" "file not found"
-elif [[ ! -f "$SETUP_PR_LOOP" ]]; then
-    skip "PR loop config tests require setup-pr-loop.sh" "file not found"
-else
-    # PR loop setup does NOT pre-set DEFAULT_CODEX_MODEL (should come from config)
-    assert_no_grep "setup-pr-loop.sh: does not pre-set DEFAULT_CODEX_MODEL" \
-        'DEFAULT_CODEX_MODEL=' "$SETUP_PR_LOOP"
-
-    # PR loop setup DOES pre-set DEFAULT_CODEX_EFFORT to medium
-    assert_grep "setup-pr-loop.sh: pre-sets DEFAULT_CODEX_EFFORT to medium" \
-        'DEFAULT_CODEX_EFFORT="medium"' "$SETUP_PR_LOOP"
-
-    # PR stop hook also does NOT pre-set DEFAULT_CODEX_MODEL
-    if [[ ! -f "$PR_STOP_HOOK" ]]; then
-        skip "pr-loop-stop-hook.sh tests require pr-loop-stop-hook.sh" "file not found"
-    else
-        assert_no_grep "pr-loop-stop-hook.sh: does not pre-set DEFAULT_CODEX_MODEL" \
-            'DEFAULT_CODEX_MODEL=' "$PR_STOP_HOOK"
-
-        assert_grep "pr-loop-stop-hook.sh: pre-sets DEFAULT_CODEX_EFFORT to medium" \
-            'DEFAULT_CODEX_EFFORT="medium"' "$PR_STOP_HOOK"
-    fi
-
-    # Behavioral: sourcing loop-common.sh with PR loop effort pre-set picks up config model
-    setup_test_dir
-    PR_CFG_PROJECT="$TEST_DIR/pr-cfg-project"
-    mkdir -p "$PR_CFG_PROJECT/.humanize"
-    printf '{"codex_model": "o3-mini", "codex_effort": "low"}' > "$PR_CFG_PROJECT/.humanize/config.json"
-
-    result=$(bash -c "
-        export DEFAULT_CODEX_EFFORT='medium'
-        export CLAUDE_PROJECT_DIR='$PR_CFG_PROJECT'
-        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
-        source '$LOOP_COMMON' 2>/dev/null
-        echo \"\$DEFAULT_CODEX_MODEL|\$DEFAULT_CODEX_EFFORT\"
-    " 2>/dev/null || echo "ERROR")
-
-    assert_eq "PR loop behavioral: config codex_model respected (o3-mini)" \
-        "o3-mini" "$(echo "$result" | cut -d'|' -f1)"
-
-    assert_eq "PR loop behavioral: pre-set effort kept over config (medium)" \
-        "medium" "$(echo "$result" | cut -d'|' -f2)"
-
-    # Without config, falls back to hardcoded default model but keeps medium effort
-    result=$(bash -c "
-        export DEFAULT_CODEX_EFFORT='medium'
-        export XDG_CONFIG_HOME='$TEST_DIR/no-user-config'
-        source '$LOOP_COMMON' 2>/dev/null
-        echo \"\$DEFAULT_CODEX_MODEL|\$DEFAULT_CODEX_EFFORT\"
-    " 2>/dev/null || echo "ERROR")
-
-    assert_eq "PR loop behavioral: no config falls back to gpt-5.4" \
-        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
-
-    assert_eq "PR loop behavioral: no config keeps medium effort" \
-        "medium" "$(echo "$result" | cut -d'|' -f2)"
-fi
 
 echo ""
 
@@ -776,127 +706,6 @@ fi
 echo ""
 
 # ========================================
-# PR loop --codex-model override (runtime behavioral)
-# ========================================
-
-echo "--- PR loop --codex-model override (runtime) ---"
-
-if [[ ! -f "$SETUP_PR_LOOP" ]]; then
-    skip "PR loop override test requires setup-pr-loop.sh" "file not found"
-else
-    # Run setup-pr-loop.sh --help with project config to verify help text shows config-backed default
-    # --help exits before requiring gh/PR prerequisites, so no external deps needed
-    setup_test_dir
-    PR_OVERRIDE_PROJECT="$TEST_DIR/pr-override-project"
-    mkdir -p "$PR_OVERRIDE_PROJECT/.humanize"
-    printf '{"codex_model": "o3-mini", "codex_effort": "low"}' > "$PR_OVERRIDE_PROJECT/.humanize/config.json"
-
-    help_output=$(cd "$PR_OVERRIDE_PROJECT" && \
-        CLAUDE_PROJECT_DIR="$PR_OVERRIDE_PROJECT" \
-        XDG_CONFIG_HOME="$TEST_DIR/no-user-config" \
-        timeout 10 bash "$SETUP_PR_LOOP" --help 2>&1) || true
-
-    # Help text must mention config-backed default (not a hardcoded model name)
-    if echo "$help_output" | grep -q 'default from config'; then
-        pass "PR loop runtime: --help shows config-backed default"
-    else
-        fail "PR loop runtime: --help shows config-backed default" "contains 'default from config'" "$(echo "$help_output" | grep codex-model)"
-    fi
-
-    # End-to-end: run setup-pr-loop.sh with mock gh/codex and --codex-model override
-    if ! command -v jq >/dev/null 2>&1; then
-        skip "PR loop e2e test requires jq" "jq not found"
-    else
-        setup_test_dir
-        PR_E2E_PROJECT="$TEST_DIR/pr-e2e-project"
-        init_test_git_repo "$PR_E2E_PROJECT"
-        mkdir -p "$PR_E2E_PROJECT/.humanize"
-        printf '{"codex_model": "o3-mini", "codex_effort": "low"}' > "$PR_E2E_PROJECT/.humanize/config.json"
-
-        # Create a local bare remote (setup-pr-loop.sh needs a git remote)
-        PR_BARE_REMOTE="$TEST_DIR/pr-remote.git"
-        git clone --bare "$PR_E2E_PROJECT" "$PR_BARE_REMOTE" -q 2>/dev/null
-        (cd "$PR_E2E_PROJECT" && git remote remove origin 2>/dev/null; git remote add origin "$PR_BARE_REMOTE") 2>/dev/null || true
-
-        # Create mock gh that handles all setup-pr-loop.sh calls
-        PR_MOCK_BIN="$TEST_DIR/pr-mock-bin"
-        mkdir -p "$PR_MOCK_BIN"
-        cat > "$PR_MOCK_BIN/gh" << 'GH_MOCK_EOF'
-#!/bin/bash
-# Mock gh for setup-pr-loop.sh end-to-end test
-ALL_ARGS="$*"
-case "$1" in
-    auth) exit 0 ;;
-    repo)
-        if [[ "$ALL_ARGS" == *"owner,name"* ]]; then
-            echo "testowner/testrepo"; exit 0
-        elif [[ "$ALL_ARGS" == *"parent"* ]]; then
-            echo "null/"; exit 0
-        fi ;;
-    pr)
-        if [[ "$2" == "view" ]]; then
-            if [[ "$ALL_ARGS" == *"number,url"* ]]; then
-                printf '123\nhttps://github.com/testowner/testrepo/pull/123'; exit 0
-            elif [[ "$ALL_ARGS" == *"state"* ]]; then
-                echo "OPEN"; exit 0
-            elif [[ "$ALL_ARGS" == *"number"* ]]; then
-                echo "123"; exit 0
-            elif [[ "$ALL_ARGS" == *"headRefOid"* ]]; then
-                echo '{"sha":"abc123","date":"2026-01-01T00:00:00Z"}'; exit 0
-            fi
-        elif [[ "$2" == "comment" ]]; then
-            echo "https://github.com/testowner/testrepo/pull/123#comment-1"; exit 0
-        fi ;;
-    api)
-        if [[ "$2" == "user" ]]; then
-            echo '{"login":"testuser"}'; exit 0
-        elif [[ "$2" == *"/comments"* ]] || [[ "$2" == *"/reviews"* ]]; then
-            echo "[]"; exit 0
-        fi
-        echo "[]"; exit 0 ;;
-esac
-echo "Mock gh: unhandled: $ALL_ARGS" >&2; exit 1
-GH_MOCK_EOF
-        chmod +x "$PR_MOCK_BIN/gh"
-
-        # Create mock codex (not called during setup, but required by command -v check)
-        cat > "$PR_MOCK_BIN/codex" << 'CODEX_MOCK_EOF'
-#!/bin/bash
-exit 0
-CODEX_MOCK_EOF
-        chmod +x "$PR_MOCK_BIN/codex"
-
-        # Run setup-pr-loop.sh with --codex-model override
-        pr_setup_exit=0
-        pr_output=$(cd "$PR_E2E_PROJECT" && \
-            CLAUDE_PROJECT_DIR="$PR_E2E_PROJECT" \
-            XDG_CONFIG_HOME="$TEST_DIR/no-user-config" \
-            PATH="$PR_MOCK_BIN:$PATH" \
-            timeout 30 bash "$SETUP_PR_LOOP" --claude --codex-model override-model:xhigh 2>&1) || pr_setup_exit=$?
-
-        assert_eq "PR loop e2e: setup-pr-loop.sh exited successfully" \
-            "0" "$pr_setup_exit"
-
-        # Find the generated PR loop state.md
-        PR_STATE_FILE=$(find "$PR_E2E_PROJECT/.humanize/pr-loop" -name "state.md" 2>/dev/null | head -1 || true)
-        if [[ -z "$PR_STATE_FILE" ]]; then
-            fail "PR loop e2e: state.md was created" "non-empty path" "empty"
-        else
-            pass "PR loop e2e: state.md was created"
-
-            # Assert --codex-model override is stored in state, not config values
-            assert_eq "PR loop e2e: --codex-model set codex_model (override-model)" \
-                "override-model" "$(grep '^codex_model:' "$PR_STATE_FILE" | sed 's/codex_model: *//')"
-
-            assert_eq "PR loop e2e: --codex-model set codex_effort (xhigh)" \
-                "xhigh" "$(grep '^codex_effort:' "$PR_STATE_FILE" | sed 's/codex_effort: *//')"
-        fi
-    fi
-fi
-
-echo ""
-
-# ========================================
 # ask-codex runtime behavioral test
 # ========================================
 
@@ -915,7 +724,7 @@ else
     MOCK_BIN="$TEST_DIR/mock-bin"
     mkdir -p "$MOCK_BIN"
     cat > "$MOCK_BIN/codex" << 'MOCK_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 echo "mock codex response"
 exit 0
 MOCK_EOF

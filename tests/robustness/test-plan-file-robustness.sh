@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for plan file validation
 #
@@ -27,7 +27,7 @@ mkdir -p "$XDG_CACHE_HOME"
 setup_mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-plan-file-robustness.sh
 echo "Mock codex output"
 exit 0

@@ -68,7 +68,6 @@ Then use:
 
 ```bash
 humanize monitor rlcr   # Monitor RLCR loop
-humanize monitor pr     # Monitor PR loop
 ```
 
 ## Other Install Guides

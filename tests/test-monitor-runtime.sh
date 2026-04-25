@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Runtime Verification Tests for tests
 #
@@ -63,7 +63,7 @@ echo "current_round: 1" > .humanize/rlcr/2026-01-16_10-00-00/state.md
 
 # Create a test script that sources humanize.sh and tests the graceful stop behavior
 cat > test_graceful_stop.sh << 'TESTSCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 cd "$1"
 
 # Source the monitor script
@@ -141,7 +141,7 @@ echo "Test 2: Verify cleanup prevents double execution"
 echo ""
 
 cat > test_double_cleanup.sh << 'TESTSCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 cleanup_done=false
 call_count=0
 
@@ -184,7 +184,7 @@ echo "Test 3: Main loop directory deletion detection"
 echo ""
 
 cat > test_loop_detection.sh << 'TESTSCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 cd "$1"
 
 loop_dir=".humanize/rlcr"
@@ -261,7 +261,7 @@ echo ""
 # and would reset the scroll region
 
 cat > test_terminal_restore.sh << 'TESTSCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 # Test that _restore_terminal is defined and callable
 
 cd "$1"
@@ -331,7 +331,7 @@ echo "Test 6: SIGINT triggers cleanup in bash"
 echo ""
 
 cat > test_sigint_bash.sh << 'TESTSCRIPT'
-#!/bin/bash
+#!/usr/bin/env bash
 # Test that SIGINT triggers cleanup in bash mode
 
 cleanup_done=false

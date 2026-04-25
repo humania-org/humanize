@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for path validation
 #
@@ -22,7 +22,7 @@ setup_test_dir
 setup_mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'MOCKEOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-path-validation-robustness.sh
 echo "Mock codex output"
 exit 0

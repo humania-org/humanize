@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Monitor e2e deletion tests (parallel split 1/3)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +11,6 @@ echo ""
 
 monitor_test_bash_deletion
 monitor_test_zsh_deletion
-monitor_test_pr_deletion
 
 echo ""
 echo "========================================"

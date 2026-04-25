@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for _humanize_monitor_skill (humanize monitor skill)
 #
@@ -58,7 +58,7 @@ setup_test_env() {
 create_skill_invocation() {
     local unique_id="$1"
     local status="$2"
-    local model="${3:-gpt-5.4}"
+    local model="${3:-gpt-5.5}"
     local effort="${4:-high}"
     local duration="${5:-15s}"
     local question="${6:-How should I structure this?}"
@@ -140,7 +140,7 @@ echo "=== Skill Monitor: Single Invocation ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_21-02-35-12345-abc123" "success" "gpt-5.4" "high" "15s" "How should I structure the auth module?"
+create_skill_invocation "2026-02-19_21-02-35-12345-abc123" "success" "gpt-5.5" "high" "15s" "How should I structure the auth module?"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
 if [[ $rc -eq 0 ]]; then
@@ -167,7 +167,7 @@ else
     fail "Should show success status" "got: $output"
 fi
 
-if grep -q "gpt-5.4" <<< "$output"; then
+if grep -q "gpt-5.5" <<< "$output"; then
     pass "Shows model name"
 else
     fail "Should show model" "got: $output"
@@ -199,10 +199,10 @@ echo "=== Skill Monitor: Multiple Invocations ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_20-00-00-111-aaa" "success" "gpt-5.4" "high" "10s" "First question"
-create_skill_invocation "2026-02-19_20-30-00-222-bbb" "error" "gpt-5.4" "high" "5s" "Second question"
-create_skill_invocation "2026-02-19_21-00-00-333-ccc" "timeout" "gpt-5.4" "high" "3600s" "Third question"
-create_skill_invocation "2026-02-19_21-30-00-444-ddd" "success" "gpt-5.4" "high" "20s" "Latest question"
+create_skill_invocation "2026-02-19_20-00-00-111-aaa" "success" "gpt-5.5" "high" "10s" "First question"
+create_skill_invocation "2026-02-19_20-30-00-222-bbb" "error" "gpt-5.5" "high" "5s" "Second question"
+create_skill_invocation "2026-02-19_21-00-00-333-ccc" "timeout" "gpt-5.5" "high" "3600s" "Third question"
+create_skill_invocation "2026-02-19_21-30-00-444-ddd" "success" "gpt-5.5" "high" "20s" "Latest question"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
 if grep -q "Total Invocations: 4" <<< "$output"; then
@@ -250,8 +250,8 @@ echo "=== Skill Monitor: Running Invocation ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_21-00-00-111-aaa" "success" "gpt-5.4" "high" "10s" "Completed question"
-create_skill_invocation "2026-02-19_21-30-00-222-bbb" "running" "gpt-5.4" "high" "" "Running question"
+create_skill_invocation "2026-02-19_21-00-00-111-aaa" "success" "gpt-5.5" "high" "10s" "Completed question"
+create_skill_invocation "2026-02-19_21-30-00-222-bbb" "running" "gpt-5.5" "high" "" "Running question"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
 if grep -q "Running: 1" <<< "$output"; then
@@ -274,9 +274,9 @@ echo "=== Skill Monitor: Recent Invocations List ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_20-00-00-111-aaa" "success" "gpt-5.4" "high" "10s" "Question one"
-create_skill_invocation "2026-02-19_20-30-00-222-bbb" "error" "gpt-5.4" "high" "5s" "Question two"
-create_skill_invocation "2026-02-19_21-00-00-333-ccc" "success" "gpt-5.4" "high" "20s" "Question three"
+create_skill_invocation "2026-02-19_20-00-00-111-aaa" "success" "gpt-5.5" "high" "10s" "Question one"
+create_skill_invocation "2026-02-19_20-30-00-222-bbb" "error" "gpt-5.5" "high" "5s" "Question two"
+create_skill_invocation "2026-02-19_21-00-00-333-ccc" "success" "gpt-5.5" "high" "20s" "Question three"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
 if grep -q "Recent Invocations" <<< "$output"; then
@@ -314,13 +314,13 @@ Additional context about the question.
 
 ## Configuration
 
-- Model: gpt-5.4
+- Model: gpt-5.5
 - Effort: high
 - Timeout: 3600s
 EOF
 cat > "$local_dir/metadata.md" << 'EOF'
 ---
-model: gpt-5.4
+model: gpt-5.5
 effort: high
 timeout: 3600
 exit_code: 0
@@ -353,7 +353,7 @@ echo "=== Skill Monitor: Empty Response ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_21-00-00-111-aaa" "empty_response" "gpt-5.4" "high" "30s" "Why is the sky blue?"
+create_skill_invocation "2026-02-19_21-00-00-111-aaa" "empty_response" "gpt-5.5" "high" "30s" "Why is the sky blue?"
 
 output=$(_humanize_monitor_skill --once 2>&1) && rc=0 || rc=$?
 if grep -q "Empty: 1" <<< "$output"; then
@@ -376,7 +376,7 @@ echo "=== Skill Monitor: Non-skill Dir Filtering ==="
 
 setup_test_env
 mkdir -p .humanize/skill
-create_skill_invocation "2026-02-19_21-00-00-111-aaa" "success" "gpt-5.4" "high" "10s" "Real question"
+create_skill_invocation "2026-02-19_21-00-00-111-aaa" "success" "gpt-5.5" "high" "10s" "Real question"
 # Create a non-matching directory
 mkdir -p ".humanize/skill/not-a-skill-dir"
 echo "junk" > ".humanize/skill/not-a-skill-dir/input.md"

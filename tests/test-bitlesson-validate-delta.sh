@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for bitlesson-validate-delta.sh validation rules
 #

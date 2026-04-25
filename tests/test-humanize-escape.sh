@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test script for humanize-escape fixes
 #
@@ -85,6 +85,9 @@ assert_blocks "git add ./.humanize/" "Block: ./.humanize/ with trailing slash"
 assert_blocks "git add ./.humanize/file.md" "Block: ./.humanize/file.md"
 assert_blocks "git add path/to/.humanize" "Block: path/to/.humanize"
 assert_blocks "git add ../project/.humanize" "Block: ../project/.humanize"
+assert_blocks "git add .humanize/rlcr/2026-03-01_00-00-00/goal-tracker.md" "Block: RLCR goal tracker path"
+assert_blocks "git add .humanize/rlcr/2026-03-01_00-00-00/round-3-summary.md" "Block: RLCR round summary path"
+assert_blocks "git add .humanize/rlcr/2026-03-01_00-00-00/round-3-contract.md" "Block: RLCR round contract path"
 
 # ========================================
 # Test Group 2: Quoted Path Variants
@@ -98,6 +101,7 @@ assert_blocks "git add '.humanize'" "Block: single-quoted .humanize"
 assert_blocks 'git add "./.humanize"' "Block: double-quoted ./.humanize"
 assert_blocks "git add './.humanize'" "Block: single-quoted ./.humanize"
 assert_blocks 'git add "path/to/.humanize"' "Block: double-quoted path/to/.humanize"
+assert_blocks 'git add ".humanize/rlcr/2026-03-01_00-00-00/goal-tracker.md"' "Block: double-quoted RLCR file path"
 
 # ========================================
 # Test Group 3: Combined Force and Path Variants
@@ -109,6 +113,7 @@ echo ""
 assert_blocks "git add -f ./.humanize" "Block: -f with ./.humanize"
 assert_blocks "git add --force ./.humanize" "Block: --force with ./.humanize"
 assert_blocks 'git add -f ".humanize"' "Block: -f with quoted .humanize"
+assert_blocks "git add -f .humanize/rlcr/2026-03-01_00-00-00/goal-tracker.md" "Block: -f with RLCR goal tracker"
 
 # Force flag with broad scope (blocks gitignore bypass)
 assert_blocks "git add -f ." "Block: -f . (force with current dir)"

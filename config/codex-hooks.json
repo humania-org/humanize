@@ -1,0 +1,17 @@
+{
+  "description": "Humanize Codex Hooks - Native Stop hooks for RLCR loops",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{HUMANIZE_RUNTIME_ROOT}}/hooks/loop-codex-stop-hook.sh",
+            "timeout": 7200,
+            "statusMessage": "humanize RLCR stop hook"
+          }
+        ]
+      }
+    ]
+  }
+}

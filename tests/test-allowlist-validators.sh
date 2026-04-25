@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for allowlist behavior in RLCR loop validators
 #
 # Tests:
 # - is_allowlisted_file() function in loop-common.sh
-# - Read validator allowlist for todos and summaries
-# - Write validator allowlist for todos and summaries
-# - Edit validator allowlist for todos and summaries
+# - Read validator allowlist for todos, summaries, and contracts
+# - Write validator allowlist for todos, summaries, and contracts
+# - Edit validator allowlist for todos, summaries, and contracts
 # - Bash validator allowlist for todos files (path-restricted)
 #
 
@@ -117,6 +117,14 @@ else
     fail "round-2-summary.md blocked" "false" "true"
 fi
 
+# Test 6b: Non-allowlisted file - round-0-contract.md
+echo "Test 6b: round-0-contract.md is NOT allowlisted"
+if ! is_allowlisted_file "$ACTIVE_LOOP_DIR/round-0-contract.md" "$ACTIVE_LOOP_DIR"; then
+    pass "round-0-contract.md is NOT allowlisted"
+else
+    fail "round-0-contract.md blocked" "false" "true"
+fi
+
 # Test 7: Wrong directory - allowlisted filename but wrong path
 echo "Test 7: round-1-todos.md in wrong directory is NOT allowlisted"
 if ! is_allowlisted_file "/other/path/round-1-todos.md" "$ACTIVE_LOOP_DIR"; then
@@ -158,6 +166,19 @@ else
     fail "Write validator round-0-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+# Test 9b: Write validator allows current round contract
+echo "Test 9b: Write validator allows round-5-contract.md (current round)"
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write validator allows round-5-contract.md"
+else
+    fail "Write validator round-5-contract.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 # Test 10: Write validator blocks round-3-todos.md (not in allowlist)
 echo "Test 10: Write validator blocks round-3-todos.md"
 HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/round-3-todos.md"}}'
@@ -182,6 +203,19 @@ if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
     pass "Write validator blocks round-2-summary.md"
 else
     fail "Write validator round-2-summary.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 11b: Write validator blocks stale round contract
+echo "Test 11b: Write validator blocks round-3-contract.md"
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/round-3-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Write validator blocks round-3-contract.md"
+else
+    fail "Write validator round-3-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""
@@ -212,6 +246,32 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "Edit validator allows round-1-summary.md"
 else
     fail "Edit validator round-1-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13b: Edit validator allows current round contract
+echo "Test 13b: Edit validator allows round-5-contract.md (current round)"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit validator allows round-5-contract.md"
+else
+    fail "Edit validator round-5-contract.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13c: Edit validator blocks stale round contract
+echo "Test 13c: Edit validator blocks round-0-contract.md"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/round-0-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Edit validator blocks round-0-contract.md"
+else
+    fail "Edit validator round-0-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 14: Edit validator blocks round-4-todos.md
@@ -257,6 +317,19 @@ else
     fail "Read validator round-0-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+# Test 16b: Read validator allows current round contract
+echo "Test 16b: Read validator allows round-5-contract.md (current round)"
+HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Read validator allows round-5-contract.md"
+else
+    fail "Read validator round-5-contract.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 # Test 17: Read validator blocks round-3-todos.md
 echo "Test 17: Read validator blocks round-3-todos.md"
 HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$LOOP_DIR'/round-3-todos.md"}}'
@@ -281,6 +354,19 @@ if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
     pass "Read validator blocks round-3-summary.md"
 else
     fail "Read validator round-3-summary.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 18b: Read validator blocks stale round contract
+echo "Test 18b: Read validator blocks round-3-contract.md"
+HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$LOOP_DIR'/round-3-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Read validator blocks round-3-contract.md"
+else
+    fail "Read validator round-3-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""
@@ -311,6 +397,19 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "Bash validator allows round-2-todos.md in active loop dir"
 else
     fail "Bash validator round-2-todos.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 20b: Bash validator blocks round-5-contract.md
+echo "Test 20b: Bash validator blocks round-5-contract.md"
+HOOK_INPUT='{"tool_name": "Bash", "tool_input": {"command": "echo test > '$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-bash-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "contract"; then
+    pass "Bash validator blocks round-5-contract.md"
+else
+    fail "Bash validator round-5-contract.md" "exit 2 with contract error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 21: Bash validator blocks round-1-todos.md in wrong directory

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Robustness tests for state file parsing
 #
@@ -36,7 +36,7 @@ cat > "$TEST_DIR/state.md" << 'EOF'
 ---
 current_round: 5
 max_iterations: 10
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 push_every_round: false
@@ -79,7 +79,7 @@ max_iterations: 20
 extra_field: some_value
 another_extra: 12345
 custom_metadata: true
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 ---
@@ -404,7 +404,7 @@ cat > "$TEST_DIR/state-full-review.md" << 'EOF'
 current_round: 3
 max_iterations: 20
 full_review_round: 7
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 plan_file: plan.md
 plan_tracked: false
@@ -429,7 +429,7 @@ cat > "$TEST_DIR/state-no-full-review.md" << 'EOF'
 ---
 current_round: 2
 max_iterations: 15
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 plan_file: plan.md
 plan_tracked: false
@@ -455,7 +455,7 @@ cat > "$TEST_DIR/state-min-full-review.md" << 'EOF'
 current_round: 1
 max_iterations: 10
 full_review_round: 2
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 plan_file: plan.md
 plan_tracked: false
@@ -471,6 +471,55 @@ if parse_state_file "$TEST_DIR/state-min-full-review.md"; then
     fi
 else
     fail "Parses state with min full_review_round" "return 0" "returned non-zero"
+fi
+
+# Test 22: State file with drift-tracking fields
+echo ""
+echo "Test 22: State file with drift-tracking fields"
+cat > "$TEST_DIR/state-drift-fields.md" << 'EOF'
+---
+current_round: 4
+max_iterations: 12
+review_started: false
+base_branch: main
+mainline_stall_count: 2
+last_mainline_verdict: stalled
+drift_status: replan_required
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-drift-fields.md"; then
+    if [[ "$STATE_MAINLINE_STALL_COUNT" == "2" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "stalled" ]] && [[ "$STATE_DRIFT_STATUS" == "replan_required" ]]; then
+        pass "Parses drift-tracking fields correctly"
+    else
+        fail "Parses drift-tracking fields" "stall=2 verdict=stalled drift=replan_required" \
+            "stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+    fi
+else
+    fail "Parses state with drift-tracking fields" "return 0" "returned non-zero"
+fi
+
+# Test 23: Missing drift-tracking fields use safe defaults
+echo ""
+echo "Test 23: Missing drift-tracking fields use safe defaults"
+cat > "$TEST_DIR/state-no-drift-fields.md" << 'EOF'
+---
+current_round: 1
+max_iterations: 8
+review_started: false
+base_branch: main
+---
+EOF
+
+if parse_state_file "$TEST_DIR/state-no-drift-fields.md"; then
+    if [[ "$STATE_MAINLINE_STALL_COUNT" == "0" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "unknown" ]] && [[ "$STATE_DRIFT_STATUS" == "normal" ]]; then
+        pass "Uses safe defaults for drift-tracking fields"
+    else
+        fail "Default drift-tracking fields" "stall=0 verdict=unknown drift=normal" \
+            "stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+    fi
+else
+    fail "Parses state without drift-tracking fields" "return 0" "returned non-zero"
 fi
 
 # ========================================

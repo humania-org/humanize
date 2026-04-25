@@ -24,7 +24,7 @@ If the user supplied flags such as `--codex-model` or `--codex-timeout`, reconst
 Example:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" --codex-model gpt-5.4:high "Review the following round summary (M4)..."
+"${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" --codex-model gpt-5.5:high "Review the following round summary (M4)..."
 ```
 
 Never run this unsafe form:
@@ -53,4 +53,4 @@ because the shell will re-parse the question text and can fail before `ask-codex
 ## Notes
 
 - The response is saved to `.humanize/skill/<timestamp>/output.md` for reference
-- Default model is `gpt-5.4:high` with a 3600-second timeout
+- Default model is `gpt-5.5:high` with a 3600-second timeout

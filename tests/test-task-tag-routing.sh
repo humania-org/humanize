@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for task-tag routing in RLCR loop prompts
 #
@@ -27,15 +27,22 @@ create_mock_codex() {
     local exec_output="${2:-Need follow-up work}"
     mkdir -p "$bin_dir"
     cat > "$bin_dir/codex" << MOCK_EOF
-#!/bin/bash
-if [[ "\$1" == "exec" ]]; then
+#!/usr/bin/env bash
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'OUT'
 $exec_output
 OUT
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     echo "No issues found."
 else
-    echo "mock-codex: unsupported command \$1" >&2
+    echo "mock-codex: unsupported command \$*" >&2
     exit 1
 fi
 MOCK_EOF
@@ -181,6 +188,15 @@ Keep routing behavior stable.
 |------|-----------|--------|-----|-------|-------|
 | Keep routing note | AC-1 | in_progress | analyze | codex | -
 EOF
+    cat > "$loop_dir/round-0-contract.md" << 'EOF'
+# Round 0 Contract
+
+- Mainline Objective: Keep routing behavior stable while addressing the current review feedback.
+- Target ACs: AC-1
+- Blocking Side Issues In Scope: none
+- Queued Side Issues Out of Scope: none
+- Success Criteria: Follow-up prompt is generated with routing guidance intact.
+EOF
     cat > "$loop_dir/round-0-summary.md" << 'EOF'
 # Round 0 Summary
 
@@ -196,6 +212,8 @@ EOF
 setup_test_dir
 setup_stophook_repo "$TEST_DIR/hook-routing"
 create_mock_codex "$TEST_DIR/hook-routing/bin" "## Review Feedback
+
+Mainline Progress Verdict: STALLED
 
 Issue remains unresolved.
 

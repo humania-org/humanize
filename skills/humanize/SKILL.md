@@ -1,6 +1,6 @@
 ---
 name: humanize
-description: Iterative development with AI review. Provides RLCR (Ralph-Loop with Codex Review) for implementation planning and code review loops, plus PR review automation with bot monitoring.
+description: Iterative development with AI review. Provides RLCR (Ralph-Loop with Codex Review) for implementation planning and code review loops.
 user-invocable: false
 disable-model-invocation: true
 ---
@@ -45,21 +45,9 @@ The RLCR (Ralph-Loop with Codex Review) loop has two phases:
 - Issues marked with `[P0-9]` severity markers
 - If issues found → AI fixes them and continues
 - If no issues → loop completes with Finalize Phase
-- In skill mode, always run `{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh` to enforce hook-equivalent transitions and blocking
+- On Codex CLI `0.114.0+` with `codex_hooks` enabled, Humanize installs a native `Stop` hook so exit gating runs automatically
 
-### 2. PR Loop - Automated PR Review Handling
-
-Automates handling of GitHub PR reviews from remote bots:
-
-1. Detects the PR associated with the current branch
-2. Fetches review comments from specified bot(s) (`--claude` and/or `--codex`)
-3. AI analyzes and fixes issues identified by the bot(s)
-4. Pushes changes and triggers re-review by commenting @bot
-5. Stop Hook polls for new bot reviews (every 30s, 15min timeout per bot)
-6. Local Codex validates if remote concerns are resolved
-7. Loop continues until all bots approve or max iterations reached
-
-### 3. Generate Plan - Structured Plan from Draft
+### 2. Generate Plan - Structured Plan from Draft
 
 Transforms a rough draft document into a structured implementation plan with:
 - Clear goal description
@@ -80,15 +68,12 @@ Transforms a rough draft document into a structured implementation plan with:
 "{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-rlcr-loop.sh" --skip-impl
 ```
 
-```bash
-# For each round, run the RLCR gate (required)
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/rlcr-stop-gate.sh"
-```
+After each round, write the required summary and stop/exit normally. Humanize's native Codex `Stop` hook handles review gating automatically.
 
 **Common Options:**
 - `--max N` - Maximum iterations before auto-stop (default: 42)
-- `--codex-model MODEL:EFFORT` - Codex model and reasoning effort for `codex exec` (default: gpt-5.4:high)
-- Review phase `codex review` uses `gpt-5.4:high`
+- `--codex-model MODEL:EFFORT` - Codex model and reasoning effort for `codex exec` (default: gpt-5.5:high)
+- Review phase `codex review` uses `gpt-5.5:high`
 - `--codex-timeout SECONDS` - Timeout for each Codex review (default: 5400)
 - `--base-branch BRANCH` - Base branch for code review (auto-detects if not specified)
 - `--full-review-round N` - Interval for full alignment checks (default: 5)
@@ -99,6 +84,7 @@ Transforms a rough draft document into a structured implementation plan with:
 - `--agent-teams` - Enable Agent Teams mode
 - `--yolo` - Skip Plan Understanding Quiz and enable --claude-answer-codex
 - `--skip-quiz` - Skip the Plan Understanding Quiz only
+- `--privacy` - Disable methodology analysis at loop exit (default: analysis enabled)
 
 ### Cancel RLCR Loop
 
@@ -106,30 +92,6 @@ Transforms a rough draft document into a structured implementation plan with:
 "{{HUMANIZE_RUNTIME_ROOT}}/scripts/cancel-rlcr-loop.sh"
 # or force cancel during finalize phase
 "{{HUMANIZE_RUNTIME_ROOT}}/scripts/cancel-rlcr-loop.sh" --force
-```
-
-### Start PR Loop
-
-```bash
-# Monitor claude[bot] reviews
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-pr-loop.sh" --claude
-
-# Monitor chatgpt-codex-connector[bot] reviews
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-pr-loop.sh" --codex
-
-# Monitor both
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/setup-pr-loop.sh" --claude --codex
-```
-
-**Common Options:**
-- `--max N` - Maximum iterations (default: 42)
-- `--codex-model MODEL:EFFORT` - Codex model for validation (default: gpt-5.4:medium)
-- `--codex-timeout SECONDS` - Timeout for Codex validation (default: 900)
-
-### Cancel PR Loop
-
-```bash
-"{{HUMANIZE_RUNTIME_ROOT}}/scripts/cancel-pr-loop.sh"
 ```
 
 ### Generate Plan from Draft
@@ -207,13 +169,13 @@ The RLCR loop uses a Goal Tracker to prevent goal drift:
 2. **Maintain Goal Tracker**: Keep goal-tracker.md up-to-date with progress
 3. **Be thorough**: Include details about implementation, files changed, tests added
 4. **No cheating**: Don't try to exit by editing state files or running cancel commands
-5. **Run stop gate each round**: Use `scripts/rlcr-stop-gate.sh` instead of manual phase control
+5. **Use the native Stop hook on Codex**: After writing the required summary, stop/exit normally so Codex runs the Humanize Stop hook
 6. **Trust the process**: External review helps improve implementation quality
 
 ## Prerequisites
 
 - `codex` - OpenAI Codex CLI (for review)
-- `gh` - GitHub CLI (for PR loop)
+
 
 ## Directory Structure
 
@@ -229,11 +191,10 @@ Humanize stores all data in `.humanize/`:
 │       ├── round-N-review-result.md
 │       ├── finalize-state.md
 │       ├── finalize-summary.md
+│       ├── methodology-analysis-state.md
+│       ├── methodology-analysis-report.md
+│       ├── methodology-analysis-done.md
 │       └── complete-state.md
-├── pr-loop/        # PR loop data
-│   └── <timestamp>/
-│       ├── state.md
-│       └── resolution-N.md
 └── skill/          # One-shot skill results
     └── <timestamp>/
         ├── input.md
@@ -248,7 +209,6 @@ Use the monitor script to track loop progress:
 ```bash
 source "{{HUMANIZE_RUNTIME_ROOT}}/scripts/humanize.sh"
 humanize monitor rlcr   # Monitor RLCR loop
-humanize monitor pr     # Monitor PR loop
 ```
 
 ## Exit Codes

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test script for refine-plan command structure, validator behavior, QA template coverage,
 # and AC-7 installation wiring coverage
@@ -706,7 +706,7 @@ assert_file_contains "$REFINE_PLAN_CMD" 'Keep `--alt-language` out of the valida
 assert_file_contains "$REFINE_PLAN_CMD" "- Exit code 0: Continue to Phase 2" "refine-plan.md documents validator exit code 0"
 assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 1: Report `Input file not found` and stop' "refine-plan.md documents validator exit code 1"
 assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 2: Report `Input file is empty` and stop' "refine-plan.md documents validator exit code 2"
-assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 3: Report `Input file has no CMT:/ENDCMT blocks` and stop' "refine-plan.md documents validator exit code 3"
+assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 3: Report `Input file has no comment blocks` and stop' "refine-plan.md documents validator exit code 3"
 assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 4: Report `Input file is missing required gen-plan sections` and stop' "refine-plan.md documents validator exit code 4"
 assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 5: Report `Output directory does not exist or is not writable - please fix it` and stop' "refine-plan.md documents validator exit code 5"
 assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 6: Report `QA directory is not writable` and stop' "refine-plan.md documents validator exit code 6"
@@ -714,18 +714,18 @@ assert_file_contains "$REFINE_PLAN_CMD" '- Exit code 7: Report `Invalid argument
 
 echo ""
 echo "PT-5: Comment extraction requirements"
-assert_file_contains "$REFINE_PLAN_CMD" "Support both inline and multi-line blocks:" "refine-plan.md supports inline and multiline comment extraction"
+assert_file_contains "$REFINE_PLAN_CMD" "Support both inline and multi-line blocks for all formats:" "refine-plan.md supports inline and multiline comment extraction"
 assert_file_contains "$REFINE_PLAN_CMD" 'Inline: `Text before CMT: comment text ENDCMT text after`' "refine-plan.md documents single-line comment extraction"
 assert_file_contains "$REFINE_PLAN_CMD" "CMT:" "refine-plan.md includes multiline comment marker example"
-assert_file_contains "$REFINE_PLAN_CMD" 'Ignore `CMT:` and `ENDCMT` sequences inside fenced code blocks.' "refine-plan.md documents code fence exclusion"
-assert_file_contains "$REFINE_PLAN_CMD" 'Ignore `CMT:` and `ENDCMT` sequences inside HTML comments.' "refine-plan.md documents HTML comment exclusion"
+assert_file_contains "$REFINE_PLAN_CMD" 'Ignore comment markers inside fenced code blocks.' "refine-plan.md documents code fence exclusion"
+assert_file_contains "$REFINE_PLAN_CMD" 'Ignore comment markers inside HTML comments.' "refine-plan.md documents HTML comment exclusion"
 assert_file_contains "$REFINE_PLAN_CMD" "Preserve surrounding non-comment text when removing inline comment blocks from the working plan text." "refine-plan.md preserves inline surrounding text"
 assert_file_contains "$REFINE_PLAN_CMD" '- `nearest_heading` or `Preamble` when no heading exists yet' "refine-plan.md records nearest heading or Preamble"
 assert_file_contains "$REFINE_PLAN_CMD" '- `location_label` for QA output' "refine-plan.md records location labels"
 assert_file_contains "$REFINE_PLAN_CMD" '- `form` = `inline` or `multiline`' "refine-plan.md records comment form"
 assert_file_contains "$REFINE_PLAN_CMD" '- `context_excerpt` from the nearest non-comment source text' "refine-plan.md records context excerpts"
-assert_file_contains "$REFINE_PLAN_CMD" 'Nested `CMT:` while already inside a comment block' "refine-plan.md documents nested CMT parse errors"
-assert_file_contains "$REFINE_PLAN_CMD" '`ENDCMT` encountered while not inside a comment block' "refine-plan.md documents stray ENDCMT parse errors"
+assert_file_contains "$REFINE_PLAN_CMD" 'Nested comment start marker while already inside a comment block' "refine-plan.md documents nested CMT parse errors"
+assert_file_contains "$REFINE_PLAN_CMD" 'Comment end marker encountered while not inside a comment block or wrong end marker for the format' "refine-plan.md documents stray ENDCMT parse errors"
 assert_file_contains "$REFINE_PLAN_CMD" "End of file reached while still inside a comment block" "refine-plan.md documents missing ENDCMT parse errors"
 assert_file_contains "$REFINE_PLAN_CMD" "No non-empty CMT blocks remain after parsing" "refine-plan.md rejects empty-only comment sets"
 
@@ -1161,10 +1161,10 @@ else
     fail "validate-refine-plan-io: unterminated CMT blocks exit 3" "3" "$VALIDATOR_EXIT_CODE"
 fi
 
-if echo "$VALIDATOR_OUTPUT" | grep -q "missing ENDCMT"; then
+if echo "$VALIDATOR_OUTPUT" | grep -q "missing end marker"; then
     pass "validate-refine-plan-io: unterminated CMT blocks report missing ENDCMT"
 else
-    fail "validate-refine-plan-io: unterminated CMT blocks report missing ENDCMT" "missing ENDCMT" "$VALIDATOR_OUTPUT"
+    fail "validate-refine-plan-io: unterminated CMT blocks report missing ENDCMT" "missing end marker" "$VALIDATOR_OUTPUT"
 fi
 
 if echo "$VALIDATOR_OUTPUT" | grep -q 'context: "CMT: this block never closes"'; then
@@ -1182,10 +1182,10 @@ else
     fail "validate-refine-plan-io: nested CMT blocks exit 3" "3" "$VALIDATOR_EXIT_CODE"
 fi
 
-if echo "$VALIDATOR_OUTPUT" | grep -q "nested CMT block"; then
+if echo "$VALIDATOR_OUTPUT" | grep -q "nested comment block"; then
     pass "validate-refine-plan-io: nested CMT blocks report a parse error"
 else
-    fail "validate-refine-plan-io: nested CMT blocks report a parse error" "nested CMT block" "$VALIDATOR_OUTPUT"
+    fail "validate-refine-plan-io: nested CMT blocks report a parse error" "nested comment block" "$VALIDATOR_OUTPUT"
 fi
 
 MISSING_SECTION_PLAN="$TEST_FIXTURES_DIR/missing-sections-plan.md"
@@ -1314,10 +1314,10 @@ else
     fail "validate-refine-plan-io: mixed valid, ignored, and empty markers still pass with a valid block" "0" "$VALIDATOR_EXIT_CODE"
 fi
 
-if echo "$VALIDATOR_OUTPUT" | grep -Eq 'Input file: .+ \([0-9]+ lines, 1 CMT blocks\)'; then
+if echo "$VALIDATOR_OUTPUT" | grep -Eq 'Input file: .+ \([0-9]+ lines, 1 comment blocks\)'; then
     pass "validate-refine-plan-io: success output reports only valid non-empty CMT blocks"
 else
-    fail "validate-refine-plan-io: success output reports only valid non-empty CMT blocks" "1 CMT blocks" "$VALIDATOR_OUTPUT"
+    fail "validate-refine-plan-io: success output reports only valid non-empty CMT blocks" "1 comment blocks" "$VALIDATOR_OUTPUT"
 fi
 
 NEW_FILE_DIR="$TEST_FIXTURES_DIR/new-file-output"

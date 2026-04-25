@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test script for check-todos-from-transcript.py
 #
@@ -155,6 +155,36 @@ if [[ $EXIT_CODE -eq 1 ]]; then
     pass "In-progress status exits 1"
 else
     fail "In-progress status" "exit 1" "exit $EXIT_CODE"
+fi
+
+# Test 8b: Queued TodoWrite item does NOT block exit
+echo "Test 8b: Queued TodoWrite item"
+cat > "$TEST_DIR/transcript-queued.jsonl" << 'EOF'
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "[queued] Cleanup follow-up", "status": "pending"}]}}]}}
+EOF
+set +e
+RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-queued.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Queued TodoWrite item exits 0"
+else
+    fail "Queued TodoWrite item" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 8c: Lane tags in the middle of TodoWrite content do NOT downgrade blocking tasks
+echo "Test 8c: Inline queued tag does not bypass TodoWrite blocker"
+cat > "$TEST_DIR/transcript-inline-tag.jsonl" << 'EOF'
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "Fix docs mentioning [queued] follow-ups", "status": "pending"}]}}]}}
+EOF
+set +e
+RESULT=$(echo "{\"transcript_path\": \"$TEST_DIR/transcript-inline-tag.jsonl\"}" | python3 "$TODO_CHECKER" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 1 ]] && echo "$RESULT" | grep -q '\[blocking\]'; then
+    pass "Inline queued tag still blocks TodoWrite item"
+else
+    fail "Inline queued TodoWrite item" "exit 1 with [blocking] output" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # ========================================
@@ -355,6 +385,57 @@ if [[ $EXIT_CODE -eq 1 ]]; then
     pass "Task with in_progress status exits 1"
 else
     fail "Task with in_progress status" "exit 1" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 19b: Queued file-based task does NOT block exit
+echo "Test 19b: Queued task does not block"
+MOCK_SESSION_19B="session-19b"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_19B"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_19B/task-1.json" << 'EOF'
+{"subject": "[queued] Follow-up cleanup", "status": "pending"}
+EOF
+set +e
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_19B\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Queued task exits 0"
+else
+    fail "Queued task" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 19c: Explicit blocking tag still blocks
+echo "Test 19c: Blocking task still blocks"
+MOCK_SESSION_19C="session-19c"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_19C"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_19C/task-1.json" << 'EOF'
+{"subject": "[blocking] Fix failing test", "status": "pending"}
+EOF
+set +e
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_19C\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 1 ]] && echo "$RESULT" | grep -q '\[blocking\]'; then
+    pass "Blocking task exits 1 with lane marker"
+else
+    fail "Blocking task" "exit 1 with [blocking] output" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 19d: Inline queued tag in task body does NOT downgrade blocking tasks
+echo "Test 19d: Inline queued tag in task body does not bypass blocker"
+MOCK_SESSION_19D="session-19d"
+mkdir -p "$MOCK_TASKS_BASE/$MOCK_SESSION_19D"
+cat > "$MOCK_TASKS_BASE/$MOCK_SESSION_19D/task-1.json" << 'EOF'
+{"subject": "Triage review fallout", "description": "Notes mention [queued] cleanup but this task is still active", "status": "pending"}
+EOF
+set +e
+RESULT=$(echo "{\"session_id\": \"$MOCK_SESSION_19D\", \"tasks_base_dir\": \"$MOCK_TASKS_BASE\"}" | python3 "$TODO_CHECKER" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 1 ]] && echo "$RESULT" | grep -q '\[blocking\]'; then
+    pass "Inline queued tag still blocks file-based task"
+else
+    fail "Inline queued file-based task" "exit 1 with [blocking] output" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 20: Multiple tasks, one incomplete

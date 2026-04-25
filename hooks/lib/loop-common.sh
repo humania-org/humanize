@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Common functions for RLCR loop hooks
 #
@@ -38,11 +38,23 @@ readonly FIELD_FULL_REVIEW_ROUND="full_review_round"
 readonly FIELD_ASK_CODEX_QUESTION="ask_codex_question"
 readonly FIELD_SESSION_ID="session_id"
 readonly FIELD_AGENT_TEAMS="agent_teams"
+readonly FIELD_PRIVACY_MODE="privacy_mode"
+readonly FIELD_MAINLINE_STALL_COUNT="mainline_stall_count"
+readonly FIELD_LAST_MAINLINE_VERDICT="last_mainline_verdict"
+readonly FIELD_DRIFT_STATUS="drift_status"
+
+readonly MAINLINE_VERDICT_ADVANCED="advanced"
+readonly MAINLINE_VERDICT_STALLED="stalled"
+readonly MAINLINE_VERDICT_REGRESSED="regressed"
+readonly MAINLINE_VERDICT_UNKNOWN="unknown"
+
+readonly DRIFT_STATUS_NORMAL="normal"
+readonly DRIFT_STATUS_REPLAN_REQUIRED="replan_required"
 
 # Default Codex configuration (single source of truth - all scripts reference this)
 # Scripts can pre-set DEFAULT_CODEX_MODEL/DEFAULT_CODEX_EFFORT before sourcing to override.
 # Config-backed defaults are loaded from the merge hierarchy after config-loader.sh is sourced.
-# Precedence: pre-set value > config value > hardcoded fallback (gpt-5.4/high)
+# Precedence: pre-set value > config value > hardcoded fallback (gpt-5.5/high)
 #
 # The actual assignment happens in the "Config-backed defaults" section below,
 # after config-loader.sh has been sourced and merged config is available.
@@ -161,6 +173,10 @@ LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 LOOP_COMMON_PLUGIN_ROOT="$(cd "$LOOP_COMMON_DIR/../.." && pwd)"
 export PLUGIN_ROOT="${PLUGIN_ROOT:-$LOOP_COMMON_PLUGIN_ROOT}"
 
+# Shared project-root resolver (CLAUDE_PROJECT_DIR -> git toplevel,
+# realpath-canonicalized). Must load before any caller needs PROJECT_ROOT.
+source "$LOOP_COMMON_DIR/project-root.sh"
+
 _lc_errexit=false; [[ -o errexit ]] && _lc_errexit=true
 _lc_nounset=false; [[ -o nounset ]] && _lc_nounset=true
 _lc_pipefail=false; [[ -o pipefail ]] && _lc_pipefail=true
@@ -170,19 +186,28 @@ $_lc_nounset && set -u || set +u
 $_lc_pipefail && set -o pipefail || set +o pipefail
 unset _lc_errexit _lc_nounset _lc_pipefail
 
-_LOOP_COMMON_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+_LOOP_COMMON_PROJECT_ROOT="$(resolve_project_root 2>/dev/null || true)"
 # Config loading is best-effort: use || true so a config-load failure does not
 # abort sourcing before callers' dependency checks (jq, codex) are reached.
 # Stderr is NOT suppressed so malformed config warnings remain visible.
-_LOOP_COMMON_CONFIG="$(load_merged_config "$LOOP_COMMON_PLUGIN_ROOT" "$_LOOP_COMMON_PROJECT_ROOT")" || true
+#
+# Skip config loading when no project root is available (e.g. humanize.sh is
+# sourced from .bashrc/.zshrc in a non-repo directory like $HOME). Passing an
+# empty project_root to load_merged_config would surface a usage error on
+# stderr every time the shell starts.
+if [[ -n "$_LOOP_COMMON_PROJECT_ROOT" ]]; then
+    _LOOP_COMMON_CONFIG="$(load_merged_config "$LOOP_COMMON_PLUGIN_ROOT" "$_LOOP_COMMON_PROJECT_ROOT")" || true
+else
+    _LOOP_COMMON_CONFIG=""
+fi
 
 # Load bitlesson model from merged config (controls which CLI bitlesson-select.sh uses)
 DEFAULT_BITLESSON_MODEL="$(get_config_value "$_LOOP_COMMON_CONFIG" "bitlesson_model" 2>/dev/null || true)"
 DEFAULT_BITLESSON_MODEL="${DEFAULT_BITLESSON_MODEL:-haiku}"
 
 # Load codex model/effort from merged config so .humanize/config.json can set persistent
-# defaults for all Codex-using features (RLCR, PR loop, ask-codex).
-# Precedence: pre-set by caller (e.g. PR loop) > config value > hardcoded fallback (gpt-5.4/high)
+# defaults for all Codex-using features (RLCR, ask-codex).
+# Precedence: pre-set by caller > config value > hardcoded fallback (gpt-5.5/high)
 _cfg_codex_model="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_model" 2>/dev/null || true)"
 if [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     echo "Warning: Invalid codex_model in merged config: $_cfg_codex_model" >&2
@@ -194,7 +219,7 @@ elif [[ -n "$_cfg_codex_model" && ! "$_cfg_codex_model" =~ ^(gpt-|o[0-9]) ]]; th
     echo "  Ignoring configured codex_model; using caller preset or fallback" >&2
     _cfg_codex_model=""
 fi
-DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.4}}"
+DEFAULT_CODEX_MODEL="${DEFAULT_CODEX_MODEL:-${_cfg_codex_model:-gpt-5.5}}"
 _cfg_codex_effort="$(get_config_value "$_LOOP_COMMON_CONFIG" "codex_effort" 2>/dev/null || true)"
 if [[ -n "$_cfg_codex_effort" && ! "$_cfg_codex_effort" =~ ^(xhigh|high|medium|low)$ ]]; then
     echo "Warning: Invalid codex_effort in merged config: $_cfg_codex_effort" >&2
@@ -230,6 +255,12 @@ extract_session_id() {
     printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null || echo ""
 }
 
+# Background-task helpers (expand_leading_tilde, extract_transcript_path,
+# derive_loop_start_iso_ts, list/has/count_pending_background_task[_ids],
+# handle_bg_task_short_circuit) live in loop-bg-tasks.sh and are sourced
+# at the bottom of this file so every existing consumer of loop-common.sh
+# continues to get them transparently.
+
 # Resolve the active state file for a loop directory
 # Checks for finalize-state.md first, then state.md
 # Usage: resolve_active_state_file "$loop_dir"
@@ -237,7 +268,9 @@ extract_session_id() {
 resolve_active_state_file() {
     local loop_dir="$1"
 
-    if [[ -f "$loop_dir/finalize-state.md" ]]; then
+    if [[ -f "$loop_dir/methodology-analysis-state.md" ]]; then
+        echo "$loop_dir/methodology-analysis-state.md"
+    elif [[ -f "$loop_dir/finalize-state.md" ]]; then
         echo "$loop_dir/finalize-state.md"
     elif [[ -f "$loop_dir/state.md" ]]; then
         echo "$loop_dir/state.md"
@@ -255,7 +288,10 @@ resolve_any_state_file() {
     local loop_dir="$1"
 
     # Prefer active states
-    if [[ -f "$loop_dir/finalize-state.md" ]]; then
+    if [[ -f "$loop_dir/methodology-analysis-state.md" ]]; then
+        echo "$loop_dir/methodology-analysis-state.md"
+        return
+    elif [[ -f "$loop_dir/finalize-state.md" ]]; then
         echo "$loop_dir/finalize-state.md"
         return
     elif [[ -f "$loop_dir/state.md" ]]; then
@@ -286,10 +322,17 @@ resolve_any_state_file() {
 # Empty stored session_id matches any filter (backward compat for pre-session
 # state files).
 #
+# Third parameter `allow_bg_marker_fallback` (default "false"): when "true",
+# the session-filter branch also considers a mismatched-session dir that holds
+# a `bg-pending.marker` file AND an active state file. Only the RLCR stop
+# hook opts in to this; every other caller (read/write/bash/plan-file
+# validators, ...) keeps strict session isolation.
+#
 # Outputs the directory path to stdout, or empty string if none found
 find_active_loop() {
     local loop_base_dir="$1"
     local filter_session_id="${2:-}"
+    local allow_bg_marker_fallback="${3:-false}"
 
     if [[ ! -d "$loop_base_dir" ]]; then
         echo ""
@@ -313,9 +356,18 @@ find_active_loop() {
         return
     fi
 
-    # Session filter: iterate newest-to-oldest, find the first dir belonging
-    # to this session (any state file), then check if it is still active.
+    # Session filter: iterate newest-to-oldest.
+    #
+    # The caller's own (exact stored session_id) match takes precedence over
+    # any marker-based adoption: with multiple active RLCR loops in the same
+    # repo, a newer dir parked by a different session must not be returned
+    # before an older dir that actually belongs to the caller. Marker
+    # candidates are recorded during the scan and only used as a fallback
+    # when no exact match is found anywhere. Zombie-loop protection
+    # (terminal newest for this session returns empty) still wins over
+    # marker fallback.
     local dir
+    local marker_candidate=""
     while IFS= read -r dir; do
         [[ -z "$dir" ]] && continue
         local trimmed_dir="${dir%/}"
@@ -329,9 +381,9 @@ find_active_loop() {
         local stored_session_id
         stored_session_id=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/'"${FIELD_SESSION_ID}"': *//; p; } }' "$any_state" 2>/dev/null | tr -d ' ')
 
-        # Empty stored session_id matches any session (backward compat)
+        # Empty stored session_id matches any session (backward compat).
         if [[ -z "$stored_session_id" ]] || [[ "$stored_session_id" == "$filter_session_id" ]]; then
-            # This is the newest dir for this session -- only return if active
+            # Newest dir for this session -- only return if active.
             local active_state
             active_state=$(resolve_active_state_file "$trimmed_dir")
             if [[ -n "$active_state" ]]; then
@@ -339,10 +391,35 @@ find_active_loop() {
                 return
             fi
             # Session's newest loop is in terminal state; do not fall through
+            # to marker-based adoption either.
             echo ""
             return
         fi
+
+        # Session mismatch. Only the stop hook opts in to marker-based
+        # adoption; validators and other callers keep strict isolation, so
+        # the candidate is only recorded when the caller explicitly allows
+        # it.
+        if [[ "$allow_bg_marker_fallback" == "true" ]] \
+           && [[ -z "$marker_candidate" ]] \
+           && [[ -f "$trimmed_dir/bg-pending.marker" ]]; then
+            local candidate_state
+            candidate_state=$(resolve_active_state_file "$trimmed_dir")
+            if [[ -n "$candidate_state" ]]; then
+                marker_candidate="$trimmed_dir"
+            fi
+            # Marker on a terminal loop is stale; leave it alone.
+        fi
     done < <(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r)
+
+    # No exact session match. Fall back to marker-based adoption only when
+    # the caller explicitly opted in -- the stop hook uses this to surface
+    # a "parked by another session" notice or to resume its own parked
+    # loop after a previous session died before the bg completion arrived.
+    if [[ "$allow_bg_marker_fallback" == "true" ]] && [[ -n "$marker_candidate" ]]; then
+        echo "$marker_candidate"
+        return
+    fi
 
     echo ""
 }
@@ -385,6 +462,10 @@ _parse_state_fields() {
     STATE_ASK_CODEX_QUESTION=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_ASK_CODEX_QUESTION}:" | sed "s/${FIELD_ASK_CODEX_QUESTION}: *//" | tr -d ' ' || true)
     STATE_SESSION_ID=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_SESSION_ID}:" | sed "s/${FIELD_SESSION_ID}: *//" || true)
     STATE_AGENT_TEAMS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_AGENT_TEAMS}:" | sed "s/${FIELD_AGENT_TEAMS}: *//" | tr -d ' ' || true)
+    STATE_PRIVACY_MODE=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_PRIVACY_MODE}:" | sed "s/${FIELD_PRIVACY_MODE}: *//" | tr -d ' ' || true)
+    STATE_MAINLINE_STALL_COUNT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_MAINLINE_STALL_COUNT}:" | sed "s/${FIELD_MAINLINE_STALL_COUNT}: *//" | tr -d ' ' || true)
+    STATE_LAST_MAINLINE_VERDICT=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_LAST_MAINLINE_VERDICT}:" | sed "s/${FIELD_LAST_MAINLINE_VERDICT}: *//" | tr -d ' ' || true)
+    STATE_DRIFT_STATUS=$(echo "$STATE_FRONTMATTER" | grep "^${FIELD_DRIFT_STATUS}:" | sed "s/${FIELD_DRIFT_STATUS}: *//" | tr -d ' ' || true)
 }
 
 # Parse state file frontmatter and set variables (tolerant mode with defaults)
@@ -405,6 +486,9 @@ _parse_state_fields() {
 #   STATE_FULL_REVIEW_ROUND - interval for Full Alignment Check (default: 5)
 #   STATE_ASK_CODEX_QUESTION - "true" or "false" (v1.6.5+)
 #   STATE_AGENT_TEAMS - "true" or "false"
+#   STATE_MAINLINE_STALL_COUNT - consecutive stalled/regressed implementation rounds
+#   STATE_LAST_MAINLINE_VERDICT - advanced/stalled/regressed/unknown
+#   STATE_DRIFT_STATUS - normal/replan_required
 # Returns: 0 on success, 1 if file not found
 # Note: For strict validation, use parse_state_file_strict() instead
 parse_state_file() {
@@ -427,6 +511,11 @@ parse_state_file() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    # Default privacy_mode to "true" for legacy loops that pre-date this field
+    STATE_PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
+    STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+    STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+    STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
     # STATE_REVIEW_STARTED left as-is (empty if missing, to allow schema validation)
 
     return 0
@@ -502,8 +591,129 @@ parse_state_file_strict() {
     STATE_FULL_REVIEW_ROUND="${STATE_FULL_REVIEW_ROUND:-5}"
     STATE_ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-true}"
     STATE_AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+    STATE_PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
+    STATE_MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+    STATE_LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+    STATE_DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
 
     return 0
+}
+
+# Normalize mainline progress verdict to a safe enum.
+# Usage: normalize_mainline_progress_verdict "ADVANCED"
+normalize_mainline_progress_verdict() {
+    local verdict_lower
+    verdict_lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$verdict_lower" in
+        "$MAINLINE_VERDICT_ADVANCED"|"$MAINLINE_VERDICT_STALLED"|"$MAINLINE_VERDICT_REGRESSED")
+            echo "$verdict_lower"
+            ;;
+        *)
+            echo "$MAINLINE_VERDICT_UNKNOWN"
+            ;;
+    esac
+}
+
+# Normalize drift status to a safe enum.
+# Usage: normalize_drift_status "replan_required"
+normalize_drift_status() {
+    local status_lower
+    status_lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+    case "$status_lower" in
+        "$DRIFT_STATUS_REPLAN_REQUIRED")
+            echo "$DRIFT_STATUS_REPLAN_REQUIRED"
+            ;;
+        *)
+            echo "$DRIFT_STATUS_NORMAL"
+            ;;
+    esac
+}
+
+# Extract "Mainline Progress Verdict" from Codex review content.
+# Outputs one of: advanced, stalled, regressed, unknown
+# Usage: extract_mainline_progress_verdict "$review_content"
+extract_mainline_progress_verdict() {
+    local review_content="$1"
+    local verdict_line
+    local verdict_value
+
+    verdict_line=$(printf '%s\n' "$review_content" | grep -Ei 'Mainline Progress Verdict:[[:space:]]*(ADVANCED|STALLED|REGRESSED)([^A-Za-z]|$)' | tail -1 || true)
+    if [[ -z "$verdict_line" ]]; then
+        echo "$MAINLINE_VERDICT_UNKNOWN"
+        return
+    fi
+
+    # Extract the verdict word using grep -oEi (portable) instead of sed /I (GNU-only).
+    # The preceding grep -Ei already ensures the line contains one of the three verdicts.
+    # Reject lines with multiple verdict keywords (e.g. placeholder template formats)
+    # to avoid silently accepting an ambiguous verdict.
+    local _verdict_matches
+    _verdict_matches=$(printf '%s\n' "$verdict_line" | grep -oEi 'ADVANCED|STALLED|REGRESSED')
+    local _match_count
+    _match_count=$(printf '%s\n' "$_verdict_matches" | wc -l)
+    if [[ "$_match_count" -gt 1 ]]; then
+        echo "$MAINLINE_VERDICT_UNKNOWN"
+        return
+    fi
+    verdict_value=$(printf '%s\n' "$_verdict_matches" | head -1)
+    normalize_mainline_progress_verdict "$verdict_value"
+}
+
+# Upsert simple YAML frontmatter fields in a state file.
+# Values must not contain newlines.
+# Usage: upsert_state_fields "/path/to/state.md" "field=value" "other=value"
+upsert_state_fields() {
+    local state_file="$1"
+    shift
+
+    local temp_file="${state_file}.tmp.$$"
+
+    awk -v assignments="$*" '
+        BEGIN {
+            count = split(assignments, pairs, " ");
+            for (i = 1; i <= count; i++) {
+                eq = index(pairs[i], "=");
+                key = substr(pairs[i], 1, eq - 1);
+                val = substr(pairs[i], eq + 1);
+                keys[key] = val;
+                order[i] = key;
+            }
+            separator_count = 0;
+        }
+        {
+            if ($0 == "---") {
+                separator_count++;
+                if (separator_count == 2) {
+                    for (i = 1; i <= count; i++) {
+                        key = order[i];
+                        if (!(key in seen)) {
+                            print key ": " keys[key];
+                            seen[key] = 1;
+                        }
+                    }
+                }
+                print;
+                next;
+            }
+
+            handled = 0;
+            for (i = 1; i <= count; i++) {
+                key = order[i];
+                if ($0 ~ ("^" key ":")) {
+                    print key ": " keys[key];
+                    seen[key] = 1;
+                    handled = 1;
+                    break;
+                }
+            }
+
+            if (!handled) {
+                print;
+            }
+        }
+    ' "$state_file" > "$temp_file" && mv "$temp_file" "$state_file"
 }
 
 # Detect review issues from codex review log file
@@ -583,7 +793,7 @@ to_lower() {
 }
 
 # Check if a path (lowercase) matches a round file pattern
-# Usage: is_round_file "$lowercase_path" "summary|prompt|todos"
+# Usage: is_round_file "$lowercase_path" "summary|prompt|todos|contract"
 is_round_file_type() {
     local path_lower="$1"
     local file_type="$2"
@@ -600,7 +810,7 @@ extract_round_number() {
     filename_lower=$(to_lower "$filename")
 
     # Use sed for portable regex extraction (works in both bash and zsh)
-    echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\)\.md$/\1/p'
+    echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\|contract\)\.md$/\1/p'
 }
 
 # Check if a file is in the allowlist for the active loop
@@ -664,6 +874,21 @@ You cannot modify finalize-state.md. This file is managed by the loop system dur
     load_and_render_safe "$TEMPLATE_DIR" "block/finalize-state-file-modification.md" "$fallback"
 }
 
+# Standard message for blocking round contract access during Finalize Phase
+# Usage: finalize_contract_blocked_message "read"
+finalize_contract_blocked_message() {
+    local action="$1"
+    local fallback="# Finalize Contract Access Blocked
+
+There is no active round contract during the Finalize Phase.
+
+Do not {{ACTION}} historical round contract files.
+Use finalize-summary.md for finalize-only notes and goal-tracker.md for current state."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/finalize-contract-access.md" "$fallback" \
+        "ACTION=$action"
+}
+
 # Standard message for blocking summary file modifications via Bash
 # Usage: summary_bash_blocked_message "$correct_summary_path"
 summary_bash_blocked_message() {
@@ -692,6 +917,80 @@ is_goal_tracker_path() {
     echo "$path_lower" | grep -qE 'goal-tracker\.md$'
 }
 
+# Extract the immutable section from a goal-tracker content stream.
+# Supports both current trackers (with --- separator) and older trackers
+# that jump directly from IMMUTABLE SECTION to MUTABLE SECTION.
+extract_goal_tracker_immutable_from_stream() {
+    awk '
+        /^## IMMUTABLE SECTION[[:space:]]*$/ { capture=1 }
+        capture && /^## MUTABLE SECTION[[:space:]]*$/ { exit }
+        capture && /^---[[:space:]]*$/ { exit }
+        capture { print }
+    '
+}
+
+# Extract the immutable section from an on-disk goal-tracker file.
+# Usage: extract_goal_tracker_immutable_from_file "/path/to/goal-tracker.md"
+extract_goal_tracker_immutable_from_file() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        return 1
+    fi
+    extract_goal_tracker_immutable_from_stream < "$tracker_file"
+}
+
+# Extract the immutable section from an in-memory goal-tracker string.
+# Usage: extract_goal_tracker_immutable_from_text "$content"
+extract_goal_tracker_immutable_from_text() {
+    local tracker_content="$1"
+    printf '%s' "$tracker_content" | extract_goal_tracker_immutable_from_stream
+}
+
+# Check whether a proposed goal-tracker update preserves the immutable section.
+# Usage: goal_tracker_mutable_update_allowed "/path/to/current.md" "$new_content"
+goal_tracker_mutable_update_allowed() {
+    local tracker_file="$1"
+    local updated_content="$2"
+
+    local current_immutable=""
+    local updated_immutable=""
+    current_immutable=$(extract_goal_tracker_immutable_from_file "$tracker_file" 2>/dev/null || true)
+    updated_immutable=$(extract_goal_tracker_immutable_from_text "$updated_content" 2>/dev/null || true)
+
+    # Legacy trackers without IMMUTABLE SECTION: allow edits unconditionally.
+    [[ -n "$current_immutable" ]] || return 0
+    [[ "$current_immutable" == "$updated_immutable" ]]
+}
+
+# Render the post-edit contents for a literal Edit operation.
+# Returns non-zero if the edit preview cannot be produced.
+# Usage: preview_edit_result "/path/to/file" "$old_string" "$new_string" "true|false"
+preview_edit_result() {
+    local file_path="$1"
+    local old_string="$2"
+    local new_string="$3"
+    local replace_all="${4:-false}"
+
+    command -v perl >/dev/null 2>&1 || return 1
+
+    FILE_PATH="$file_path" \
+    OLD_STRING="$old_string" \
+    NEW_STRING="$new_string" \
+    REPLACE_ALL="$replace_all" \
+    perl -0pe '
+        BEGIN {
+            $old = $ENV{"OLD_STRING"};
+            $new = $ENV{"NEW_STRING"};
+            $replace_all = $ENV{"REPLACE_ALL"} eq "true";
+        }
+        if ($replace_all) {
+            s/\Q$old\E/$new/g;
+        } else {
+            s/\Q$old\E/$new/;
+        }
+    ' "$file_path"
+}
+
 # Check if a path (lowercase) targets state.md
 is_state_file_path() {
     local path_lower="$1"
@@ -702,6 +1001,21 @@ is_state_file_path() {
 is_finalize_state_file_path() {
     local path_lower="$1"
     echo "$path_lower" | grep -qE 'finalize-state\.md$'
+}
+
+# Check if a path (lowercase) targets methodology-analysis-state.md
+is_methodology_analysis_state_file_path() {
+    local path_lower="$1"
+    echo "$path_lower" | grep -qE 'methodology-analysis-state\.md$'
+}
+
+# Standard message for blocking methodology-analysis-state file modifications
+methodology_analysis_state_file_blocked_message() {
+    local fallback="# Methodology Analysis State File Modification Blocked
+
+You cannot modify methodology-analysis-state.md. This file is managed by the loop system during the Methodology Analysis Phase."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/methodology-analysis-state-file-modification.md" "$fallback"
 }
 
 # Check if a path (lowercase) targets finalize-summary.md
@@ -765,10 +1079,20 @@ is_cancel_authorized() {
         return 4
     fi
 
+    # Canonicalize the loop dir (idempotent: resolve_project_root already
+    # canonicalizes, but callers may supply a non-canonical override). Both
+    # sides of the upcoming string comparisons must be canonicalized through
+    # the same transformation or a symlinked prefix in the user's command
+    # (e.g. /var/... vs /private/var/... on macOS) will spuriously fail the
+    # authorization check.
+    local canonical_loop_dir
+    canonical_loop_dir="$(canonicalize_path "${active_loop_dir%/}")"
+    canonical_loop_dir="${canonical_loop_dir:-${active_loop_dir%/}}"
+
     # Normalize: Replace $loop_dir and ${loop_dir} with actual path
     local normalized="$command_lower"
     local loop_dir_lower
-    loop_dir_lower="${active_loop_dir%/}/"
+    loop_dir_lower="${canonical_loop_dir}/"
     loop_dir_lower=$(echo "$loop_dir_lower" | tr '[:upper:]' '[:lower:]')
 
     normalized="${normalized//\$\{loop_dir\}/$loop_dir_lower}"
@@ -864,29 +1188,59 @@ is_cancel_authorized() {
         return 5
     fi
 
-    # Normalize and validate source path
+    # Normalize and validate source path.
+    #
+    # Use canonicalize_path_prefix (NOT canonicalize_path): we need to resolve
+    # symlinks in the parent directory so a symlinked project prefix matches
+    # canonical_loop_dir, but we MUST NOT dereference a symlink at the leaf.
+    # Otherwise a symlink like /tmp/alias -> <loop>/state.md would canonicalize
+    # to <loop>/state.md and pass the check, but `mv` would then operate on
+    # the link path itself, escaping the loop directory and/or corrupting
+    # loop state. The on-disk symlink rejection below (src_original check)
+    # still fires because it probes the real state.md under canonical_loop_dir.
+    #
+    # Re-lowercase after canonicalization because realpath on case-insensitive
+    # filesystems may restore the original casing of path components, which
+    # would diverge from the already-lowercased expected_* values.
     src=$(_normalize_path "$src")
+    local src_canonical
+    src_canonical="$(canonicalize_path_prefix "$src")"
+    src_canonical="${src_canonical:-$src}"
+    src_canonical=$(echo "$src_canonical" | tr '[:upper:]' '[:lower:]')
     local expected_src_state="${loop_dir_lower}state.md"
     local expected_src_finalize="${loop_dir_lower}finalize-state.md"
-    if [[ "$src" != "$expected_src_state" ]] && [[ "$src" != "$expected_src_finalize" ]]; then
+    local expected_src_methodology="${loop_dir_lower}methodology-analysis-state.md"
+    if [[ "$src_canonical" != "$expected_src_state" ]] && [[ "$src_canonical" != "$expected_src_finalize" ]] && [[ "$src_canonical" != "$expected_src_methodology" ]]; then
         return 5
     fi
 
-    # Normalize and validate destination path
+    # Normalize and validate destination path. Uses canonicalize_path_prefix
+    # for the same reason as src: a symlink alias pointing at the real
+    # cancel-state.md must NOT pass authorization, because `mv` onto a
+    # symlink replaces the link rather than creating <loop>/cancel-state.md,
+    # corrupting loop state and moving state.md outside the loop dir.
     dest=$(_normalize_path "$dest")
+    local dest_canonical
+    dest_canonical="$(canonicalize_path_prefix "$dest")"
+    dest_canonical="${dest_canonical:-$dest}"
+    dest_canonical=$(echo "$dest_canonical" | tr '[:upper:]' '[:lower:]')
     local expected_dest="${loop_dir_lower}cancel-state.md"
-    if [[ "$dest" != "$expected_dest" ]]; then
+    if [[ "$dest_canonical" != "$expected_dest" ]]; then
         return 5
     fi
 
     # SECURITY: Reject if source file is a symlink (filesystem check)
     # Determine source file by comparing against expected paths (not substring match)
-    # This avoids vulnerability when loop directory path contains "finalize"
+    # This avoids vulnerability when loop directory path contains "finalize" or "methodology"
+    # Use canonical_loop_dir so the symlink check runs against the real on-disk
+    # path rather than a user-supplied non-canonical form.
     local src_original
-    if [[ "$src" == "$expected_src_finalize" ]]; then
-        src_original="${active_loop_dir}/finalize-state.md"
+    if [[ "$src_canonical" == "$expected_src_methodology" ]]; then
+        src_original="${canonical_loop_dir}/methodology-analysis-state.md"
+    elif [[ "$src_canonical" == "$expected_src_finalize" ]]; then
+        src_original="${canonical_loop_dir}/finalize-state.md"
     else
-        src_original="${active_loop_dir}/state.md"
+        src_original="${canonical_loop_dir}/state.md"
     fi
     if [[ -L "$src_original" ]]; then
         return 6  # Source is a symlink
@@ -899,196 +1253,6 @@ is_cancel_authorized() {
 is_in_humanize_loop_dir() {
     local path="$1"
     echo "$path" | grep -q '\.humanize/rlcr/'
-}
-
-# ========================================
-# PR Loop Bot Name Mapping
-# ========================================
-
-# Map bot names to GitHub comment author names:
-# - claude -> claude[bot]
-# - codex -> chatgpt-codex-connector[bot]
-#
-# Usage: author=$(map_bot_to_author "codex")
-map_bot_to_author() {
-    local bot="$1"
-    case "$bot" in
-        codex) echo "chatgpt-codex-connector[bot]" ;;
-        *) echo "${bot}[bot]" ;;
-    esac
-}
-
-# Reverse mapping: author name to bot name
-# - chatgpt-codex-connector[bot] -> codex
-# - chatgpt-codex-connector -> codex
-# - claude[bot] -> claude
-#
-# Usage: bot=$(map_author_to_bot "chatgpt-codex-connector[bot]")
-map_author_to_bot() {
-    local author="$1"
-    # Remove [bot] suffix if present
-    local author_clean="${author%\[bot\]}"
-    case "$author_clean" in
-        chatgpt-codex-connector) echo "codex" ;;
-        *) echo "$author_clean" ;;
-    esac
-}
-
-# Build a YAML list string from an array of values
-# Returns multiline string with "  - value" for each item
-#
-# Usage: yaml_list=$(build_yaml_list "${array[@]}")
-build_yaml_list() {
-    local result=""
-    for item in "$@"; do
-        result="${result}
-  - ${item}"
-    done
-    echo "$result"
-}
-
-# Build a mention string from bot names (e.g., "@claude @codex")
-#
-# Usage: mentions=$(build_bot_mention_string "${bots[@]}")
-build_bot_mention_string() {
-    local result=""
-    for bot in "$@"; do
-        if [[ -n "$result" ]]; then
-            result="${result} @${bot}"
-        else
-            result="@${bot}"
-        fi
-    done
-    echo "$result"
-}
-
-# ========================================
-# PR Loop Directory Functions
-# ========================================
-
-# Check if a path is inside .humanize/pr-loop directory
-is_in_pr_loop_dir() {
-    local path="$1"
-    echo "$path" | grep -q '\.humanize/pr-loop/'
-}
-
-# Check if a path is inside any loop directory (RLCR or PR loop)
-is_in_any_loop_dir() {
-    local path="$1"
-    is_in_humanize_loop_dir "$path" || is_in_pr_loop_dir "$path"
-}
-
-# Find the most recent active PR loop directory with state.md
-# Similar to find_active_loop but for PR loops
-# Outputs the directory path to stdout, or empty string if none found
-find_active_pr_loop() {
-    local loop_base_dir="$1"
-
-    if [[ ! -d "$loop_base_dir" ]]; then
-        echo ""
-        return
-    fi
-
-    local newest_dir
-    newest_dir=$(ls -1d "$loop_base_dir"/*/ 2>/dev/null | sort -r | head -1)
-
-    if [[ -n "$newest_dir" && -f "${newest_dir}state.md" ]]; then
-        echo "${newest_dir%/}"
-    else
-        echo ""
-    fi
-}
-
-# Check if a path (lowercase) matches a PR loop round file pattern
-# Types: pr-comment, pr-resolve, pr-check, pr-feedback, prompt, codex-prompt
-is_pr_round_file_type() {
-    local path_lower="$1"
-    local file_type="$2"
-
-    echo "$path_lower" | grep -qE "round-[0-9]+-${file_type}\\.md\$"
-}
-
-# Check if a path matches any PR loop read-only file type
-# These files are generated by the system and should not be modified by Claude
-is_pr_loop_readonly_file() {
-    local path_lower="$1"
-
-    is_pr_round_file_type "$path_lower" "pr-comment" || \
-    is_pr_round_file_type "$path_lower" "prompt" || \
-    is_pr_round_file_type "$path_lower" "codex-prompt" || \
-    is_pr_round_file_type "$path_lower" "pr-check" || \
-    is_pr_round_file_type "$path_lower" "pr-feedback"
-}
-
-# Validate PR loop pr-resolve file round number
-# Returns 0 if valid (correct round or no active loop), exits with error message if wrong round
-# Usage: validate_pr_resolve_round "$file_path_lower" "$action_verb"
-# Arguments:
-#   $1 - File path (lowercase)
-#   $2 - Action verb for error message ("edit" or "write to")
-validate_pr_resolve_round() {
-    local file_path_lower="$1"
-    local action_verb="$2"
-
-    local project_root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-    local pr_loop_base_dir="$project_root/.humanize/pr-loop"
-    local active_pr_loop_dir
-    active_pr_loop_dir=$(find_active_pr_loop "$pr_loop_base_dir")
-
-    if [[ -z "$active_pr_loop_dir" ]]; then
-        return 0
-    fi
-
-    local pr_state_file="$active_pr_loop_dir/state.md"
-    if [[ ! -f "$pr_state_file" ]]; then
-        return 0
-    fi
-
-    local pr_current_round
-    pr_current_round=$(sed -n '/^---$/,/^---$/{ /^current_round:/{ s/current_round: *//; p; } }' "$pr_state_file" | tr -d ' ')
-    pr_current_round="${pr_current_round:-0}"
-
-    local claude_pr_round
-    claude_pr_round=$(echo "$file_path_lower" | sed -n 's|.*round-\([0-9]*\)-pr-resolve\.md$|\1|p')
-
-    if [[ -n "$claude_pr_round" ]] && [[ "$claude_pr_round" != "$pr_current_round" ]]; then
-        local correct_path="$active_pr_loop_dir/round-${pr_current_round}-pr-resolve.md"
-        # NOTE: Avoid ${var^} (Bash 4+ only) for macOS Bash 3.2 compatibility
-        # Use tr for portable capitalization of first letter
-        local action_verb_cap
-        action_verb_cap=$(echo "$action_verb" | sed 's/^\(.\)/\U\1/')
-        # Fallback for systems where \U doesn't work (use awk instead)
-        if [[ "$action_verb_cap" == "$action_verb" ]] || [[ "$action_verb_cap" == *'U'* ]]; then
-            action_verb_cap=$(echo "$action_verb" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-        fi
-        echo "# Wrong Round Number" >&2
-        echo "" >&2
-        echo "You tried to $action_verb round-${claude_pr_round}-pr-resolve.md but current PR loop round is **${pr_current_round}**." >&2
-        echo "" >&2
-        echo "$action_verb_cap: \`$correct_path\`" >&2
-        return 2
-    fi
-
-    return 0
-}
-
-# Standard message for blocking PR loop state file modifications
-pr_loop_state_blocked_message() {
-    local fallback="# PR Loop State File Modification Blocked
-
-You cannot modify state.md in .humanize/pr-loop/. This file is managed by the PR loop system."
-
-    load_and_render_safe "$TEMPLATE_DIR" "block/pr-loop-state-modification.md" "$fallback"
-}
-
-# Standard message for blocking PR loop prompt/comment file writes
-pr_loop_prompt_blocked_message() {
-    local fallback="# PR Loop File Write Blocked
-
-You cannot write to round-*-pr-comment.md or round-*-prompt.md files in .humanize/pr-loop/.
-These files are generated by the PR loop system and are read-only."
-
-    load_and_render_safe "$TEMPLATE_DIR" "block/pr-loop-prompt-write.md" "$fallback"
 }
 
 # Check if a git add command would add .humanize files to version control
@@ -1153,7 +1317,7 @@ git_adds_humanize() {
         # Check for direct .humanize reference (blocked regardless of other flags)
         # Handles: .humanize, ./.humanize, path/to/.humanize, ".humanize", '.humanize'
         # Pattern matches .humanize at start, after space, after / or ./ AND followed by end, /, or space
-        # This avoids over-blocking .humanizeconfig or .humanize-backup
+        # This avoids over-blocking .humanizeconfig or .humanize-backup.
         if echo "$add_args_normalized" | grep -qE '(^|[[:space:]]|/)\.humanize($|/|[[:space:]])'; then
             return 0
         fi
@@ -1251,6 +1415,56 @@ IMPORTANT: The commit message must NOT contain the literal string \".humanize\" 
     load_and_render_safe "$TEMPLATE_DIR" "block/git-add-humanize.md" "$fallback"
 }
 
+# Return success if local Humanize runtime state has entered git tracking or the index.
+# Untracked .humanize state is allowed; tracked or staged state must be blocked.
+# Usage: git_has_tracked_humanize_state [project_root]
+#
+# Intentionally scoped to .humanize/ to stay consistent with git_adds_humanize,
+# which explicitly allows unrelated paths like .humanize-backup or
+# .humanizeconfig (see tests/test-humanize-escape.sh). ls-files covers both
+# committed entries and paths staged via git add; paths the user has staged for
+# removal via git rm --cached are correctly omitted so the user can unstick
+# themselves without being re-blocked.
+git_has_tracked_humanize_state() {
+    local project_root="${1:-.}"
+
+    if [[ ! -d "$project_root/.git" ]] && ! git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
+        return 1
+    fi
+
+    if git -C "$project_root" ls-files -- .humanize 2>/dev/null | grep -q '.'; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Standard message for blocking tracked/staged .humanize state.
+# Usage: git_tracked_humanize_blocked_message
+git_tracked_humanize_blocked_message() {
+    local fallback="# Tracked Humanize State Blocked
+
+Detected tracked or staged files under \`.humanize/\`.
+
+These files are local Humanize loop state and must remain outside version control.
+
+## Required Fix
+
+1. Remove Humanize state from the index:
+
+       git rm --cached -r .humanize
+
+2. Keep only real project files staged.
+3. Retry the stop action after the local state is no longer tracked.
+
+## Important
+
+- Do NOT use \`git add -f\` on Humanize state files.
+- Do NOT commit RLCR trackers, round summaries, contracts, or cancel/finalize markers."
+
+    load_and_render_safe "$TEMPLATE_DIR" "block/git-tracked-humanize.md" "$fallback"
+}
+
 # Standard message for blocking direct execution of hook scripts
 # Usage: stop_hook_direct_execution_blocked_message
 stop_hook_direct_execution_blocked_message() {
@@ -1296,17 +1510,24 @@ command_modifies_file() {
 }
 
 # Standard message for blocking goal-tracker modifications after Round 0
-# Usage: goal_tracker_blocked_message "$current_round" "$summary_file_path"
+# Usage: goal_tracker_blocked_message "$current_round" "$correct_goal_tracker_path"
 goal_tracker_blocked_message() {
     local current_round="$1"
-    local summary_file="$2"
-    local fallback="# Goal Tracker Modification Blocked (Round {{CURRENT_ROUND}})
+    local correct_path="$2"
+    local fallback="# Goal Tracker Update Blocked (Round {{CURRENT_ROUND}})
 
-After Round 0, only Codex can modify the Goal Tracker. Include a Goal Tracker Update Request in your summary: {{SUMMARY_FILE}}"
+After Round 0, you may update only the **MUTABLE SECTION** of the active goal tracker.
+
+Use Write or Edit on: {{CORRECT_PATH}}
+
+Rules:
+- Keep the **IMMUTABLE SECTION** unchanged
+- Do not modify `goal-tracker.md` via Bash
+- Do not write to an old loop session's tracker"
 
     load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \
         "CURRENT_ROUND=$current_round" \
-        "SUMMARY_FILE=$summary_file"
+        "CORRECT_PATH=$correct_path"
 }
 
 # End the loop by renaming state.md to indicate exit reason
@@ -1344,172 +1565,14 @@ end_loop() {
     fi
 }
 
-# ========================================
-# PR Loop Goal Tracker Functions
-# ========================================
-
-# Update the PR goal tracker after Codex analysis
-# Usage: update_pr_goal_tracker "$GOAL_TRACKER_FILE" "$ROUND" "$BOT_RESULTS_JSON"
+# Source background-task helpers. Sourced at the bottom so every function
+# above is available to callers that only need loop-common.sh, while bg-aware
+# callers (the stop hook, the test suite) still get the bg helpers via a
+# single source of loop-common.sh.
 #
-# Arguments:
-#   $1 - Path to goal-tracker.md
-#   $2 - Current round number
-#   $3 - JSON containing per-bot analysis results (optional)
-#        Format: {"bot": "name", "issues": N, "resolved": N}
-#
-# Updates:
-#   - Issue Summary table with new row
-#   - Total Statistics section
-#   - Issue Log with round entry
-#
-# Note: This is a helper function for the stop hook. The primary update
-# mechanism is through Codex prompt instructions, but this ensures
-# consistency when Codex doesn't update correctly.
-update_pr_goal_tracker() {
-    local tracker_file="$1"
-    local round="$2"
-    local bot_results="${3:-}"
-
-    if [[ ! -f "$tracker_file" ]]; then
-        echo "Warning: Goal tracker not found: $tracker_file" >&2
-        return 1
-    fi
-
-    # Extract reviewer early for idempotency check (need to check round+reviewer combo)
-    local reviewer="Codex"
-    if [[ -n "$bot_results" && "$bot_results" != "null" ]]; then
-        reviewer=$(echo "$bot_results" | jq -r '.bot // "Codex"' 2>/dev/null || echo "Codex")
-    fi
-
-    # IDEMPOTENCY CHECK: Check for BOTH round AND reviewer to support multi-bot rounds
-    # This allows multiple bots to add their own rows for the same round
-    local has_summary_row=false
-    local has_log_entry=false
-
-    # Check if this specific round+reviewer combo already exists in Issue Summary
-    # Table format: | Round | Reviewer | Issues Found | Issues Resolved | Status |
-    if grep -qE "^\|[[:space:]]*${round}[[:space:]]*\|[[:space:]]*${reviewer}[[:space:]]*\|" "$tracker_file" 2>/dev/null; then
-        has_summary_row=true
-    fi
-
-    # Check if this specific round+reviewer combo already exists in Issue Log
-    # Log format: "### Round N" followed by "Reviewer: ..."
-    if awk -v round="$round" -v reviewer="$reviewer" '
-        /^### Round / { current_round = $3 }
-        current_round == round && $1 == reviewer":" { found = 1; exit }
-        END { exit !found }
-    ' "$tracker_file" 2>/dev/null; then
-        has_log_entry=true
-    fi
-
-    if [[ "$has_summary_row" == "true" && "$has_log_entry" == "true" ]]; then
-        echo "Goal tracker: Round $round/$reviewer already has both Issue Summary and Issue Log entries, skipping update" >&2
-        return 0
-    fi
-
-    # Track what we need to add (for partial updates)
-    local need_summary_row=true
-    local need_log_entry=true
-    [[ "$has_summary_row" == "true" ]] && need_summary_row=false
-    [[ "$has_log_entry" == "true" ]] && need_log_entry=false
-
-    if [[ "$has_summary_row" == "true" || "$has_log_entry" == "true" ]]; then
-        echo "Goal tracker: Round $round/$reviewer has partial update (summary=$has_summary_row, log=$has_log_entry), completing..." >&2
-    fi
-
-    # Extract current totals
-    local current_found
-    current_found=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    current_found=${current_found:-0}
-
-    local current_resolved
-    current_resolved=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    current_resolved=${current_resolved:-0}
-
-    # Parse bot results if provided (reviewer already extracted above for idempotency check)
-    local new_issues=0
-    local new_resolved=0
-
-    if [[ -n "$bot_results" && "$bot_results" != "null" ]]; then
-        new_issues=$(echo "$bot_results" | jq -r '.issues // 0' 2>/dev/null || echo "0")
-        new_resolved=$(echo "$bot_results" | jq -r '.resolved // 0' 2>/dev/null || echo "0")
-    fi
-
-    # Calculate new totals
-    local total_found=$((current_found + new_issues))
-    local total_resolved=$((current_resolved + new_resolved))
-    local remaining=$((total_found - total_resolved))
-
-    # Determine status for this round
-    local status="In Progress"
-    if [[ $new_issues -eq 0 && $new_resolved -eq 0 ]]; then
-        status="Approved"
-    elif [[ $new_issues -gt 0 ]]; then
-        status="Issues Found"
-    elif [[ $new_resolved -gt 0 ]]; then
-        status="Resolved"
-    fi
-
-    # Create temp file for updates
-    local temp_file="${tracker_file}.update.$$"
-
-    # Step 1: Update Total Statistics (only if we're adding to totals)
-    # Only update totals if we're adding a new summary row (to avoid double-counting)
-    if [[ "$need_summary_row" == "true" ]]; then
-        sed -e "s/^- Total Issues Found:.*/- Total Issues Found: $total_found/" \
-            -e "s/^- Total Issues Resolved:.*/- Total Issues Resolved: $total_resolved/" \
-            -e "s/^- Remaining:.*/- Remaining: $remaining/" \
-            "$tracker_file" > "$temp_file"
-    else
-        cp "$tracker_file" "$temp_file"
-    fi
-
-    # Step 2: Add row to Issue Summary table (only if needed)
-    if [[ "$need_summary_row" == "true" ]]; then
-        # Insert row INSIDE the table (after last table row, before blank line)
-        local new_row="| $round     | $reviewer | $new_issues            | $new_resolved               | $status |"
-
-        # Use awk to find the last row of the Issue Summary table and insert after it
-        awk -v row="$new_row" '
-            BEGIN { in_table = 0; last_row_printed = 0 }
-            /^## Issue Summary/ { in_table = 1 }
-            /^## Total Statistics/ { in_table = 0 }
-            {
-                # If we hit Total Statistics and havent printed the new row yet, print it first
-                if (/^## Total Statistics/ && !last_row_printed) {
-                    print row
-                    print ""
-                    last_row_printed = 1
-                }
-                # If in table and this is a table row (starts with |), store it
-                if (in_table && /^\|/) {
-                    last_table_line = NR
-                }
-                # If in table and this is a blank line after table rows, insert new row
-                if (in_table && /^[[:space:]]*$/ && last_table_line > 0 && !last_row_printed) {
-                    print row
-                    last_row_printed = 1
-                }
-                print
-            }
-        ' "$temp_file" > "${temp_file}.2"
-        mv "${temp_file}.2" "$temp_file"
-    fi
-
-    # Step 3: Add Issue Log entry for this round (only if needed)
-    if [[ "$need_log_entry" == "true" ]]; then
-        local timestamp
-        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        local log_entry="### Round $round
-$reviewer: Found $new_issues issues, Resolved $new_resolved
-Updated: $timestamp
-"
-        # Append to Issue Log section
-        echo "" >> "$temp_file"
-        echo "$log_entry" >> "$temp_file"
-    fi
-
-    mv "$temp_file" "$tracker_file"
-    echo "Goal tracker updated: Round $round, Reviewer=$reviewer, Found=$new_issues, Resolved=$new_resolved" >&2
-    return 0
-}
+# _LOOP_COMMON_DIR is set here instead of at the top of the file because
+# loop-bg-tasks.sh lives in the same directory as this file and we want to
+# locate it regardless of how loop-common.sh was sourced.
+_LOOP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=loop-bg-tasks.sh
+source "$_LOOP_COMMON_DIR/loop-bg-tasks.sh"

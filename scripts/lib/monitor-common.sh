@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # monitor-common.sh - Shared utilities for humanize monitor functions
 #
-# This file contains common functions used by both RLCR and PR loop monitors.
+# This file contains common functions used by humanize monitor functions.
 # It should be sourced by humanize.sh rather than executed directly.
 
 # ========================================
@@ -130,7 +130,7 @@ monitor_restore_terminal() {
 monitor_get_status_color() {
     local status="$1"
     case "$status" in
-        active) echo "\033[1;32m" ;;  # green
+        active|methodology-analysis) echo "\033[1;32m" ;;  # green
         completed) echo "\033[1;36m" ;;  # cyan
         failed|error|timeout) echo "\033[1;31m" ;;  # red
         cancelled) echo "\033[1;33m" ;;  # yellow
@@ -159,7 +159,11 @@ monitor_find_state_file() {
         return
     fi
 
-    # Priority 1: state.md indicates active loop
+    # Priority 1: Active state files indicate running loop
+    if [[ -f "$session_dir/methodology-analysis-state.md" ]]; then
+        echo "$session_dir/methodology-analysis-state.md|methodology-analysis"
+        return
+    fi
     if [[ -f "$session_dir/state.md" ]]; then
         echo "$session_dir/state.md|active"
         return
@@ -252,137 +256,43 @@ monitor_truncate_string() {
 }
 
 # ========================================
-# PR Loop Phase Detection
-# ========================================
-
-# Detect current PR loop phase from file state
-# Returns: one of: approved, cancelled, maxiter, codex_analyzing, waiting_initial_review, waiting_reviewer
-#
-# Usage: get_pr_loop_phase "/path/to/session"
-#
-# Detection strategy for codex_analyzing:
-# 1. Find the latest round's pr-check.md file
-# 2. Check if it's growing by comparing current size with cached previous size
-# 3. Cache size in /tmp for comparison on next call
-get_pr_loop_phase() {
-    local session_dir="$1"
-
-    [[ ! -d "$session_dir" ]] && echo "unknown" && return
-
-    # Check for final states first
-    [[ -f "$session_dir/approve-state.md" ]] && echo "approved" && return
-    [[ -f "$session_dir/cancel-state.md" ]] && echo "cancelled" && return
-    [[ -f "$session_dir/maxiter-state.md" ]] && echo "maxiter" && return
-
-    # Check for Codex running by detecting file growth
-    # Find the highest numbered round pr-check file
-    local latest_check=""
-    local highest_round=-1
-    while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        local basename=$(basename "$f")
-        local round_str="${basename#round-}"
-        round_str="${round_str%-pr-check.md}"
-        if [[ "$round_str" =~ ^[0-9]+$ ]] && [[ "$round_str" -gt "$highest_round" ]]; then
-            highest_round="$round_str"
-            latest_check="$f"
-        fi
-    done < <(find "$session_dir" -maxdepth 1 -name 'round-*-pr-check.md' -type f 2>/dev/null)
-
-    if [[ -n "$latest_check" ]]; then
-        # Get current file size
-        local current_size
-        current_size=$(stat -c%s "$latest_check" 2>/dev/null || stat -f%z "$latest_check" 2>/dev/null || echo 0)
-
-        # Cache file for tracking size changes (unique per session)
-        local session_name=$(basename "$session_dir")
-        local cache_file="/tmp/humanize-phase-${session_name}-${highest_round}.size"
-
-        # Read previous size from cache
-        local previous_size=0
-        [[ -f "$cache_file" ]] && previous_size=$(cat "$cache_file" 2>/dev/null || echo 0)
-
-        # Update cache with current size
-        echo "$current_size" > "$cache_file" 2>/dev/null || true
-
-        # If file is growing OR is new (no previous record), Codex is analyzing
-        # Also check mtime as fallback (file modified in last 10 seconds)
-        local now_epoch file_epoch
-        now_epoch=$(date +%s)
-        file_epoch=$(stat -c %Y "$latest_check" 2>/dev/null || stat -f %m "$latest_check" 2>/dev/null || echo 0)
-        local age_seconds=$((now_epoch - file_epoch))
-
-        if [[ "$current_size" -gt "$previous_size" ]] || [[ "$age_seconds" -lt 10 ]]; then
-            echo "codex_analyzing"
-            return
-        fi
-    fi
-
-    # Check state.md for round info
-    if [[ -f "$session_dir/state.md" ]]; then
-        local frontmatter
-        frontmatter=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$session_dir/state.md" 2>/dev/null)
-
-        local current_round
-        local startup_case
-        current_round=$(echo "$frontmatter" | grep "^current_round:" | sed "s/current_round: *//" | tr -d ' ')
-        startup_case=$(echo "$frontmatter" | grep "^startup_case:" | sed "s/startup_case: *//" | tr -d ' ')
-
-        current_round=${current_round:-0}
-        startup_case=${startup_case:-1}
-
-        if [[ "$current_round" -eq 0 && "$startup_case" -eq 1 ]]; then
-            echo "waiting_initial_review"
-        else
-            echo "waiting_reviewer"
-        fi
-    else
-        echo "unknown"
-    fi
-}
-
-# Get human-readable description for PR loop phase
-# Usage: get_pr_loop_phase_display "waiting_reviewer" "claude,codex"
-get_pr_loop_phase_display() {
-    local phase="$1"
-    local active_bots="$2"
-
-    case "$phase" in
-        approved)
-            echo "All reviews approved"
-            ;;
-        cancelled)
-            echo "Loop cancelled"
-            ;;
-        maxiter)
-            echo "Max iterations reached"
-            ;;
-        codex_analyzing)
-            echo "Codex analyzing reviews..."
-            ;;
-        waiting_initial_review)
-            if [[ -n "$active_bots" && "$active_bots" != "none" ]]; then
-                echo "Waiting for initial PR review from $active_bots"
-            else
-                echo "Waiting for initial PR review"
-            fi
-            ;;
-        waiting_reviewer)
-            if [[ -n "$active_bots" && "$active_bots" != "none" ]]; then
-                echo "Waiting for $active_bots (polling...)"
-            else
-                echo "Waiting for reviews (polling...)"
-            fi
-            ;;
-        *)
-            echo "Unknown phase"
-            ;;
-    esac
-}
-
-# ========================================
 # Goal Tracker Parsing
 # ========================================
+
+# Parse issue breakdown from goal-tracker.md
+# Returns: blocking_issues|queued_issues|open_issues
+# Usage: parse_goal_tracker_issue_counts "/path/to/goal-tracker.md"
+parse_goal_tracker_issue_counts() {
+    local tracker_file="$1"
+    if [[ ! -f "$tracker_file" ]]; then
+        echo "0|0|0"
+        return
+    fi
+
+    _count_table_rows() {
+        local start_pattern="$1"
+        local end_pattern="$2"
+        local row_count
+        row_count=$(sed -n "/${start_pattern}/,/${end_pattern}/p" "$tracker_file" | grep -cE '^\|' || true)
+        row_count=${row_count:-0}
+        echo $((row_count > 2 ? row_count - 2 : 0))
+    }
+
+    local blocking_issues
+    local queued_issues
+    local open_issues
+
+    blocking_issues=$(_count_table_rows '### Blocking Side Issues' '^###')
+    queued_issues=$(_count_table_rows '### Queued Side Issues' '^###')
+    open_issues=$((blocking_issues + queued_issues))
+
+    if [[ "$open_issues" -eq 0 ]]; then
+        open_issues=$(_count_table_rows '### Open Issues' '^###')
+        blocking_issues="$open_issues"
+    fi
+
+    echo "${blocking_issues}|${queued_issues}|${open_issues}"
+}
 
 # Parse goal-tracker.md and return summary values
 # Returns: total_acs|completed_acs|active_tasks|completed_tasks|deferred_tasks|open_issues|goal_summary
@@ -448,9 +358,19 @@ parse_goal_tracker() {
     local deferred_tasks
     deferred_tasks=$(_count_table_rows '### Explicitly Deferred' '^###')
 
-    # Count Open Issues
+    # Count Open Issues (new schema prefers Blocking/Queued Side Issues; old schema used Open Issues)
+    local issue_parts_raw
     local open_issues
-    open_issues=$(_count_table_rows '### Open Issues' '^###')
+    issue_parts_raw=$(parse_goal_tracker_issue_counts "$tracker_file")
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        local -a issue_parts
+        issue_parts=("${(@s:|:)issue_parts_raw}")
+        open_issues="${issue_parts[3]}"
+    else
+        local -a issue_parts
+        IFS='|' read -r -a issue_parts <<< "$issue_parts_raw"
+        open_issues="${issue_parts[2]}"
+    fi
 
     # Extract Ultimate Goal summary
     local goal_summary
@@ -462,37 +382,3 @@ parse_goal_tracker() {
     echo "${total_acs}|${completed_acs}|${active_tasks}|${completed_tasks}|${deferred_tasks}|${open_issues}|${goal_summary}"
 }
 
-# Parse PR goal-tracker.md for issue statistics
-# Returns: total_issues|resolved_issues|remaining_issues|last_reviewer
-# Usage: humanize_parse_pr_goal_tracker "/path/to/goal-tracker.md"
-humanize_parse_pr_goal_tracker() {
-    local tracker_file="$1"
-    if [[ ! -f "$tracker_file" ]]; then
-        echo "0|0|0|none"
-        return
-    fi
-
-    # Extract from Total Statistics section
-    # Format: - Total Issues Found: N
-    local total_issues
-    total_issues=$(grep -E "^- Total Issues Found:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    total_issues=${total_issues:-0}
-
-    local resolved_issues
-    resolved_issues=$(grep -E "^- Total Issues Resolved:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    resolved_issues=${resolved_issues:-0}
-
-    local remaining_issues
-    remaining_issues=$(grep -E "^- Remaining:" "$tracker_file" | sed 's/.*: //' | tr -d ' ')
-    remaining_issues=${remaining_issues:-0}
-
-    # Get last reviewer from Issue Summary table (last row, Reviewer column)
-    # Table format: | ID | Reviewer | Round | Status | Description |
-    # Pattern matches rows like "|1|..." or "| 1 |..." (with or without spaces)
-    local last_reviewer
-    last_reviewer=$(sed -n '/## Issue Summary/,/^##/p' "$tracker_file" \
-        | grep -E '^\|[[:space:]]*[0-9]+' | tail -1 | cut -d'|' -f3 | tr -d ' ')
-    last_reviewer=${last_reviewer:-none}
-
-    echo "${total_issues}|${resolved_issues}|${remaining_issues}|${last_reviewer}"
-}

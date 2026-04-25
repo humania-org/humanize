@@ -1,17 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # monitor-skill.sh - Skill monitor for humanize
 #
 # Provides the _humanize_monitor_skill function for monitoring
-# ask-codex skill invocations from .humanize/skill directory.
+# skill invocations (ask-codex, ask-gemini) from .humanize/skill directory.
 #
 # This file is sourced by humanize.sh and depends on:
 # - monitor-common.sh (monitor_get_yaml_value, monitor_format_timestamp, etc.)
 # - humanize.sh (humanize_split_to_array)
 
-# Monitor ask-codex skill invocations from .humanize/skill
+# Monitor skill invocations from .humanize/skill
 # Shows a fixed status bar with aggregate stats and latest invocation details,
 # with live output display in the scrollable area below.
+#
+# Accepts --tool-filter <codex|gemini> to show only invocations from a
+# specific tool.  Without the filter, all invocations are shown.
 _humanize_monitor_skill() {
     # Enable 0-indexed arrays in zsh for bash compatibility
     # no_monitor suppresses background job notifications ([1] PID)
@@ -23,11 +26,16 @@ _humanize_monitor_skill() {
     local check_interval=2
     local status_bar_height=9
     local once_mode=false
+    local tool_filter=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --once) once_mode=true; shift ;;
+            --tool-filter)
+                tool_filter="${2:-}"
+                shift 2
+                ;;
             *) shift ;;
         esac
     done
@@ -35,9 +43,36 @@ _humanize_monitor_skill() {
     # Check if .humanize/skill exists
     if [[ ! -d "$skill_dir" ]]; then
         echo "Error: $skill_dir directory not found in current directory"
-        echo "Run /humanize:ask-codex first to create skill invocations"
+        echo "Run /humanize:ask-codex or /humanize:ask-gemini first to create skill invocations"
         return 1
     fi
+
+    # Determine the tool for a given invocation directory.
+    # Reads metadata.md first (completed), falls back to input.md (running).
+    # Returns: codex, gemini, or unknown
+    _skill_get_tool() {
+        local dir="$1"
+        if [[ -f "$dir/metadata.md" ]]; then
+            local t=$(monitor_get_yaml_value "tool" "$dir/metadata.md")
+            [[ -n "$t" ]] && { echo "$t"; return; }
+        fi
+        if [[ -f "$dir/input.md" ]]; then
+            local t=$(grep -E '^- Tool:' "$dir/input.md" 2>/dev/null | sed 's/- Tool: //')
+            [[ -n "$t" ]] && { echo "$t"; return; }
+        fi
+        echo "unknown"
+    }
+
+    # Check whether a directory passes the current tool filter.
+    # Returns 0 (pass) or 1 (skip).
+    _skill_passes_filter() {
+        [[ -z "$tool_filter" ]] && return 0
+        local t=$(_skill_get_tool "$1")
+        [[ "$t" == "$tool_filter" ]] && return 0
+        # Legacy invocations without a tool tag are treated as codex
+        [[ "$t" == "unknown" && "$tool_filter" == "codex" ]] && return 0
+        return 1
+    }
 
     # List all valid skill invocation directories sorted newest-first
     # Skill dirs use YYYY-MM-DD_HH-MM-SS or YYYY-MM-DD_HH-MM-SS-PID-RANDOM naming
@@ -47,7 +82,9 @@ _humanize_monitor_skill() {
             [[ -z "$d" ]] && continue
             [[ ! -d "$d" ]] && continue
             local name=$(basename "$d")
-            [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2} ]] && dirs+=("$d")
+            [[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2} ]] || continue
+            _skill_passes_filter "$d" || continue
+            dirs+=("$d")
         done < <(find "$skill_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
         printf '%s\n' "${dirs[@]}" | sort -r
     }
@@ -88,6 +125,7 @@ _humanize_monitor_skill() {
             [[ ! -d "$d" ]] && continue
             local name=$(basename "$d")
             [[ ! "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2} ]] && continue
+            _skill_passes_filter "$d" || continue
             ((total++))
             if [[ -f "$d/metadata.md" ]]; then
                 local st=$(monitor_get_yaml_value "status" "$d/metadata.md")
@@ -127,6 +165,7 @@ _humanize_monitor_skill() {
     # Find the best file to monitor for a skill invocation
     # Searches both global cache (~/.cache/humanize/), local cache ($dir/cache/),
     # and project-local files (.humanize/skill/) for the best content.
+    # Supports both codex (codex-run.*) and gemini (gemini-run.*) cache files.
     _skill_find_monitored_file() {
         local dir="$1"
         local gcache=$(_skill_find_cache_dir "$dir")
@@ -134,18 +173,29 @@ _humanize_monitor_skill() {
         local is_running=false
         [[ ! -f "$dir/metadata.md" ]] && is_running=true
 
+        # Determine which tool produced this invocation for cache file naming
+        local inv_tool=$(_skill_get_tool "$dir")
+        local run_prefix="codex-run"
+        [[ "$inv_tool" == "gemini" ]] && run_prefix="gemini-run"
+
         # Helper: check a cache directory for best file
         # Args: cache_dir, prefer_log (true for running, false for completed)
         _check_cache_files() {
             local c="$1" prefer_log="$2"
             [[ ! -d "$c" ]] && return
             if [[ "$prefer_log" == "true" ]]; then
+                [[ -f "$c/${run_prefix}.log" && -s "$c/${run_prefix}.log" ]] && { echo "$c/${run_prefix}.log"; return; }
+                [[ -f "$c/${run_prefix}.out" && -s "$c/${run_prefix}.out" ]] && { echo "$c/${run_prefix}.out"; return; }
+                [[ -f "$c/${run_prefix}.log" ]] && { echo "$c/${run_prefix}.log"; return; }
+                # Fallback: try the other prefix for legacy/mixed invocations
                 [[ -f "$c/codex-run.log" && -s "$c/codex-run.log" ]] && { echo "$c/codex-run.log"; return; }
-                [[ -f "$c/codex-run.out" && -s "$c/codex-run.out" ]] && { echo "$c/codex-run.out"; return; }
-                [[ -f "$c/codex-run.log" ]] && { echo "$c/codex-run.log"; return; }
+                [[ -f "$c/gemini-run.log" && -s "$c/gemini-run.log" ]] && { echo "$c/gemini-run.log"; return; }
             else
+                [[ -f "$c/${run_prefix}.out" && -s "$c/${run_prefix}.out" ]] && { echo "$c/${run_prefix}.out"; return; }
+                [[ -f "$c/${run_prefix}.log" && -s "$c/${run_prefix}.log" ]] && { echo "$c/${run_prefix}.log"; return; }
+                # Fallback
                 [[ -f "$c/codex-run.out" && -s "$c/codex-run.out" ]] && { echo "$c/codex-run.out"; return; }
-                [[ -f "$c/codex-run.log" && -s "$c/codex-run.log" ]] && { echo "$c/codex-run.log"; return; }
+                [[ -f "$c/gemini-run.out" && -s "$c/gemini-run.out" ]] && { echo "$c/gemini-run.out"; return; }
             fi
         }
 
@@ -164,6 +214,15 @@ _humanize_monitor_skill() {
             [[ -f "$dir/output.md" ]] && { echo "$dir/output.md"; return; }
         fi
         echo ""
+    }
+
+    # Build the monitor title based on filter
+    _skill_monitor_title() {
+        case "$tool_filter" in
+            codex)  echo " Humanize Skill Monitor [codex]" ;;
+            gemini) echo " Humanize Skill Monitor [gemini]" ;;
+            *)      echo " Humanize Skill Monitor" ;;
+        esac
     }
 
     # Draw the status bar at the top
@@ -186,17 +245,21 @@ _humanize_monitor_skill() {
 
         # Parse latest invocation metadata
         local inv_status="running" model="N/A" effort="N/A" duration="N/A" started_at="N/A"
+        local inv_tool="unknown"
         if [[ -n "$latest_dir" && -f "$latest_dir/metadata.md" ]]; then
             inv_status=$(monitor_get_yaml_value "status" "$latest_dir/metadata.md")
             model=$(monitor_get_yaml_value "model" "$latest_dir/metadata.md")
             effort=$(monitor_get_yaml_value "effort" "$latest_dir/metadata.md")
             duration=$(monitor_get_yaml_value "duration" "$latest_dir/metadata.md")
             started_at=$(monitor_get_yaml_value "started_at" "$latest_dir/metadata.md")
+            inv_tool=$(monitor_get_yaml_value "tool" "$latest_dir/metadata.md")
         elif [[ -n "$latest_dir" && -f "$latest_dir/input.md" ]]; then
             model=$(grep -E '^- Model:' "$latest_dir/input.md" 2>/dev/null | sed 's/- Model: //')
             effort=$(grep -E '^- Effort:' "$latest_dir/input.md" 2>/dev/null | sed 's/- Effort: //')
+            inv_tool=$(grep -E '^- Tool:' "$latest_dir/input.md" 2>/dev/null | sed 's/- Tool: //')
         fi
         inv_status="${inv_status:-unknown}"; model="${model:-N/A}"; effort="${effort:-N/A}"
+        inv_tool="${inv_tool:-unknown}"
 
         # Status color
         local status_color="$dim"
@@ -235,11 +298,19 @@ _humanize_monitor_skill() {
             cache_display="...${cache_display: -$csuffix_len}"
         fi
 
+        # Model display: for gemini, no effort; for codex, show (effort)
+        local model_display="$model"
+        if [[ "$inv_tool" == "gemini" ]] || [[ "$effort" == "N/A" ]]; then
+            model_display="$model"
+        else
+            model_display="$model ($effort)"
+        fi
+
         tput sc
         tput cup 0 0
 
         # Line 1: Title
-        printf "${bg}${bold}%-${term_width}s${reset}${clr_eol}\n" " Humanize Skill Monitor"
+        printf "${bg}${bold}%-${term_width}s${reset}${clr_eol}\n" "$(_skill_monitor_title)"
         # Line 2: Aggregate stats
         printf "${cyan}Total:${reset}    ${bold}${total}${reset} invocations"
         [[ "$success" -gt 0 ]] && printf " | ${green}${success} success${reset}"
@@ -248,8 +319,8 @@ _humanize_monitor_skill() {
         [[ "$empty" -gt 0 ]] && printf " | ${yellow}${empty} empty${reset}"
         [[ "$running" -gt 0 ]] && printf " | ${yellow}${running} running${reset}"
         printf "${clr_eol}\n"
-        # Line 3: Focused invocation status + model + duration
-        printf "${magenta}Focused:${reset}  ${status_color}%s${reset} | ${yellow}Model:${reset} %s (%s) | ${cyan}Duration:${reset} %s${clr_eol}\n" "$inv_status" "$model" "$effort" "${duration:-N/A}"
+        # Line 3: Focused invocation status + tool + model + duration
+        printf "${magenta}Focused:${reset}  ${status_color}%s${reset} | ${dim}[%s]${reset} ${yellow}Model:${reset} %s | ${cyan}Duration:${reset} %s${clr_eol}\n" "$inv_status" "$inv_tool" "$model_display" "${duration:-N/A}"
         # Line 4: Started at
         printf "${cyan}Started:${reset}  %s${clr_eol}\n" "$start_display"
         # Line 5: Question
@@ -269,7 +340,9 @@ _humanize_monitor_skill() {
     if [[ "$once_mode" == "true" ]]; then
         local latest=$(_skill_find_latest_dir)
         if [[ -z "$latest" ]]; then
-            echo "No skill invocations found in $skill_dir"
+            local filter_msg=""
+            [[ -n "$tool_filter" ]] && filter_msg=" (filter: $tool_filter)"
+            echo "No skill invocations found in $skill_dir$filter_msg"
             return 1
         fi
 
@@ -283,24 +356,29 @@ _humanize_monitor_skill() {
         local -a stats
         humanize_split_to_array stats "$(_skill_count_stats)"
         local inv_status="running" model="N/A" effort="N/A" duration="N/A" started_at="N/A"
+        local inv_tool="unknown"
         if [[ -f "$focus_dir/metadata.md" ]]; then
             inv_status=$(monitor_get_yaml_value "status" "$focus_dir/metadata.md")
             model=$(monitor_get_yaml_value "model" "$focus_dir/metadata.md")
             effort=$(monitor_get_yaml_value "effort" "$focus_dir/metadata.md")
             duration=$(monitor_get_yaml_value "duration" "$focus_dir/metadata.md")
             started_at=$(monitor_get_yaml_value "started_at" "$focus_dir/metadata.md")
+            inv_tool=$(monitor_get_yaml_value "tool" "$focus_dir/metadata.md")
         fi
+        inv_tool="${inv_tool:-unknown}"
         local question=$(_skill_get_question "$focus_dir")
         local cache_dir=$(_skill_find_cache_dir "$focus_dir")
 
+        local title=$(_skill_monitor_title)
         echo "=========================================="
-        echo " Humanize Skill Monitor"
+        echo "$title"
         echo "=========================================="
         echo ""
         echo "Total Invocations: ${stats[0]}"
         echo "  Success: ${stats[1]}  Error: ${stats[2]}  Timeout: ${stats[3]}  Empty: ${stats[4]}  Running: ${stats[5]}"
         echo ""
         echo "Focused: $(basename "$focus_dir")"
+        echo "  Tool:     ${inv_tool}"
         echo "  Status:   ${inv_status:-unknown}"
         echo "  Model:    ${model:-N/A} (${effort:-N/A})"
         echo "  Duration: ${duration:-N/A}"
@@ -329,14 +407,16 @@ _humanize_monitor_skill() {
         while IFS= read -r d; do
             [[ -z "$d" ]] && continue
             local name=$(basename "$d")
-            local st="running" dur=""
+            local st="running" dur="" t="?"
             if [[ -f "$d/metadata.md" ]]; then
                 st=$(monitor_get_yaml_value "status" "$d/metadata.md")
                 dur=$(monitor_get_yaml_value "duration" "$d/metadata.md")
+                t=$(monitor_get_yaml_value "tool" "$d/metadata.md")
             fi
+            t="${t:-?}"
             local q=$(_skill_get_question "$d")
             [[ ${#q} -gt 50 ]] && q="${q:0:47}..."
-            printf "  %-38s %-14s %-6s %s\n" "$name" "$st" "$dur" "$q"
+            printf "  %-38s %-7s %-14s %-6s %s\n" "$name" "[$t]" "$st" "$dur" "$q"
             ((count++))
             [[ $count -ge 10 ]] && break
         done < <(_skill_list_dirs_sorted)

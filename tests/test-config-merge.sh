@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for 4-layer config merge behavior in scripts/lib/config-loader.sh
 #

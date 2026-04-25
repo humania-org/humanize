@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # model-router.sh - Shared model routing helpers
 #

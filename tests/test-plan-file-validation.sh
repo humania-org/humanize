@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for plan file validation in setup-rlcr-loop.sh
 #
@@ -74,7 +74,7 @@ EOF
 mock_codex() {
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex for test-plan-file-validation.sh
 echo "mock codex"
 EOF
@@ -717,7 +717,7 @@ fi
 echo "Test 13: Reject codex effort with YAML-unsafe characters"
 rm -rf "$TEST_DIR/.humanize/rlcr" 2>/dev/null || true
 set +e
-RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.4:high#comment" "plans/test-plan.md" 2>&1)
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.5:high#comment" "plans/test-plan.md" 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -ne 0 ]] && echo "$RESULT" | grep -q "Invalid codex effort"; then
@@ -729,7 +729,7 @@ fi
 # Test 14: Accept valid codex model with dots and hyphens
 echo "Test 14: Accept valid codex model (alphanumeric, dots, hyphens)"
 set +e
-RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.4:medium" "plans/test-plan.md" 2>&1)
+RESULT=$("$PROJECT_ROOT/scripts/setup-rlcr-loop.sh" --codex-model "gpt-5.5:medium" "plans/test-plan.md" 2>&1)
 EXIT_CODE=$?
 set -e
 # Should not fail due to model/effort validation (may fail later for other reasons)

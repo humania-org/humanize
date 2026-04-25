@@ -16,6 +16,8 @@ You MUST read this plan file first to understand the full scope of work before c
 <!-- CLAUDE's WORK SUMMARY  END  -->
 ---
 
+{{COMMIT_HISTORY_SECTION}}
+
 ## Part 1: Goal Tracker Audit (MANDATORY)
 
 Read @{{GOAL_TRACKER_FILE}} and verify:
@@ -47,16 +49,32 @@ Estimated remaining rounds: ?
 Critical blockers: [list if any]
 ```
 
-## Part 2: Implementation Review
+## Part 2: Mainline Drift Audit (MANDATORY)
+
+Determine whether the recent rounds are still serving the original plan:
+- Is the current round's mainline objective clear and singular?
+- Has Claude been advancing mainline ACs, or mostly clearing side issues?
+- Which findings are true **blocking side issues** versus merely **queued side issues**?
+
+Include a short drift summary:
+```
+Mainline Progress Verdict: ADVANCED / STALLED / REGRESSED
+Blocking Side Issues: N
+Queued Side Issues: N
+```
+
+The `Mainline Progress Verdict` line is mandatory. If you omit it, the Humanize stop hook will block the round and require the review to be rerun.
+
+## Part 3: Implementation Review
 
 - Conduct a deep critical review of the implementation
 - Verify Claude's claims match reality
 - Identify any gaps, bugs, or incomplete work
 - Reference @{{DOCS_PATH}} for design documents
 
-## Part 3: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
 
-## Part 4: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
+## Part 5: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
 
 To implement the original plan at @{{PLAN_FILE}}, we have completed **{{COMPLETED_ITERATIONS}} iterations** (Round 0 to Round {{CURRENT_ROUND}}).
 
@@ -83,10 +101,13 @@ The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the histor
 
 **If development is stagnating**, write **STOP** (as a single word on its own line) as the last line of your review output @{{REVIEW_RESULT_FILE}} instead of COMPLETE.
 
-## Part 5: Output Requirements
+## Part 6: Output Requirements
 
 - If issues found OR any AC is NOT MET (including deferred ACs), write your findings to @{{REVIEW_RESULT_FILE}}
-- Include specific action items for Claude to address
+- Include specific action items for Claude to address, classified into:
+  - Mainline Gaps
+  - Blocking Side Issues
+  - Queued Side Issues
 - **If development is stagnating** (see Part 4), write "STOP" as the last line
 - **CRITICAL**: Only write "COMPLETE" as the last line if ALL ACs from the original plan are FULLY MET with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any AC is deferred

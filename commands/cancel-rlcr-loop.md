@@ -17,6 +17,7 @@ To cancel the active loop:
 2. Check the first line of output:
    - **NO_LOOP** or **NO_ACTIVE_LOOP**: Say "No active RLCR loop found."
    - **CANCELLED**: Report the cancellation message from the output
+   - **CANCELLED_METHODOLOGY_ANALYSIS**: Report the cancellation message from the output
    - **CANCELLED_FINALIZE**: Report the cancellation message from the output
    - **FINALIZE_NEEDS_CONFIRM**: The loop is in Finalize Phase. Continue to step 3
 
@@ -33,6 +34,6 @@ To cancel the active loop:
    - **If user chooses "No, let it finish"**:
      - Report: "Understood. The Finalize Phase will continue. Once complete, the loop will end normally."
 
-**Key principle**: The script handles all cancellation logic. A loop is active if `state.md` (normal loop) or `finalize-state.md` (Finalize Phase) exists in the newest loop directory.
+**Key principle**: The script handles all cancellation logic. A loop is active if `state.md` (normal loop), `methodology-analysis-state.md` (Methodology Analysis Phase), or `finalize-state.md` (Finalize Phase) exists in the newest loop directory.
 
 The loop directory with summaries, review results, and state information will be preserved for reference.

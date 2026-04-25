@@ -46,7 +46,7 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
    ```bash
    /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
-2. If the plan is reviewed with `CMT:` ... `ENDCMT` annotations, refine it and generate a QA ledger:
+2. If the plan is reviewed with comment annotations, refine it and generate a QA ledger:
    ```bash
    /humanize:refine-plan --input docs/plan.md
    ```
@@ -63,8 +63,6 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 | `/refine-plan --input <annotated-plan.md>` | Refine an annotated plan and generate a QA ledger |
-| `/start-pr-loop --claude\|--codex` | Start PR review loop with bot monitoring |
-| `/cancel-pr-loop` | Cancel active PR loop |
 | `/ask-codex [question]` | One-shot consultation with Codex |
 
 ## Command Reference
@@ -78,7 +76,7 @@ OPTIONS:
   --plan-file <path>     Explicit plan file path (alternative to positional arg)
   --max <N>              Maximum iterations before auto-stop (default: 42)
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
+                         Codex model and reasoning effort (default from config, fallback gpt-5.5:high)
   --codex-timeout <SECONDS>
                          Timeout for each Codex review in seconds (default: 5400)
   --track-plan-file      Indicate plan file should be tracked in git (must be clean)
@@ -127,7 +125,7 @@ Workflow:
 5. Generates a structured plan.md with acceptance criteria
 6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
 
-If reviewers later annotate the generated plan with `CMT:` ... `ENDCMT` blocks, run
+If reviewers later annotate the generated plan with comment blocks, run
 `/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.
 
 ### refine-plan
@@ -169,9 +167,10 @@ how each comment was handled.
 
 **Annotated comment block format:**
 
-`refine-plan` looks for reviewer comments wrapped in `CMT:` and `ENDCMT` markers. Both inline
-and multi-line comment blocks are supported:
+`refine-plan` supports three comment formats for reviewer annotations. Both inline
+and multi-line comment blocks are supported in all formats:
 
+**Classic format (CMT:/ENDCMT):**
 ```markdown
 Text before CMT: clarify why AC-3 is split here ENDCMT text after
 ```
@@ -183,11 +182,36 @@ If the dependency is unclear, add a pending decision instead of guessing.
 ENDCMT
 ```
 
+**Short tag format (<cmt></cmt>):**
+```markdown
+Text before <cmt>clarify why AC-3 is split here</cmt> text after
+```
+
+```markdown
+<cmt>
+Please investigate whether this task should depend on task4 or task5.
+If the dependency is unclear, add a pending decision instead of guessing.
+</cmt>
+```
+
+**Long tag format (<comment></comment>):**
+```markdown
+Text before <comment>clarify why AC-3 is split here</comment> text after
+```
+
+```markdown
+<comment>
+Please investigate whether this task should depend on task4 or task5.
+If the dependency is unclear, add a pending decision instead of guessing.
+</comment>
+```
+
 Rules:
-- At least one non-empty `CMT:` block must exist in the input file.
-- `CMT:` and `ENDCMT` markers inside fenced code blocks or HTML comments are ignored.
+- At least one non-empty comment block must exist in the input file.
+- Comment markers inside fenced code blocks or HTML comments are ignored.
 - Empty comment blocks are removed but do not create QA ledger entries.
 - The input plan must still follow the `gen-plan` section schema.
+- All three formats can be mixed within the same file.
 
 **QA output structure:**
 
@@ -209,39 +233,6 @@ If `--alt-language` is set to a supported non-English language, the command also
 translated plan and QA variants by inserting `_<code>` before the file extension, such as
 `plan_zh.md` and `plan-qa_zh.md`.
 
-### start-pr-loop
-
-```
-/humanize:start-pr-loop --claude|--codex [OPTIONS]
-
-BOT FLAGS (at least one required):
-  --claude   Monitor reviews from claude[bot] (trigger with @claude)
-  --codex    Monitor reviews from chatgpt-codex-connector[bot] (trigger with @codex)
-
-OPTIONS:
-  --max <N>              Maximum iterations before auto-stop (default: 42)
-  --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default from config, effort: medium)
-  --codex-timeout <SECONDS>
-                         Timeout for each Codex review in seconds (default: 900)
-  -h, --help             Show help message
-```
-
-The PR loop automates the process of handling GitHub PR reviews from remote bots:
-
-1. Detects the PR associated with the current branch
-2. Fetches review comments from the specified bot(s)
-3. Claude analyzes and fixes issues identified by the bot(s)
-4. Pushes changes and triggers re-review by commenting @bot
-5. Stop Hook polls for new bot reviews (every 30s, 15min timeout per bot)
-6. Local Codex validates if remote concerns are approved or have issues
-7. Loop continues until all bots approve or max iterations reached
-
-**Prerequisites:**
-- GitHub CLI (`gh`) must be installed and authenticated
-- Codex CLI must be installed
-- Current branch must have an associated open PR
-
 ### ask-codex
 
 ```
@@ -249,7 +240,7 @@ The PR loop automates the process of handling GitHub PR reviews from remote bots
 
 OPTIONS:
   --codex-model <MODEL:EFFORT>
-                         Codex model and reasoning effort (default from config, fallback gpt-5.4:high)
+                         Codex model and reasoning effort (default from config, fallback gpt-5.5:high)
   --codex-timeout <SECONDS>
                          Timeout for the Codex query in seconds (default: 3600)
   -h, --help             Show help message
@@ -274,20 +265,21 @@ Current built-in keys:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `codex_model` | `gpt-5.4` | Shared default model for Codex-backed review and analysis |
+| `codex_model` | `gpt-5.5` | Shared default model for Codex-backed review and analysis |
 | `codex_effort` | `high` | Shared default reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 | `bitlesson_model` | `haiku` | Model used by the BitLesson selector agent |
+| `provider_mode` | unset | Optional runtime mode hint such as `codex-only` |
 | `agent_teams` | `false` | Project-level default for agent teams workflow |
 | `alternative_plan_language` | `""` | Optional translated plan variant language; supported values include `Chinese`, `Korean`, `Japanese`, `Spanish`, `French`, `German`, `Portuguese`, `Russian`, `Arabic`, or ISO codes like `zh` |
 | `gen_plan_mode` | `discussion` | Default plan-generation mode |
 
 ### Codex Model Configuration
 
-All Codex-using features (RLCR loop, PR loop, ask-codex) share the same model configuration:
+All Codex-using features (RLCR loop, ask-codex) share the same model configuration:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `codex_model` | `gpt-5.4` | Model used for Codex operations (reviews, analysis, queries) |
+| `codex_model` | `gpt-5.5` | Model used for Codex operations (reviews, analysis, queries) |
 | `codex_effort` | `high` | Reasoning effort (`xhigh`, `high`, `medium`, `low`) |
 
 To override, add to `.humanize/config.json`:
@@ -300,11 +292,15 @@ To override, add to `.humanize/config.json`:
 }
 ```
 
+On Codex installs, Humanize also seeds `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json`
+with a Codex/OpenAI `bitlesson_model` and `provider_mode: "codex-only"` when those keys
+are unset, so BitLesson selection stays on the Codex/OpenAI path without probing Claude.
+
 Codex model is resolved with this precedence:
 1. CLI `--codex-model` flag (highest priority)
-2. Feature-specific defaults (e.g., PR loop defaults to `medium` effort)
+2. Feature-specific defaults
 3. Config-backed defaults from the 4-layer hierarchy above
-4. Hardcoded fallback (`gpt-5.4:high`)
+4. Hardcoded fallback (`gpt-5.5:high`)
 
 **Migration note**: If your `.humanize/config.json` contains the legacy keys
 `loop_reviewer_model` or `loop_reviewer_effort`, they are silently ignored.
@@ -322,8 +318,6 @@ source ~/.claude/plugins/cache/PolyArch/humanize/<LATEST.VERSION>/scripts/humani
 # Monitor RLCR loop progress
 humanize monitor rlcr
 
-# Monitor PR loop progress
-humanize monitor pr
 ```
 
 Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
@@ -331,7 +325,6 @@ Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
 ## Cancellation
 
 - **RLCR loop**: `/humanize:cancel-rlcr-loop`
-- **PR loop**: `/humanize:cancel-pr-loop`
 
 ## Environment Variables
 

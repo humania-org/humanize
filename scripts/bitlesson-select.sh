@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -9,12 +9,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/config-loader.sh"
 source "$SCRIPT_DIR/lib/model-router.sh"
+source "$SCRIPT_DIR/../hooks/lib/project-root.sh"
 
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$PROJECT_ROOT")"
 BITLESSON_MODEL="$(get_config_value "$MERGED_CONFIG" "bitlesson_model")"
 BITLESSON_MODEL="${BITLESSON_MODEL:-haiku}"
+CODEX_FALLBACK_MODEL="$(get_config_value "$MERGED_CONFIG" "codex_model")"
+CODEX_FALLBACK_MODEL="${CODEX_FALLBACK_MODEL:-$DEFAULT_CODEX_MODEL}"
+PROVIDER_MODE="$(get_config_value "$MERGED_CONFIG" "provider_mode")"
+PROVIDER_MODE="${PROVIDER_MODE:-auto}"
 
 # Source portable timeout wrapper
 source "$SCRIPT_DIR/portable-timeout.sh"
@@ -82,11 +91,33 @@ if [[ -z "$BITLESSON_FILE" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$BITLESSON_FILE" ]]; then
+    echo "Error: BitLesson file not found: $BITLESSON_FILE" >&2
+    exit 1
+fi
+
+BITLESSON_CONTENT="$(cat "$BITLESSON_FILE")"
+if [[ -z "$(printf '%s' "$BITLESSON_CONTENT" | tr -d ' \t\n\r')" ]]; then
+    echo "Error: BitLesson file is empty (whitespace only): $BITLESSON_FILE" >&2
+    exit 1
+fi
+
+if ! printf '%s\n' "$BITLESSON_CONTENT" | grep -Eq '^[[:space:]]*##[[:space:]]+Lesson:'; then
+    printf 'LESSON_IDS: NONE\n'
+    printf 'RATIONALE: The BitLesson file has no recorded lessons yet.\n'
+    exit 0
+fi
+
 # ========================================
 # Determine Provider from BITLESSON_MODEL
 # ========================================
 
 BITLESSON_PROVIDER="$(detect_provider "$BITLESSON_MODEL")"
+
+if [[ "$PROVIDER_MODE" == "codex-only" ]] && [[ "$BITLESSON_PROVIDER" == "claude" ]]; then
+    BITLESSON_MODEL="$CODEX_FALLBACK_MODEL"
+    BITLESSON_PROVIDER="codex"
+fi
 
 # ========================================
 # Conditional Dependency Check (with fallback)
@@ -97,17 +128,6 @@ if ! check_provider_dependency "$BITLESSON_PROVIDER" 2>/dev/null; then
     BITLESSON_MODEL="$DEFAULT_CODEX_MODEL"
     BITLESSON_PROVIDER="codex"
     check_provider_dependency "$BITLESSON_PROVIDER"
-fi
-
-if [[ ! -f "$BITLESSON_FILE" ]]; then
-    echo "Error: BitLesson file not found: $BITLESSON_FILE" >&2
-    exit 1
-fi
-
-BITLESSON_CONTENT="$(cat "$BITLESSON_FILE")"
-if [[ -z "$(printf '%s' "$BITLESSON_CONTENT" | tr -d ' \t\n\r')" ]]; then
-    echo "Error: BitLesson file is empty (whitespace only): $BITLESSON_FILE" >&2
-    exit 1
 fi
 
 # ========================================
@@ -148,6 +168,7 @@ $BITLESSON_CONTENT
 1. Match only lessons that are directly relevant to the sub-task scope and failure mode.
 2. Prefer precision over recall: do not include weakly related lessons.
 3. If nothing is relevant, return \`NONE\`.
+4. Use only the information in this prompt. Do not use tools, shell commands, browser access, MCP servers, or repository inspection.
 
 ## Output Format (Stable)
 
@@ -164,21 +185,44 @@ EOF
 
 SELECTOR_TIMEOUT=120
 
-CODEX_EXIT_CODE=0
-if [[ "$BITLESSON_PROVIDER" == "codex" ]]; then
-    CODEX_EXEC_ARGS=("-m" "$BITLESSON_MODEL" "-c" "model_reasoning_effort=high")
+run_selector() {
+    local provider="$1"
+    local model="$2"
 
-    # Determine automation flag based on environment variable (same as ask-codex.sh)
-    CODEX_AUTO_FLAG="--full-auto"
-    if [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "true" ]] || [[ "${HUMANIZE_CODEX_BYPASS_SANDBOX:-}" == "1" ]]; then
-        CODEX_AUTO_FLAG="--dangerously-bypass-approvals-and-sandbox"
+    if [[ "$provider" == "codex" ]]; then
+        local codex_exec_args=()
+        # Probe whether the installed Codex CLI supports --disable flag
+        if codex --help 2>&1 | grep -q -- '--disable'; then
+            codex_exec_args+=("--disable" "codex_hooks")
+        fi
+        # Probe for --skip-git-repo-check and --ephemeral support
+        if codex exec --help 2>&1 | grep -q -- '--skip-git-repo-check'; then
+            codex_exec_args+=("--skip-git-repo-check")
+        fi
+        if codex exec --help 2>&1 | grep -q -- '--ephemeral'; then
+            codex_exec_args+=("--ephemeral")
+        fi
+        codex_exec_args+=(
+            "-s" "read-only"
+            "-m" "$model"
+            "-c" "model_reasoning_effort=low"
+            "-C" "$CODEX_PROJECT_ROOT"
+        )
+        printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" codex exec "${codex_exec_args[@]}" -
+        return $?
     fi
-    CODEX_EXEC_ARGS+=("$CODEX_AUTO_FLAG" "-C" "$CODEX_PROJECT_ROOT")
 
-    RAW_OUTPUT="$(printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" -)" || CODEX_EXIT_CODE=$?
-elif [[ "$BITLESSON_PROVIDER" == "claude" ]]; then
-    RAW_OUTPUT="$(printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" claude --print --model "$BITLESSON_MODEL" -)" || CODEX_EXIT_CODE=$?
-fi
+    if [[ "$provider" == "claude" ]]; then
+        printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" claude --print --model "$model" -
+        return $?
+    fi
+
+    echo "Error: Unsupported BitLesson provider '$provider'" >&2
+    return 1
+}
+
+CODEX_EXIT_CODE=0
+RAW_OUTPUT="$(run_selector "$BITLESSON_PROVIDER" "$BITLESSON_MODEL" 2>&1)" || CODEX_EXIT_CODE=$?
 
 if [[ $CODEX_EXIT_CODE -eq 124 ]]; then
     echo "Error: BitLesson selector timed out after ${SELECTOR_TIMEOUT} seconds" >&2
@@ -187,6 +231,7 @@ fi
 
 if [[ $CODEX_EXIT_CODE -ne 0 ]]; then
     echo "Error: BitLesson selector failed (exit code $CODEX_EXIT_CODE)" >&2
+    printf '%s\n' "$RAW_OUTPUT" >&2
     exit "$CODEX_EXIT_CODE"
 fi
 

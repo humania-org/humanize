@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Tests for Finalize Phase feature
 #
@@ -55,13 +55,20 @@ setup_mock_codex() {
     local review_output="${2:-No issues found.}"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex - outputs the provided content
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Handle codex review command
     cat << 'REVIEWOUT'
 $review_output
@@ -79,14 +86,21 @@ setup_mock_codex_with_tracking() {
     local review_output="${2:-No issues found.}"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Track that codex was called
 echo "CODEX_WAS_CALLED" > "$TEST_DIR/codex_called.marker"
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     cat << 'REVIEWOUT'
 $review_output
 REVIEWOUT
@@ -104,13 +118,20 @@ setup_mock_codex_review_failure() {
     local review_exit_code="${2:-1}"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex - fails on review command
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $exec_output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Simulate failure with non-zero exit
     echo "Error: Codex review failed" >&2
     exit $review_exit_code
@@ -126,13 +147,20 @@ setup_mock_codex_review_empty_stdout() {
     local exec_output="$1"
     mkdir -p "$TEST_DIR/bin"
     cat > "$TEST_DIR/bin/codex" << EOF
-#!/bin/bash
+#!/usr/bin/env bash
 # Mock codex - produces empty stdout on review
-if [[ "\$1" == "exec" ]]; then
+subcommand=""
+for arg in "\$@"; do
+    if [[ "\$arg" == "exec" || "\$arg" == "review" ]]; then
+        subcommand="\$arg"
+        break
+    fi
+done
+if [[ "\$subcommand" == "exec" ]]; then
     cat << 'REVIEW'
 $exec_output
 REVIEW
-elif [[ "\$1" == "review" ]]; then
+elif [[ "\$subcommand" == "review" ]]; then
     # Exit successfully but produce no output
     exit 0
 fi
@@ -191,7 +219,7 @@ setup_loop_dir() {
 ---
 current_round: $round
 max_iterations: $max_iter
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 push_every_round: false
@@ -200,6 +228,9 @@ plan_tracked: false
 start_branch: $current_branch
 base_branch: main
 review_started: false
+mainline_stall_count: 0
+last_mainline_verdict: unknown
+drift_status: normal
 started_at: 2024-01-01T12:00:00Z
 ---
 EOF
@@ -223,6 +254,16 @@ Test finalize phase
 | Task | Target AC | Status |
 |------|-----------|--------|
 | Test | AC-1 | completed |
+EOF
+
+    cat > "$LOOP_DIR/round-${round}-contract.md" << EOF
+# Round $round Contract
+
+- Mainline Objective: Verify finalize phase coverage
+- Target ACs: AC-1
+- Blocking Side Issues In Scope: none
+- Queued Side Issues Out of Scope: none
+- Success Criteria: current round artifacts are complete
 EOF
 }
 
@@ -366,6 +407,18 @@ else
     fail "Write validator finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+echo "T-NEG-5aa: Write validator blocks round contract during Finalize Phase"
+HOOK_INPUT='{"tool_name": "Write", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "contract"; then
+    pass "Write validator blocks finalize-phase round contract"
+else
+    fail "Write validator finalize-phase contract" "exit 2 with contract error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo "T-NEG-5b: Edit validator blocks finalize-state.md"
 HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/finalize-state.md"}}'
 set +e
@@ -376,6 +429,18 @@ if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "finalize"; then
     pass "Edit validator blocks finalize-state.md"
 else
     fail "Edit validator finalize-state.md" "exit 2 with finalize error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+echo "T-NEG-5bb: Edit validator blocks round contract during Finalize Phase"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "contract"; then
+    pass "Edit validator blocks finalize-phase round contract"
+else
+    fail "Edit validator finalize-phase contract" "exit 2 with contract error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo "T-NEG-5c: Bash validator blocks finalize-state.md modification"
@@ -513,6 +578,8 @@ setup_test_repo
 setup_loop_dir 3 10  # current_round: 3, max_iterations: 10
 setup_mock_codex "All requirements met.
 
+Mainline Progress Verdict: ADVANCED
+
 COMPLETE"
 
 # Create summary for current round
@@ -570,6 +637,8 @@ rm -rf "$TEST_DIR/.humanize"
 setup_test_repo
 setup_loop_dir 3 10  # current_round: 3, max_iterations: 10
 setup_mock_codex_review_failure "All requirements met.
+
+Mainline Progress Verdict: ADVANCED
 
 COMPLETE" 1
 
@@ -629,6 +698,8 @@ rm -rf "$TEST_DIR/.humanize"
 setup_test_repo
 setup_loop_dir 4 10  # current_round: 4, max_iterations: 10
 setup_mock_codex_review_empty_stdout "All requirements met.
+
+Mainline Progress Verdict: ADVANCED
 
 COMPLETE"
 
@@ -752,6 +823,8 @@ setup_loop_dir 3 10  # current_round: 3, max_iterations: 10
 # Create a mock Codex that outputs review feedback (not COMPLETE)
 setup_mock_codex "## Review Feedback
 
+Mainline Progress Verdict: ADVANCED
+
 Some issues need to be addressed:
 - Issue 1: Fix the bug in function X
 - Issue 2: Add tests for edge case Y
@@ -814,6 +887,158 @@ else
 fi
 
 echo ""
+echo "=== T-POS-6 / T-NEG-10: Mainline Drift State Machine ==="
+echo ""
+
+# T-POS-6: Two consecutive stalled rounds trigger drift recovery prompt
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 3 10
+perl -0pi -e 's/mainline_stall_count: 0/mainline_stall_count: 1/' "$LOOP_DIR/state.md"
+perl -0pi -e 's/last_mainline_verdict: unknown/last_mainline_verdict: stalled/' "$LOOP_DIR/state.md"
+
+setup_mock_codex "## Review Feedback
+
+Mainline Progress Verdict: STALLED
+
+- Mainline gap: AC-1 still lacks a passing implementation path
+- Blocking side issue: current approach keeps looping on the same failing path
+
+Please recover the mainline before trying again.
+
+CONTINUE"
+
+cat > "$LOOP_DIR/round-3-summary.md" << 'EOF'
+# Round 3 Summary
+Tried another implementation pass, but AC-1 is still not advancing.
+EOF
+
+TRANSCRIPT_FILE="$TEST_DIR/transcript.jsonl"
+cat > "$TRANSCRIPT_FILE" << 'EOF'
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TodoWrite", "input": {"todos": [{"content": "[mainline] Recover AC-1", "status": "completed", "activeForm": "Recovering AC-1"}]}}]}}
+EOF
+
+echo "T-POS-6: Two stalled rounds trigger drift recovery prompt"
+HOOK_INPUT='{"stop_hook_active": false, "transcript_path": "'$TRANSCRIPT_FILE'"}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if echo "$RESULT" | grep -q '"decision".*block' && [[ -f "$LOOP_DIR/round-4-prompt.md" ]]; then
+    pass "Drift recovery round blocks exit and creates next prompt"
+else
+    fail "Drift recovery prompt creation" "block with round-4 prompt" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+if grep -q "Drift Recovery Mode" "$LOOP_DIR/round-4-prompt.md"; then
+    pass "Drift recovery prompt uses special replan template"
+else
+    fail "Drift recovery prompt template" "Drift Recovery Mode in prompt" "$(cat "$LOOP_DIR/round-4-prompt.md")"
+fi
+
+parse_state_file "$LOOP_DIR/state.md"
+if [[ "$STATE_CURRENT_ROUND" == "4" ]] && [[ "$STATE_MAINLINE_STALL_COUNT" == "2" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "stalled" ]] && [[ "$STATE_DRIFT_STATUS" == "replan_required" ]]; then
+    pass "State records drift recovery requirement after second stalled round"
+else
+    fail "Drift recovery state update" "round=4 stall=2 verdict=stalled drift=replan_required" \
+        "round=$STATE_CURRENT_ROUND stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+fi
+
+# T-NEG-10a: Missing Mainline Progress Verdict blocks exit and preserves state
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 3 10
+perl -0pi -e 's/mainline_stall_count: 0/mainline_stall_count: 1/' "$LOOP_DIR/state.md"
+perl -0pi -e 's/last_mainline_verdict: unknown/last_mainline_verdict: stalled/' "$LOOP_DIR/state.md"
+
+setup_mock_codex "## Review Feedback
+
+- Mainline gap: AC-1 still lacks a passing implementation path
+- Blocking side issue: current approach keeps looping on the same failing path
+
+Please restate the mainline more clearly.
+
+CONTINUE"
+
+cat > "$LOOP_DIR/round-3-summary.md" << 'EOF'
+# Round 3 Summary
+Tried another implementation pass, but the review omitted the verdict line.
+EOF
+
+echo "T-NEG-10a: Missing Mainline Progress Verdict blocks exit"
+HOOK_INPUT='{"stop_hook_active": false, "transcript_path": "'$TRANSCRIPT_FILE'"}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if echo "$RESULT" | grep -q '"decision".*block' && echo "$RESULT" | grep -qi "verdict"; then
+    pass "Missing Mainline Progress Verdict blocks exit"
+else
+    fail "Missing Mainline Progress Verdict" "block with verdict error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+if [[ ! -f "$LOOP_DIR/round-4-prompt.md" ]]; then
+    pass "Missing verdict does not generate next-round prompt"
+else
+    fail "Missing verdict prompt generation" "no round-4 prompt" "$(cat "$LOOP_DIR/round-4-prompt.md")"
+fi
+
+parse_state_file "$LOOP_DIR/state.md"
+if [[ "$STATE_CURRENT_ROUND" == "3" ]] && [[ "$STATE_MAINLINE_STALL_COUNT" == "1" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "stalled" ]] && [[ "$STATE_DRIFT_STATUS" == "normal" ]]; then
+    pass "Missing verdict preserves prior drift state"
+else
+    fail "Missing verdict state preservation" "round=3 stall=1 verdict=stalled drift=normal" \
+        "round=$STATE_CURRENT_ROUND stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+fi
+
+# T-NEG-10: Third consecutive stalled/regressed round stops the loop
+rm -rf "$TEST_DIR/.humanize"
+setup_test_repo
+setup_loop_dir 3 10
+perl -0pi -e 's/mainline_stall_count: 0/mainline_stall_count: 2/' "$LOOP_DIR/state.md"
+perl -0pi -e 's/last_mainline_verdict: unknown/last_mainline_verdict: stalled/' "$LOOP_DIR/state.md"
+perl -0pi -e 's/drift_status: normal/drift_status: replan_required/' "$LOOP_DIR/state.md"
+
+setup_mock_codex "## Review Feedback
+
+Mainline Progress Verdict: REGRESSED
+
+- Mainline gap: this round moved farther from AC-1
+- Blocking side issue: recent fixes keep undoing the prior mainline path
+
+Stop and replan.
+
+CONTINUE"
+
+cat > "$LOOP_DIR/round-3-summary.md" << 'EOF'
+# Round 3 Summary
+The latest attempt regressed the mainline objective again.
+EOF
+
+echo "T-NEG-10: Third stalled/regressed round triggers circuit breaker"
+HOOK_INPUT='{"stop_hook_active": false, "transcript_path": "'$TRANSCRIPT_FILE'"}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+
+if [[ -f "$LOOP_DIR/stop-state.md" ]] && echo "$RESULT" | grep -qi "drift"; then
+    pass "Third stalled/regressed round stops the loop with drift message"
+else
+    fail "Drift circuit breaker" "stop-state.md and drift message" "exit $EXIT_CODE, files: $(ls "$LOOP_DIR"/*state*.md 2>/dev/null || echo 'none'), output: $RESULT"
+fi
+
+parse_state_file "$LOOP_DIR/stop-state.md"
+if [[ "$STATE_MAINLINE_STALL_COUNT" == "3" ]] && [[ "$STATE_LAST_MAINLINE_VERDICT" == "regressed" ]] && [[ "$STATE_DRIFT_STATUS" == "replan_required" ]]; then
+    pass "Stopped loop preserves final drift state"
+else
+    fail "Preserved drift state on stop" "stall=3 verdict=regressed drift=replan_required" \
+        "stall=$STATE_MAINLINE_STALL_COUNT verdict=$STATE_LAST_MAINLINE_VERDICT drift=$STATE_DRIFT_STATUS"
+fi
+
+echo ""
 echo "=== Validator Finalize Phase State Parsing Tests ==="
 echo ""
 
@@ -848,6 +1073,18 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "Read validator parses finalize-state.md and allows current round"
 else
     fail "Read validator finalize-state.md parsing" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+echo "Test: Read validator blocks round contract during Finalize Phase"
+HOOK_INPUT='{"tool_name": "Read", "tool_input": {"file_path": "'$LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "contract"; then
+    pass "Read validator blocks finalize-phase round contract"
+else
+    fail "Read validator finalize-phase contract" "exit 2 with contract error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo "Test: Plan-file validator parses finalize-state.md correctly"

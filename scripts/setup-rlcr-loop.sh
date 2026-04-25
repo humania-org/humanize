@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Setup script for start-rlcr-loop
 #
@@ -48,9 +48,45 @@ BASE_BRANCH=""
 FULL_REVIEW_ROUND="$DEFAULT_FULL_REVIEW_ROUND"
 SKIP_IMPL="false"
 SKIP_IMPL_NO_PLAN="false"
+SKIP_IMPL_PLAN_ANCHORED="false"
 ASK_CODEX_QUESTION="true"
 AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-false}"
 BITLESSON_ALLOW_EMPTY_NONE="true"
+PRIVACY_MODE="false"
+
+extract_plan_goal_content() {
+    local plan_path="$1"
+    local goal_section=""
+
+    goal_section=$({ sed -n '/^##[[:space:]]*[Gg]oal\|^##[[:space:]]*[Oo]bjective\|^##[[:space:]]*[Pp]urpose/,/^##/p' "$plan_path" 2>/dev/null || true; } | head -20 | tail -n +2 | head -10)
+    if [[ -n "$goal_section" ]]; then
+        printf '%s\n' "$goal_section"
+        return
+    fi
+
+    awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ {
+            if (started) {
+                exit
+            }
+            next
+        }
+        {
+            print
+            started=1
+            lines++
+            if (lines >= 5) {
+                exit
+            }
+        }
+    ' "$plan_path"
+}
+
+extract_plan_ac_content() {
+    local plan_path="$1"
+    { sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria\|^##[[:space:]]*[Rr]equirements/,/^##/p' "$plan_path" 2>/dev/null || true; } | head -30 | tail -n +2 | head -25
+}
 
 show_help() {
     cat <<HELP_EOF
@@ -100,6 +136,7 @@ OPTIONS:
                        Allow BitLesson delta with action:none even with no new entries (default)
   --require-bitlesson-entry-for-none
                        Require at least one BitLesson entry when action is none
+  --privacy            Disable methodology analysis at loop exit (default: analysis enabled)
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -260,6 +297,10 @@ while [[ $# -gt 0 ]]; do
             BITLESSON_ALLOW_EMPTY_NONE="false"
             shift
             ;;
+        --privacy)
+            PRIVACY_MODE="true"
+            shift
+            ;;
         -*)
             echo "Unknown option: $1" >&2
             echo "Use --help for usage information" >&2
@@ -282,9 +323,13 @@ done
 # Validate Prerequisites
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_ROOT="$(resolve_project_root)" || {
+    echo "Error: Cannot determine humanize project root." >&2
+    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
+    exit 1
+}
 
-# loop-common.sh already sourced above (provides find_active_loop, find_active_pr_loop, etc.)
+# loop-common.sh already sourced above (provides find_active_loop, etc.)
 
 # ========================================
 # Required Dependency Check
@@ -321,10 +366,8 @@ fi
 # Mutual Exclusion Check
 # ========================================
 
-# Check for existing active loops (both RLCR and PR loops)
-# Only one loop type can be active at a time
+# Check for existing active RLCR loop
 RLCR_LOOP_DIR=$(find_active_loop "$PROJECT_ROOT/.humanize/rlcr" 2>/dev/null || echo "")
-PR_LOOP_DIR=$(find_active_pr_loop "$PROJECT_ROOT/.humanize/pr-loop" 2>/dev/null || echo "")
 
 if [[ -n "$RLCR_LOOP_DIR" ]]; then
     echo "Error: An RLCR loop is already active" >&2
@@ -332,15 +375,6 @@ if [[ -n "$RLCR_LOOP_DIR" ]]; then
     echo "" >&2
     echo "Only one loop can be active at a time." >&2
     echo "Cancel the RLCR loop first with: /humanize:cancel-rlcr-loop" >&2
-    exit 1
-fi
-
-if [[ -n "$PR_LOOP_DIR" ]]; then
-    echo "Error: A PR loop is already active" >&2
-    echo "  Active loop: $PR_LOOP_DIR" >&2
-    echo "" >&2
-    echo "Only one loop can be active at a time." >&2
-    echo "Cancel the PR loop first with: /humanize:cancel-pr-loop" >&2
     exit 1
 fi
 
@@ -641,6 +675,10 @@ else
     LINE_COUNT=0
 fi  # End of skip-impl plan file content validation skip
 
+if [[ "$SKIP_IMPL" == "true" ]] && [[ "$SKIP_IMPL_NO_PLAN" != "true" ]]; then
+    SKIP_IMPL_PLAN_ANCHORED="true"
+fi
+
 # ========================================
 # Record Branch
 # ========================================
@@ -857,9 +895,13 @@ review_started: $INITIAL_REVIEW_STARTED
 ask_codex_question: $ASK_CODEX_QUESTION
 session_id:
 agent_teams: $AGENT_TEAMS
+privacy_mode: $PRIVACY_MODE
 bitlesson_required: $BITLESSON_STATE_VALUE
 bitlesson_file: $BITLESSON_FILE_REL
 bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
+mainline_stall_count: 0
+last_mainline_verdict: unknown
+drift_status: normal
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
@@ -887,27 +929,132 @@ fi
 GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
 if [[ "$SKIP_IMPL" == "true" ]]; then
-    # Create simplified goal tracker for skip-impl mode (no placeholder text)
-    cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
+    if [[ "$SKIP_IMPL_PLAN_ANCHORED" == "true" ]]; then
+        PLAN_GOAL_CONTENT=$(extract_plan_goal_content "$FULL_PLAN_PATH")
+        PLAN_AC_CONTENT=$(extract_plan_ac_content "$FULL_PLAN_PATH")
+
+        if [[ -z "$PLAN_GOAL_CONTENT" ]]; then
+            PLAN_GOAL_CONTENT="Preserve the original plan scope from $PLAN_FILE while resolving code review findings on the current branch."
+        fi
+
+        if [[ -z "$PLAN_AC_CONTENT" ]]; then
+            PLAN_AC_CONTENT=$(cat <<EOF
+- The current branch remains aligned with the original plan at $PLAN_FILE.
+- All blocking \`[P0-9]\` code review findings are resolved without widening scope beyond the original plan.
+- Non-blocking follow-up items are explicitly queued and do not block completion.
+EOF
+)
+        fi
+
+        cat > "$GOAL_TRACKER_FILE" << EOF
+# Goal Tracker (Skip Implementation Mode with Plan Anchor)
+
+This RLCR loop was started with \`--skip-impl\` flag. The implementation phase was skipped,
+but an explicit plan was provided and remains the scope anchor for review-only work.
+
+This tracker is still used to keep the review loop aligned around one mainline objective
+and to separate blocking issues from queued follow-up work.
+
+## IMMUTABLE SECTION
+
+### Ultimate Goal
+
+$PLAN_GOAL_CONTENT
+
+### Acceptance Criteria
+
+$PLAN_AC_CONTENT
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: Review-Only (Updated: Round 0)
+
+#### Plan Evolution Log
+| Round | Change | Reason | Impact on AC |
+|-------|--------|--------|--------------|
+| 0 | Skip implementation mode initialized around explicit plan anchor | Loop started with \`--skip-impl\` and retained @$PLAN_FILE as scope anchor | Review stays aligned with original plan |
+
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| [mainline] Preserve original plan alignment while resolving blocking review findings | Plan ACs in scope | pending | Review-only mode with explicit plan anchor |
+
+### Blocking Side Issues
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+
+### Queued Side Issues
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
+
+### Completed and Verified
+| AC | Task | Completed Round | Verified Round | Evidence |
+|----|------|-----------------|----------------|----------|
+
+### Explicitly Deferred
+| Task | Original AC | Deferred Since | Justification | When to Reconsider |
+|------|-------------|----------------|---------------|-------------------|
+
+EOF
+    else
+        # Create review-only goal tracker for skip-impl mode without a plan (no placeholder text)
+        cat > "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 # Goal Tracker (Skip Implementation Mode)
 
 This RLCR loop was started with `--skip-impl` flag. The implementation phase was skipped,
 and the loop is running in code review mode only.
 
-## Mode: Code Review Only
+This tracker is still used to keep the review loop aligned around one mainline objective
+and to separate blocking issues from queued follow-up work.
 
-The goal tracker is not used in skip-impl mode because:
-- There is no implementation plan to track
-- The loop focuses solely on code review quality
-- No acceptance criteria tracking is needed
+## IMMUTABLE SECTION
 
-## What This Loop Does
+### Ultimate Goal
 
-1. Runs `codex review` on changes between base branch and current branch
-2. If issues are found, Claude fixes them iteratively
-3. When no issues remain, enters finalize phase for code simplification
+Pass code review for the current branch without regressing existing behavior.
+
+### Acceptance Criteria
+
+- AC-1: All blocking `[P0-9]` code review findings are resolved.
+- AC-2: Non-blocking follow-up items are explicitly queued and do not block completion.
+- AC-3: Finalize phase can complete without introducing new review regressions.
+
+---
+
+## MUTABLE SECTION
+
+### Plan Version: Review-Only (Updated: Round 0)
+
+#### Plan Evolution Log
+| Round | Change | Reason | Impact on AC |
+|-------|--------|--------|--------------|
+| 0 | Skip implementation mode initialized | Loop started with `--skip-impl` | Focus on review-only objective |
+
+#### Active Tasks
+| Task | Target AC | Status | Notes |
+|------|-----------|--------|-------|
+| [mainline] Pass code review for current branch | AC-1 | pending | Review-only mode |
+
+### Blocking Side Issues
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+
+### Queued Side Issues
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
+
+### Completed and Verified
+| AC | Task | Completed Round | Verified Round | Evidence |
+|----|------|-----------------|----------------|----------|
+
+### Explicitly Deferred
+| Task | Original AC | Deferred Since | Justification | When to Reconsider |
+|------|-------------|----------------|---------------|-------------------|
 
 GOAL_TRACKER_EOF
+    fi
 
 else
     # Normal mode: create full goal tracker
@@ -935,11 +1082,8 @@ GOAL_TRACKER_EOF
 # Extract goal from plan file (look for ## Goal, ## Objective, or first paragraph)
 # This is a heuristic - Claude will refine it in round 0
 # Use ^## without leading whitespace - markdown headers should start at column 0
-GOAL_LINE=$(grep -i -m1 '^##[[:space:]]*\(goal\|objective\|purpose\)' "$FULL_PLAN_PATH" 2>/dev/null || echo "")
-if [[ -n "$GOAL_LINE" ]]; then
-    # Get the content after the heading
-    # Use || true after sed to ignore SIGPIPE when head closes the pipe early (pipefail mode)
-    GOAL_SECTION=$({ sed -n '/^##[[:space:]]*[Gg]oal\|^##[[:space:]]*[Oo]bjective\|^##[[:space:]]*[Pp]urpose/,/^##/p' "$FULL_PLAN_PATH" || true; } | head -20 | tail -n +2 | head -10)
+GOAL_SECTION=$(extract_plan_goal_content "$FULL_PLAN_PATH")
+if [[ -n "$GOAL_SECTION" ]]; then
     echo "$GOAL_SECTION" >> "$GOAL_TRACKER_FILE"
 else
     # Use first non-empty, non-heading paragraph as goal description
@@ -959,7 +1103,7 @@ GOAL_TRACKER_EOF
 # Extract acceptance criteria from plan file (look for ## Acceptance, ## Criteria, ## Requirements)
 # Use ^## without leading whitespace - markdown headers should start at column 0
 # Use || true after sed to ignore SIGPIPE when head closes the pipe early (pipefail mode)
-AC_SECTION=$({ sed -n '/^##[[:space:]]*[Aa]cceptance\|^##[[:space:]]*[Cc]riteria\|^##[[:space:]]*[Rr]equirements/,/^##/p' "$FULL_PLAN_PATH" 2>/dev/null || true; } | head -30 | tail -n +2 | head -25)
+AC_SECTION=$(extract_plan_ac_content "$FULL_PLAN_PATH")
 if [[ -n "$AC_SECTION" ]]; then
     echo "$AC_SECTION" >> "$GOAL_TRACKER_FILE"
 else
@@ -982,10 +1126,20 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 | 0 | Initial plan | - | - |
 
 #### Active Tasks
-<!-- Map each task to its target Acceptance Criterion and routing tag -->
+<!-- Mainline tasks only: each task must directly advance the current round objective and carry routing metadata -->
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | - |
+| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | mainline task only |
+
+### Blocking Side Issues
+<!-- Only issues that directly block current mainline progress belong here -->
+| Issue | Discovered Round | Blocking AC | Resolution Path |
+|-------|-----------------|-------------|-----------------|
+
+### Queued Side Issues
+<!-- Non-blocking issues stay queued and must NOT replace the round objective -->
+| Issue | Discovered Round | Why Not Blocking | Revisit Trigger |
+|-------|-----------------|------------------|-----------------|
 
 ### Completed and Verified
 <!-- Only move tasks here after Codex verification -->
@@ -997,10 +1151,6 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 | Task | Original AC | Deferred Since | Justification | When to Reconsider |
 |------|-------------|----------------|---------------|-------------------|
 
-### Open Issues
-<!-- Issues discovered during implementation -->
-| Issue | Discovered Round | Blocking AC | Resolution Path |
-|-------|-----------------|-------------|-----------------|
 GOAL_TRACKER_EOF
 
 fi  # End of skip-impl goal tracker handling
@@ -1043,12 +1193,35 @@ SUMMARY_TMPL_EOF
 # ========================================
 
 SUMMARY_PATH="$LOOP_DIR/round-0-summary.md"
+ROUND_CONTRACT_PATH="$LOOP_DIR/round-0-contract.md"
 
 # Create the round-0 summary scaffold before either mode starts so stop-hook
 # validation and BitLesson Delta checks have a valid target file.
 write_summary_template "$SUMMARY_PATH"
 
 if [[ "$SKIP_IMPL" == "true" ]]; then
+    if [[ "$SKIP_IMPL_PLAN_ANCHORED" == "true" ]]; then
+        cat > "$ROUND_CONTRACT_PATH" << EOF
+# Round 0 Contract
+
+- Mainline Objective: Keep the current branch aligned with @$PLAN_FILE while resolving only review findings that block clean acceptance.
+- Target ACs: The original plan acceptance criteria affected by the current branch changes.
+- Blocking Side Issues In Scope: Any \`[P0-9]\` findings or regressions that block review acceptance or violate the original plan scope.
+- Queued Side Issues Out of Scope: Non-blocking cleanup, follow-up refactors, or future improvements that do not block review acceptance or plan alignment.
+- Success Criteria: Code review passes and the current branch still matches the original plan's intended scope.
+EOF
+    else
+        cat > "$ROUND_CONTRACT_PATH" << 'ROUND_CONTRACT_EOF'
+# Round 0 Contract
+
+- Mainline Objective: Run code review for the current branch and resolve only findings that block clean acceptance.
+- Target ACs: AC-1, AC-2
+- Blocking Side Issues In Scope: Any `[P0-9]` findings from the active review cycle.
+- Queued Side Issues Out of Scope: Non-blocking cleanup, follow-up refactors, or future improvements that do not block review acceptance.
+- Success Criteria: Code review passes with no blocking findings, and any remaining non-blocking follow-up is explicitly queued.
+ROUND_CONTRACT_EOF
+    fi
+
     # Skip-impl mode: create a prompt for code review only
     cat > "$LOOP_DIR/round-0-prompt.md" << EOF
 # Skip Implementation Mode - Code Review Loop
@@ -1065,6 +1238,11 @@ The loop will automatically run \`codex review\` on your changes when you try to
 If issues are found (marked with [P0-9] priority), you'll need to fix them before the loop ends.
 Do not try to execute anything to trigger the review - just stop and it will run automatically.
 
+Before requesting review, read:
+- @$PLAN_FILE
+- @$GOAL_TRACKER_FILE
+- @$ROUND_CONTRACT_PATH
+
 ## Your Task
 
 1. Review your current work
@@ -1073,10 +1251,32 @@ Do not try to execute anything to trigger the review - just stop and it will run
 4. Repeat until no issues remain
 5. Enter finalize phase for code simplification
 
-## Note
+## Review Objective
 
-Since this is skip-impl mode, there is no implementation plan to follow.
-The goal tracker is not used - focus on fixing code review issues.
+Use the round contract as the current anchor:
+- Keep one stable mainline objective and do not let it drift
+- Treat review findings as \`[blocking]\` only if they block review acceptance
+- Record non-blocking follow-up as \`[queued]\`
+- Do not let queued work take over the round
+
+EOF
+    if [[ "$SKIP_IMPL_PLAN_ANCHORED" == "true" ]]; then
+        cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
+- Keep review-only work aligned with the original plan at @$PLAN_FILE
+
+Implementation phase is skipped, but the original plan still defines the intended branch scope.
+
+EOF
+    else
+        cat >> "$LOOP_DIR/round-0-prompt.md" << 'EOF'
+There is no explicit implementation plan for this loop, so the review-only contract is the primary anchor.
+
+EOF
+    fi
+
+    cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
+
+Keep @$ROUND_CONTRACT_PATH updated if the blocking/queued split changes materially during review iterations.
 
 When you're ready for review, write a brief summary of your changes and try to exit (do not try to execute anything, just stop).
 
@@ -1097,8 +1297,21 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 1. Read @$GOAL_TRACKER_FILE
 2. If the "Ultimate Goal" section says "[To be extracted...]", extract a clear goal statement from the plan
 3. If the "Acceptance Criteria" section says "[To be defined...]", define 3-7 specific, testable criteria
-4. Populate the "Active Tasks" table with tasks from the plan, mapping each to an AC and filling Tag/Owner
-5. Write the updated goal-tracker.md
+4. Populate the "Active Tasks" table with MAINLINE tasks from the plan, mapping each to an AC and filling Tag/Owner
+5. Record any already-known side issues in either "Blocking Side Issues" or "Queued Side Issues"
+6. Write the updated goal-tracker.md
+
+## Round Contract Setup (REQUIRED BEFORE CODING)
+
+Before starting implementation, create @$ROUND_CONTRACT_PATH with:
+
+1. **One mainline objective** for this round
+2. **Target ACs** (1-2 ACs only)
+3. **Blocking side issues in scope** for this round
+4. **Queued side issues out of scope** for this round
+5. **Round success criteria**
+
+Use this contract to keep the round focused. Do NOT let non-blocking bugs or cleanup work replace the mainline objective.
 
 **IMPORTANT**: The IMMUTABLE SECTION can only be modified in Round 0. After this round, it becomes read-only.
 
@@ -1106,8 +1319,18 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 
 ## Implementation Plan
 
-For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList) to track each item in order of importance.
-You are strictly prohibited from only addressing the most important issues - you MUST create Tasks for ALL discovered issues and attempt to resolve each one.
+For all tasks that need to be completed, please use the Task system (TaskCreate, TaskUpdate, TaskList).
+
+Every task MUST start with exactly one lane tag:
+- \`[mainline]\` for plan-derived work that directly advances the round objective
+- \`[blocking]\` for issues that prevent the mainline objective from succeeding safely
+- \`[queued]\` for non-blocking bugs, cleanup, or follow-up work
+
+Rules:
+- \`[mainline]\` tasks are the primary success condition for the round
+- \`[blocking]\` tasks may be resolved in the round only if they truly block mainline progress
+- \`[queued]\` tasks must NOT become the round objective and do NOT need to be cleared before moving on
+- If a new issue is not blocking the current objective, tag it \`[queued]\` and keep moving on the mainline
 
 ## Task Tag Routing (MUST FOLLOW)
 
@@ -1176,18 +1399,24 @@ cat >> "$LOOP_DIR/round-0-prompt.md" << EOF
 
 Throughout your work, you MUST maintain the Goal Tracker:
 
-1. **Before starting a task**: Mark it as "in_progress" in Active Tasks
+1. **Before starting a round**: Re-anchor on the original plan and current round contract
+2. **Before starting a task**: Mark the relevant mainline task as "in_progress" in Active Tasks
    - Confirm Tag/Owner routing is correct before execution
-2. **After completing a task**: Move it to "Completed and Verified" with evidence (but mark as "pending verification")
-3. **If you discover the plan has errors**:
+3. **Active Tasks** are MAINLINE tasks only - side issues do not belong there
+4. **Blocking Side Issues** are reserved for issues that truly stop mainline progress
+5. **Queued Side Issues** are non-blocking and must not take over the round
+6. **After completing a mainline task**: Move it to "Completed and Verified" with evidence (but mark as "pending verification")
+7. **If you discover the plan has errors**:
    - Do NOT silently change direction
    - Add entry to "Plan Evolution Log" with justification
    - Explain how the change still serves the Ultimate Goal
-4. **If you need to defer a task**:
+8. **If you need to defer a task**:
    - Move it to "Explicitly Deferred" section
    - Provide strong justification
    - Explain impact on Acceptance Criteria
-5. **If you discover new issues**: Add to "Open Issues" table
+9. **If you discover new issues**:
+   - Add to "Blocking Side Issues" only if mainline progress is blocked
+   - Otherwise add to "Queued Side Issues" or keep them as \`[queued]\` tasks/backlog
 
 ---
 
@@ -1196,8 +1425,9 @@ Note: You MUST NOT try to exit \`start-rlcr-loop\` loop by lying or edit loop st
 After completing the work, please:
 0. If you have access to the \`code-simplifier\` agent, use it to review and optimize the code you just wrote
 1. Finalize @$GOAL_TRACKER_FILE (this is Round 0, so you are initializing it - see "Goal Tracker Setup" above)
-2. Commit your changes with a descriptive commit message
-3. Write your work summary into @$SUMMARY_PATH
+2. Write your round contract into @$ROUND_CONTRACT_PATH
+3. Commit your changes with a descriptive commit message
+4. Write your work summary into @$SUMMARY_PATH
 EOF
 
 # Add push instruction only if push_every_round is true

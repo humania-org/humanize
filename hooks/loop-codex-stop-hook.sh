@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Stop Hook for RLCR loop
 #
@@ -39,16 +39,19 @@ HOOK_INPUT=$(cat)
 # Find Active Loop
 # ========================================
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
-
 # Source shared loop functions and template loader
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/loop-common.sh"
 
+PROJECT_ROOT="$(resolve_project_root)" || exit 0
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
+
 # Source portable timeout wrapper for git operations
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
+
+# Source methodology analysis library
+source "$SCRIPT_DIR/lib/methodology-analysis.sh"
 
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
@@ -58,12 +61,26 @@ GIT_TIMEOUT=30
 # Extract session_id from hook input for session-aware loop filtering
 HOOK_SESSION_ID=$(extract_session_id "$HOOK_INPUT")
 
-LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID")
+LOOP_DIR=$(find_active_loop "$LOOP_BASE_DIR" "$HOOK_SESSION_ID" true)
 
 # If no active loop (or session_id mismatch), allow exit
 if [[ -z "$LOOP_DIR" ]]; then
     exit 0
 fi
+
+# ========================================
+# Background-Task Guards
+# ========================================
+# Delegates to handle_bg_task_short_circuit (hooks/lib/loop-bg-tasks.sh),
+# which runs four cohesive guards in order:
+#   1. Ambiguous-caller marker guard (no session_id + marker present)
+#   2. Cross-session parked-loop guard (foreign session walking in)
+#   3. Pending-bg short-circuit (this session has async work in flight)
+#   4. Same-session stale-marker cleanup (bg work just finished)
+# When any guard short-circuits, it emits the appropriate JSON on stdout
+# and `exit 0`s directly; we never return from that call. When no guard
+# fires we continue into the normal gate logic below.
+handle_bg_task_short_circuit "$LOOP_DIR" "$HOOK_INPUT" "$HOOK_SESSION_ID"
 
 # ========================================
 # Detect Loop Phase: Normal or Finalize
@@ -79,6 +96,9 @@ fi
 
 IS_FINALIZE_PHASE=false
 [[ "$STATE_FILE" == *"/finalize-state.md" ]] && IS_FINALIZE_PHASE=true
+
+IS_METHODOLOGY_ANALYSIS_PHASE=false
+[[ "$STATE_FILE" == *"/methodology-analysis-state.md" ]] && IS_METHODOLOGY_ANALYSIS_PHASE=true
 
 # ========================================
 # Parse State File (using shared function)
@@ -120,6 +140,7 @@ CODEX_REVIEW_EFFORT="high"
 CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
+PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
 BITLESSON_REQUIRED="false"
 if [[ -n "$RAW_BITLESSON_REQUIRED" ]]; then
     BITLESSON_REQUIRED=$(echo "$RAW_BITLESSON_REQUIRED" | sed 's/^bitlesson_required:[[:space:]]*//' | tr -d ' "')
@@ -145,6 +166,9 @@ fi
 if [[ "$BITLESSON_ALLOW_EMPTY_NONE" != "true" && "$BITLESSON_ALLOW_EMPTY_NONE" != "false" ]]; then
     BITLESSON_ALLOW_EMPTY_NONE="true"
 fi
+MAINLINE_STALL_COUNT="${STATE_MAINLINE_STALL_COUNT:-0}"
+LAST_MAINLINE_VERDICT="${STATE_LAST_MAINLINE_VERDICT:-$MAINLINE_VERDICT_UNKNOWN}"
+DRIFT_STATUS="${STATE_DRIFT_STATUS:-$DRIFT_STATUS_NORMAL}"
 # Re-validate Codex Model and Effort for YAML safety (in case state.md was manually edited)
 # Use same validation patterns as setup-rlcr-loop.sh
 if [[ ! "$CODEX_EXEC_MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -185,6 +209,13 @@ if [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
     echo "Warning: State file corrupted (max_iterations not numeric), using default" >&2
     MAX_ITERATIONS=42
 fi
+
+if [[ ! "$MAINLINE_STALL_COUNT" =~ ^[0-9]+$ ]]; then
+    echo "Warning: Invalid mainline_stall_count '$MAINLINE_STALL_COUNT', defaulting to 0" >&2
+    MAINLINE_STALL_COUNT=0
+fi
+LAST_MAINLINE_VERDICT=$(normalize_mainline_progress_verdict "$LAST_MAINLINE_VERDICT")
+DRIFT_STATUS=$(normalize_drift_status "$DRIFT_STATUS")
 
 # ========================================
 # Quick-check 0: Schema Validation (v1.1.2+ fields)
@@ -573,6 +604,66 @@ Split these into smaller modules before continuing."
 fi
 
 # ========================================
+# Methodology Analysis Phase Completion Handler
+# ========================================
+# When in methodology analysis phase, check if the analysis is done.
+# If done, rename state to the original exit reason's terminal state.
+# If not done, block and ask Claude to complete the analysis.
+# All other checks (summary, bitlesson, goal tracker, max iterations) are skipped.
+# IMPORTANT: This MUST run before the git-clean check, because methodology
+# artifacts (.humanize/rlcr/...) may make the working tree appear dirty
+# if .humanize is tracked, which would block exit before reaching this handler.
+
+if [[ "$IS_METHODOLOGY_ANALYSIS_PHASE" == "true" ]]; then
+    if complete_methodology_analysis; then
+        # Before allowing the terminal state transition, re-verify the
+        # working tree is clean. The main git-clean gate below is skipped
+        # in the methodology branch, so without this check, tracked edits
+        # made during the analysis phase (e.g. post-signoff source
+        # modifications) could slip through unreviewed as soon as the
+        # completion marker appears.
+        #
+        # Apply the same .humanize/ untracked exclusion the main gate uses
+        # so methodology-artifact writes under .humanize/rlcr/... do not
+        # themselves trip the check.
+        if [[ "$GIT_IS_REPO" == "true" ]]; then
+            HUMANIZE_UNTRACKED_PATTERN='^\?\? \.humanize[-/]'
+            GIT_STATUS_FOR_BLOCK=$(echo "$GIT_STATUS_CACHED" | grep -vE "$HUMANIZE_UNTRACKED_PATTERN" || true)
+            if [[ -n "$GIT_STATUS_FOR_BLOCK" ]]; then
+                cleanup_stale_index_lock
+                FALLBACK="# Git Not Clean
+
+Methodology analysis is complete, but the working tree still has uncommitted changes:
+
+{{GIT_ISSUES}}
+
+Please commit all changes before allowing the loop to exit.
+{{SPECIAL_NOTES}}"
+                REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/git-not-clean.md" "$FALLBACK" \
+                    "GIT_ISSUES=uncommitted changes after methodology analysis" \
+                    "SPECIAL_NOTES=")
+
+                jq -n \
+                    --arg reason "$REASON" \
+                    --arg msg "Loop: Blocked - uncommitted changes detected after methodology analysis, please commit first" \
+                    '{
+                        "decision": "block",
+                        "reason": $reason,
+                        "systemMessage": $msg
+                    }'
+                exit 0
+            fi
+        fi
+        # Analysis complete and tree clean, allow exit
+        exit 0
+    else
+        # Analysis not yet complete, block
+        block_methodology_analysis_incomplete
+        exit 0
+    fi
+fi
+
+# ========================================
 # Quick Check: Git Clean and Pushed?
 # ========================================
 # Before running expensive Codex review, check if all changes have been
@@ -582,6 +673,21 @@ fi
 if [[ "$GIT_IS_REPO" == "true" ]]; then
     GIT_ISSUES=""
     SPECIAL_NOTES=""
+
+    if git_has_tracked_humanize_state "$PROJECT_ROOT"; then
+        cleanup_stale_index_lock
+        REASON=$(git_tracked_humanize_blocked_message)
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Blocked - tracked Humanize state detected, remove it from git first" \
+            '{
+                "decision": "block",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
 
     # Check for uncommitted changes (staged or unstaged) using cached status.
     # Exclude untracked .humanize/ paths and .humanize-* dash-separated legacy
@@ -682,8 +788,10 @@ fi
 # In Finalize Phase, expect finalize-summary.md instead of round-N-summary.md
 if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
     SUMMARY_FILE="$LOOP_DIR/finalize-summary.md"
+    ROUND_CONTRACT_FILE=""
 else
     SUMMARY_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-summary.md"
+    ROUND_CONTRACT_FILE="$LOOP_DIR/round-${CURRENT_ROUND}-contract.md"
 fi
 
 if [[ ! -f "$SUMMARY_FILE" ]]; then
@@ -711,6 +819,39 @@ Please write your work summary to: {{SUMMARY_FILE}}"
             "systemMessage": $msg
         }'
     exit 0
+fi
+
+# Check Round Contract Exists
+# ========================================
+
+# Only enforce round contract when anti-drift is active (drift_status present in raw state).
+# Legacy loops that pre-date the anti-drift feature will not have this field.
+RAW_DRIFT_STATUS=$(echo "$RAW_FRONTMATTER" | grep "^drift_status:" || true)
+if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ -n "$RAW_DRIFT_STATUS" ]]; then
+    if [[ ! -f "$ROUND_CONTRACT_FILE" ]]; then
+        FALLBACK="# Round Contract Missing
+
+Before trying to exit, write the current round contract to: {{ROUND_CONTRACT_FILE}}
+
+The round contract must restate:
+- The single mainline objective for this round
+- The target ACs
+- Which side issues are truly blocking
+- Which side issues are queued and out of scope
+- The success criteria for this round"
+        REASON=$(load_and_render_safe "$TEMPLATE_DIR" "block/round-contract-missing.md" "$FALLBACK" \
+            "ROUND_CONTRACT_FILE=$ROUND_CONTRACT_FILE")
+
+        jq -n \
+            --arg reason "$REASON" \
+            --arg msg "Loop: Round contract missing for round $CURRENT_ROUND" \
+            '{
+                "decision": "block",
+                "reason": $reason,
+                "systemMessage": $msg
+            }'
+        exit 0
+    fi
 fi
 
 # ========================================
@@ -742,7 +883,7 @@ GOAL_TRACKER_FILE="$LOOP_DIR/goal-tracker.md"
 
 # Skip this check in Finalize Phase, Review Phase, or when review_started is already true (skip-impl mode)
 # - Finalize Phase: goal tracker was already initialized before COMPLETE
-# - Review Phase (review_started=true): skip-impl mode skips implementation, no goal tracker needed
+# - Review Phase: later rounds may update only the mutable section, so Round 0 placeholder checks no longer apply
 if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ "$CURRENT_ROUND" -eq 0 ]] && [[ -f "$GOAL_TRACKER_FILE" ]]; then
     # Check if goal-tracker.md still contains placeholder text
     # Extract each section and check for generic placeholder pattern within that section
@@ -823,6 +964,10 @@ NEXT_ROUND=$((CURRENT_ROUND + 1))
 # - Review Phase: must continue until [P?] issues are cleared, regardless of iteration count
 if [[ "$IS_FINALIZE_PHASE" != "true" ]] && [[ "$REVIEW_STARTED" != "true" ]] && [[ $NEXT_ROUND -gt $MAX_ITERATIONS ]]; then
     echo "RLCR loop did not complete, but reached max iterations ($MAX_ITERATIONS). Exiting." >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "maxiter" "Reached max iterations ($MAX_ITERATIONS) without completion"; then
+        exit 0
+    fi
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
     exit 0
 fi
@@ -834,8 +979,12 @@ fi
 # No Codex review is performed - this is the final step after Codex already confirmed COMPLETE
 
 if [[ "$IS_FINALIZE_PHASE" == "true" ]]; then
-    echo "Finalize Phase complete. All checks passed. Loop finished!" >&2
-    # Rename finalize-state.md to complete-state.md
+    echo "Finalize Phase complete. All checks passed." >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "complete" "All acceptance criteria met and code review passed"; then
+        exit 0
+    fi
+    # Methodology analysis skipped or already done - proceed with normal exit
     mv "$STATE_FILE" "$LOOP_DIR/complete-state.md"
     echo "State preserved as: $LOOP_DIR/complete-state.md" >&2
     exit 0
@@ -883,6 +1032,37 @@ COMPLETED_ITERATIONS=$((CURRENT_ROUND + 1))
 PREV_ROUND=$(( CURRENT_ROUND > 0 ? CURRENT_ROUND - 1 : 0 ))
 PREV_PREV_ROUND=$(( CURRENT_ROUND > 1 ? CURRENT_ROUND - 2 : 0 ))
 
+# Integral component: accumulated commit history and recent round references
+# Validate BASE_COMMIT is an ancestor of HEAD (not just a valid object) before using it in git log
+if [[ -n "$BASE_COMMIT" ]] && git -C "$PROJECT_ROOT" merge-base --is-ancestor "$BASE_COMMIT" HEAD 2>/dev/null; then
+    COMMIT_HISTORY=$(git -C "$PROJECT_ROOT" log --oneline --no-decorate --reverse "$BASE_COMMIT"..HEAD 2>/dev/null | tail -80)
+else
+    COMMIT_HISTORY=$(git -C "$PROJECT_ROOT" log --oneline --no-decorate --reverse -30 2>/dev/null)
+    # Annotate so Codex knows this is not the full loop history
+    [[ -n "$COMMIT_HISTORY" ]] && COMMIT_HISTORY="(base commit unavailable, showing recent branch commits)
+${COMMIT_HISTORY}"
+fi
+[[ -z "$COMMIT_HISTORY" ]] && COMMIT_HISTORY="(no commits yet)"
+
+RECENT_ROUND_FILES=""
+for (( r = CURRENT_ROUND - 1; r >= 0 && r >= CURRENT_ROUND - 3; r-- )); do
+    RECENT_ROUND_FILES+="- @.humanize/rlcr/${LOOP_TIMESTAMP}/round-${r}-summary.md
+- @.humanize/rlcr/${LOOP_TIMESTAMP}/round-${r}-review-result.md
+"
+done
+[[ -z "$RECENT_ROUND_FILES" ]] && RECENT_ROUND_FILES="(first round, no prior history)"
+
+COMMIT_HISTORY_SECTION_FALLBACK="## Development History (Integral Context)
+\`\`\`
+${COMMIT_HISTORY}
+\`\`\`
+### Recent Round Files
+Read these files before conducting your review to understand the trajectory of work:
+${RECENT_ROUND_FILES}"
+COMMIT_HISTORY_SECTION=$(load_and_render_safe "$TEMPLATE_DIR" "codex/commit-history-section.md" "$COMMIT_HISTORY_SECTION_FALLBACK" \
+    "COMMIT_HISTORY=$COMMIT_HISTORY" \
+    "RECENT_ROUND_FILES=$RECENT_ROUND_FILES")
+
 # Build the review prompt
 FULL_ALIGNMENT_FALLBACK="# Full Alignment Review (Round {{CURRENT_ROUND}})
 
@@ -890,6 +1070,8 @@ Review Claude's work against the plan and goal tracker. Check all goals are bein
 
 ## Claude's Summary
 {{SUMMARY_CONTENT}}
+
+{{COMMIT_HISTORY_SECTION}}
 
 {{GOAL_TRACKER_UPDATE_SECTION}}
 
@@ -901,6 +1083,8 @@ Review Claude's work for this round.
 
 ## Claude's Summary
 {{SUMMARY_CONTENT}}
+
+{{COMMIT_HISTORY_SECTION}}
 
 {{GOAL_TRACKER_UPDATE_SECTION}}
 
@@ -915,6 +1099,7 @@ if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
         "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
         "DOCS_PATH=$DOCS_PATH" \
         "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
+        "COMMIT_HISTORY_SECTION=$COMMIT_HISTORY_SECTION" \
         "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \
@@ -931,6 +1116,7 @@ else
         "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
         "DOCS_PATH=$DOCS_PATH" \
         "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
+        "COMMIT_HISTORY_SECTION=$COMMIT_HISTORY_SECTION" \
         "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \
@@ -979,6 +1165,20 @@ CACHE_DIR="$CACHE_BASE/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 mkdir -p "$CACHE_DIR"
 
 # portable-timeout.sh already sourced above
+
+# Disable native hooks for nested Codex reviewer calls to prevent Stop-hook recursion.
+# Probe whether the installed Codex CLI supports --disable; cache the result per loop
+# so older builds do not fail with an unknown-argument error.
+CODEX_DISABLE_HOOKS_ARGS=()
+_CODEX_FEATURE_CACHE="$CACHE_DIR/.codex-disable-hooks-supported"
+if [[ -f "$_CODEX_FEATURE_CACHE" ]]; then
+    [[ "$(cat "$_CODEX_FEATURE_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+elif codex --help 2>&1 | grep -q -- '--disable'; then
+    CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+    echo "yes" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+else
+    echo "no" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+fi
 
 # Build command arguments for summary review (codex exec)
 CODEX_EXEC_ARGS=("-m" "$CODEX_EXEC_MODEL")
@@ -1056,14 +1256,14 @@ Provider: codex
         echo "# Review base ($review_base_type): $review_base"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "codex review --base $review_base ${CODEX_REVIEW_ARGS[*]}"
+        echo "codex review ${CODEX_DISABLE_HOOKS_ARGS[*]} --base $review_base ${CODEX_REVIEW_ARGS[*]}"
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
     echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
 
     CODEX_REVIEW_EXIT_CODE=0
-    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review "${CODEX_DISABLE_HOOKS_ARGS[@]}" --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
         > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Code review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
@@ -1218,6 +1418,79 @@ Follow the plan's per-task routing tags strictly:
 ROUTING_EOF
 }
 
+# Stop the loop when mainline progress has stalled for too many consecutive rounds.
+# Arguments: $1=stall_count, $2=last_verdict
+stop_for_mainline_drift() {
+    local stall_count="$1"
+    local last_verdict="$2"
+
+    upsert_state_fields "$STATE_FILE" \
+        "${FIELD_MAINLINE_STALL_COUNT}=${stall_count}" \
+        "${FIELD_LAST_MAINLINE_VERDICT}=${last_verdict}" \
+        "${FIELD_DRIFT_STATUS}=${DRIFT_STATUS_REPLAN_REQUIRED}"
+
+    local fallback="# Mainline Drift Circuit Breaker
+
+The RLCR loop has been stopped because the mainline failed to advance for {{STALL_COUNT}} consecutive implementation rounds.
+
+- Last mainline verdict: {{LAST_VERDICT}}
+- Drift status: replan_required
+
+This loop should not continue automatically. Revisit the original plan, recover the round contract, and restart with a narrower mainline objective."
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/mainline-drift-stop.md" "$fallback" \
+        "STALL_COUNT=$stall_count" \
+        "LAST_VERDICT=$last_verdict" \
+        "PLAN_FILE=$PLAN_FILE")
+
+    end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_STOP"
+
+    jq -n \
+        --arg reason "$reason" \
+        --arg msg "Loop: Stopped - mainline drift circuit breaker triggered" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
+# Block exit when implementation review output omits the required mainline verdict.
+# Arguments: $1=review_result_file, $2=review_prompt_file
+block_missing_mainline_verdict() {
+    local review_result_file="$1"
+    local review_prompt_file="$2"
+
+    local fallback="# Mainline Verdict Missing
+
+The implementation review output is missing the required line:
+
+\`Mainline Progress Verdict: ADVANCED / STALLED / REGRESSED\`
+
+Humanize cannot safely update drift state or choose the correct next-round prompt without this verdict.
+
+Retry the exit so Codex reruns the implementation review.
+
+Files:
+- Review result: {{REVIEW_RESULT_FILE}}
+- Review prompt: {{REVIEW_PROMPT_FILE}}"
+    local reason
+    reason=$(load_and_render_safe "$TEMPLATE_DIR" "block/mainline-verdict-missing.md" "$fallback" \
+        "REVIEW_RESULT_FILE=$review_result_file" \
+        "REVIEW_PROMPT_FILE=$review_prompt_file")
+
+    jq -n \
+        --arg reason "$reason" \
+        --arg msg "Loop: Blocked - implementation review missing Mainline Progress Verdict" \
+        '{
+            "decision": "block",
+            "reason": $reason,
+            "systemMessage": $msg
+        }'
+    exit 0
+}
+
 # Continue review loop when issues are found
 # Arguments: $1=round_number, $2=review_content
 continue_review_loop_with_issues() {
@@ -1256,6 +1529,7 @@ continue_review_loop_with_issues() {
 - Notes: [what changed and why]
 EOF
     fi
+    local next_contract_file="$LOOP_DIR/round-${round}-contract.md"
 
     local fallback="# Code Review Findings
 
@@ -1267,14 +1541,35 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
 
 ## Instructions
 
-1. Address all issues marked with [P0-9] severity markers
-2. Focus on fixes only - do not add new features
-3. Commit your changes after fixing the issues
-4. Write your summary to: {{SUMMARY_FILE}}"
+1. Re-anchor on the original plan and current goal tracker before changing code
+2. Refresh the round contract at {{ROUND_CONTRACT_FILE}}
+3. Address only the issues that are truly blocking the current mainline objective or code-review acceptance
+4. Record non-blocking follow-up items as queued, not as the main goal
+5. Commit your changes after fixing the issues
+6. Write your summary to: {{SUMMARY_FILE}}"
 
     load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
         "REVIEW_CONTENT=$review_content" \
-        "SUMMARY_FILE=$next_summary_file" > "$next_prompt_file"
+        "SUMMARY_FILE=$next_summary_file" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "ROUND_CONTRACT_FILE=$next_contract_file" \
+        "CURRENT_ROUND=$round" > "$next_prompt_file"
+    if [[ "$BITLESSON_REQUIRED" == "true" ]] && ! grep -q 'bitlesson-selector' "$next_prompt_file"; then
+        cat >> "$next_prompt_file" << EOF
+
+## BitLesson Selection (REQUIRED FOR EACH FIX TASK)
+
+Before implementing each fix task, you MUST:
+
+1. Read @$BITLESSON_FILE
+2. Run \`bitlesson-selector\` for each fix task/sub-task to select relevant lesson IDs
+3. Follow the selected lesson IDs (or \`NONE\`) during implementation
+
+Reference: @$BITLESSON_FILE
+EOF
+    fi
     append_task_tag_routing_note "$next_prompt_file"
 
     jq -n \
@@ -1387,7 +1682,7 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
+    echo "codex exec ${CODEX_DISABLE_HOOKS_ARGS[*]} ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$CODEX_PROMPT_CONTENT"
@@ -1397,7 +1692,7 @@ echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running summary review with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_DISABLE_HOOKS_ARGS[@]}" "${CODEX_EXEC_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Codex exit code: $CODEX_EXIT_CODE" >&2
@@ -1519,6 +1814,53 @@ REVIEW_CONTENT=$(cat "$REVIEW_RESULT_FILE")
 LAST_LINE=$(echo "$REVIEW_CONTENT" | grep -v '^[[:space:]]*$' | tail -1)
 LAST_LINE_TRIMMED=$(echo "$LAST_LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
+NEXT_MAINLINE_STALL_COUNT="$MAINLINE_STALL_COUNT"
+NEXT_LAST_MAINLINE_VERDICT="$LAST_MAINLINE_VERDICT"
+NEXT_DRIFT_STATUS="$DRIFT_STATUS"
+DRIFT_REPLAN_REQUIRED=false
+MAINLINE_DRIFT_STOP=false
+
+if [[ "$REVIEW_STARTED" != "true" ]]; then
+    EXTRACTED_MAINLINE_VERDICT=$(extract_mainline_progress_verdict "$REVIEW_CONTENT")
+
+    if [[ "$LAST_LINE_TRIMMED" != "$MARKER_STOP" ]] && [[ "$EXTRACTED_MAINLINE_VERDICT" == "$MAINLINE_VERDICT_UNKNOWN" ]]; then
+        echo "Implementation review output is missing Mainline Progress Verdict. Blocking exit for safety." >&2
+        block_missing_mainline_verdict "$REVIEW_RESULT_FILE" "$REVIEW_PROMPT_FILE"
+    fi
+
+    case "$EXTRACTED_MAINLINE_VERDICT" in
+        "$MAINLINE_VERDICT_ADVANCED")
+            NEXT_MAINLINE_STALL_COUNT=0
+            NEXT_LAST_MAINLINE_VERDICT="$MAINLINE_VERDICT_ADVANCED"
+            NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+            ;;
+        "$MAINLINE_VERDICT_STALLED"|"$MAINLINE_VERDICT_REGRESSED")
+            NEXT_MAINLINE_STALL_COUNT=$((MAINLINE_STALL_COUNT + 1))
+            NEXT_LAST_MAINLINE_VERDICT="$EXTRACTED_MAINLINE_VERDICT"
+            if [[ "$NEXT_MAINLINE_STALL_COUNT" -ge 2 ]]; then
+                NEXT_DRIFT_STATUS="$DRIFT_STATUS_REPLAN_REQUIRED"
+                DRIFT_REPLAN_REQUIRED=true
+            else
+                NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+            fi
+            if [[ "$NEXT_MAINLINE_STALL_COUNT" -ge 3 ]]; then
+                MAINLINE_DRIFT_STOP=true
+            fi
+            ;;
+        *)
+            :
+            ;;
+    esac
+
+    if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
+        NEXT_MAINLINE_STALL_COUNT=0
+        NEXT_LAST_MAINLINE_VERDICT="$MAINLINE_VERDICT_ADVANCED"
+        NEXT_DRIFT_STATUS="$DRIFT_STATUS_NORMAL"
+        DRIFT_REPLAN_REQUIRED=false
+        MAINLINE_DRIFT_STOP=false
+    fi
+fi
+
 # Handle COMPLETE - enter Review Phase or Finalize Phase
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
     # In review phase, COMPLETE signal is ignored - only absence of [P0-9] triggers finalize
@@ -1530,6 +1872,9 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
         # Max iterations check
         if [[ $CURRENT_ROUND -ge $MAX_ITERATIONS ]]; then
             echo "Codex review passed but at max iterations ($MAX_ITERATIONS). Terminating as MAXITER." >&2
+            if enter_methodology_analysis_phase "maxiter" "Codex confirmed COMPLETE but at max iterations ($MAX_ITERATIONS)"; then
+                exit 0
+            fi
             end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_MAXITER"
             exit 0
         fi
@@ -1546,10 +1891,12 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_COMPLETE" ]]; then
         else
             echo "Implementation complete. Entering Review Phase..." >&2
 
-            # Update state to indicate review phase has started
-            TEMP_FILE="${STATE_FILE}.tmp.$$"
-            sed "s/^review_started: .*/review_started: true/" "$STATE_FILE" > "$TEMP_FILE"
-            mv "$TEMP_FILE" "$STATE_FILE"
+            # Update state to indicate review phase has started and clear drift counters.
+            upsert_state_fields "$STATE_FILE" \
+                "${FIELD_REVIEW_STARTED}=true" \
+                "${FIELD_MAINLINE_STALL_COUNT}=0" \
+                "${FIELD_LAST_MAINLINE_VERDICT}=${MAINLINE_VERDICT_ADVANCED}" \
+                "${FIELD_DRIFT_STATUS}=${DRIFT_STATUS_NORMAL}"
             REVIEW_STARTED="true"
 
             # Create marker file to validate review phase was properly entered
@@ -1597,6 +1944,11 @@ Use \`/humanize:cancel-rlcr-loop\` to end this loop."
     run_and_handle_code_review "$((CURRENT_ROUND + 1))" "Loop: Finalize Phase - Code review passed"
 fi
 
+if [[ "$MAINLINE_DRIFT_STOP" == "true" ]] && [[ "$LAST_LINE_TRIMMED" != "$MARKER_STOP" ]] && [[ "$LAST_LINE_TRIMMED" != "$MARKER_COMPLETE" ]]; then
+    echo "Mainline progress stalled for $NEXT_MAINLINE_STALL_COUNT consecutive rounds. Triggering drift circuit breaker." >&2
+    stop_for_mainline_drift "$NEXT_MAINLINE_STALL_COUNT" "$NEXT_LAST_MAINLINE_VERDICT"
+fi
+
 # Handle STOP - circuit breaker triggered
 if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
     echo "" >&2
@@ -1623,6 +1975,10 @@ if [[ "$LAST_LINE_TRIMMED" == "$MARKER_STOP" ]]; then
         echo "  $REVIEW_RESULT_FILE" >&2
     fi
     echo "========================================" >&2
+    # Try to enter methodology analysis phase before final exit
+    if enter_methodology_analysis_phase "stop" "Circuit breaker triggered - stagnation detected at round $CURRENT_ROUND"; then
+        exit 0
+    fi
     end_loop "$LOOP_DIR" "$STATE_FILE" "$EXIT_STOP"
     exit 0
 fi
@@ -1632,9 +1988,11 @@ fi
 # ========================================
 
 # Update state file for next round
-TEMP_FILE="${STATE_FILE}.tmp.$$"
-sed "s/^current_round: .*/current_round: $NEXT_ROUND/" "$STATE_FILE" > "$TEMP_FILE"
-mv "$TEMP_FILE" "$STATE_FILE"
+upsert_state_fields "$STATE_FILE" \
+    "${FIELD_CURRENT_ROUND}=${NEXT_ROUND}" \
+    "${FIELD_MAINLINE_STALL_COUNT}=${NEXT_MAINLINE_STALL_COUNT}" \
+    "${FIELD_LAST_MAINLINE_VERDICT}=${NEXT_LAST_MAINLINE_VERDICT}" \
+    "${FIELD_DRIFT_STATUS}=${NEXT_DRIFT_STATUS}"
 
 # Create next round prompt
 NEXT_PROMPT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-prompt.md"
@@ -1661,6 +2019,7 @@ if [[ ! -f "$NEXT_SUMMARY_FILE" ]]; then
 - Notes: [what changed and why]
 EOF
 fi
+NEXT_CONTRACT_FILE="$LOOP_DIR/round-${NEXT_ROUND}-contract.md"
 
 # Build the next round prompt from templates
 NEXT_ROUND_FALLBACK="# Next Round Instructions
@@ -1675,12 +2034,60 @@ Before executing tasks in this round:
 ## Codex Review
 {{REVIEW_CONTENT}}
 
-Reference: {{PLAN_FILE}}, {{GOAL_TRACKER_FILE}}, {{BITLESSON_FILE}}"
-load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_FALLBACK" \
-    "PLAN_FILE=$PLAN_FILE" \
-    "REVIEW_CONTENT=$REVIEW_CONTENT" \
-    "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
-    "BITLESSON_FILE=$BITLESSON_FILE" > "$NEXT_PROMPT_FILE"
+Reference: {{PLAN_FILE}}, {{GOAL_TRACKER_FILE}}, {{ROUND_CONTRACT_FILE}}, {{BITLESSON_FILE}}"
+DRIFT_REPLAN_FALLBACK="# Drift Recovery Required
+
+The mainline has not advanced for {{STALL_COUNT}} consecutive implementation rounds.
+
+Last mainline verdict: {{LAST_MAINLINE_VERDICT}}
+
+Before writing code:
+- Re-read @{{PLAN_FILE}}
+- Re-read @{{GOAL_TRACKER_FILE}}
+- Re-read the recent round summaries and review results
+- Rewrite @{{ROUND_CONTRACT_FILE}} with a recovery-focused mainline objective
+
+Do not spend this round clearing queued work. Recover mainline progress first.
+
+## Codex Review
+{{REVIEW_CONTENT}}"
+
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
+    load_and_render_safe "$TEMPLATE_DIR" "claude/drift-replan-prompt.md" "$DRIFT_REPLAN_FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "REVIEW_CONTENT=$REVIEW_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "CURRENT_ROUND=$NEXT_ROUND" \
+        "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
+        "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
+else
+    load_and_render_safe "$TEMPLATE_DIR" "claude/next-round-prompt.md" "$NEXT_ROUND_FALLBACK" \
+        "PLAN_FILE=$PLAN_FILE" \
+        "REVIEW_CONTENT=$REVIEW_CONTENT" \
+        "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
+        "BITLESSON_FILE=$BITLESSON_FILE" \
+        "ROUND_CONTRACT_FILE=$NEXT_CONTRACT_FILE" \
+        "CURRENT_ROUND=$NEXT_ROUND" \
+        "STALL_COUNT=$NEXT_MAINLINE_STALL_COUNT" \
+        "LAST_MAINLINE_VERDICT=$NEXT_LAST_MAINLINE_VERDICT" > "$NEXT_PROMPT_FILE"
+fi
+
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]] && [[ "$BITLESSON_REQUIRED" == "true" ]] && ! grep -q 'bitlesson-selector' "$NEXT_PROMPT_FILE"; then
+    cat >> "$NEXT_PROMPT_FILE" << EOF
+
+## BitLesson Selection (REQUIRED FOR EACH TASK)
+
+Before executing each task or sub-task, you MUST:
+
+1. Read @$BITLESSON_FILE
+2. Run \`bitlesson-selector\` for each task/sub-task to select relevant lesson IDs
+3. Follow the selected lesson IDs (or \`NONE\`) during implementation
+
+Reference: @$BITLESSON_FILE
+EOF
+fi
 
 if [[ "$AGENT_TEAMS" == "true" ]]; then
     ENFORCEMENT_BLOCK="**Delegation Warning**: Do NOT implement code yourself in Agent Teams mode; delegate all coding tasks to team members."
@@ -1797,6 +2204,9 @@ fi
 
 # Build system message
 SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Codex found issues to address"
+if [[ "$DRIFT_REPLAN_REQUIRED" == "true" ]]; then
+    SYSTEM_MSG="Loop: Round $NEXT_ROUND/$MAX_ITERATIONS - Mainline drift detected, replan required"
+fi
 
 # Block exit and send review feedback
 jq -n \

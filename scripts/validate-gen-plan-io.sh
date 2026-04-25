@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # validate-gen-plan-io.sh
 # Validates input and output paths for the gen-plan command
 # Exit codes:

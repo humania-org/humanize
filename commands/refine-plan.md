@@ -34,7 +34,7 @@ The refined plan MUST reuse the existing `gen-plan` schema. Do not invent new to
 1. **Execution Mode Setup**: Parse CLI arguments and derive output paths
 2. **Load Project Config**: Resolve `alternative_plan_language` and mode defaults using `config-loader.sh` semantics
 3. **IO Validation**: Run `validate-refine-plan-io.sh`
-4. **Comment Extraction**: Scan the annotated plan and extract valid `CMT:` / `ENDCMT` blocks
+4. **Comment Extraction**: Scan the annotated plan and extract valid comment blocks (`CMT:`/`ENDCMT`, `<cmt>`/`</cmt>`, `<comment>`/`</comment>`)
 5. **Comment Classification**: Classify each extracted comment for downstream handling
 6. **Comment Processing**: Answer questions, apply requested plan edits, and perform targeted research
 7. **Plan Refinement**: Produce the comment-free refined plan while preserving the `gen-plan` structure
@@ -167,7 +167,7 @@ Handle exit codes exactly:
 - Exit code 0: Continue to Phase 2
 - Exit code 1: Report `Input file not found` and stop
 - Exit code 2: Report `Input file is empty` and stop
-- Exit code 3: Report `Input file has no CMT:/ENDCMT blocks` and stop
+- Exit code 3: Report `Input file has no comment blocks` and stop
 - Exit code 4: Report `Input file is missing required gen-plan sections` and stop
 - Exit code 5: Report `Output directory does not exist or is not writable - please fix it` and stop
 - Exit code 6: Report `QA directory is not writable` and stop
@@ -196,17 +196,32 @@ Track these states while scanning the validated input in document order:
 
 Extraction rules:
 
-1. Recognize `CMT:` as the start marker and `ENDCMT` as the end marker.
-2. Support both inline and multi-line blocks:
+1. Support three comment formats:
+   - Classic: `CMT:` as start marker and `ENDCMT` as end marker
+   - Short tag: `<cmt>` as start marker and `</cmt>` as end marker
+   - Long tag: `<comment>` as start marker and `</comment>` as end marker
+2. Support both inline and multi-line blocks for all formats:
    - Inline: `Text before CMT: comment text ENDCMT text after`
+   - Inline: `Text before <cmt>comment text</cmt> text after`
+   - Inline: `Text before <comment>comment text</comment> text after`
    - Multi-line:
      ```markdown
      CMT:
      comment text
      ENDCMT
      ```
-3. Ignore `CMT:` and `ENDCMT` sequences inside fenced code blocks.
-4. Ignore `CMT:` and `ENDCMT` sequences inside HTML comments.
+     ```markdown
+     <cmt>
+     comment text
+     </cmt>
+     ```
+     ```markdown
+     <comment>
+     comment text
+     </comment>
+     ```
+3. Ignore comment markers inside fenced code blocks.
+4. Ignore comment markers inside HTML comments.
 5. Update `NEAREST_HEADING` whenever a Markdown heading is encountered outside fenced code and HTML comments.
 6. Preserve surrounding non-comment text when removing inline comment blocks from the working plan text.
 7. Assign raw comment IDs in document order as `CMT-1`, `CMT-2`, ... only for non-empty blocks.
@@ -217,7 +232,7 @@ Extraction rules:
 For each non-empty comment block, capture:
 
 - `id` (`CMT-N`)
-- `original_text` exactly as written between `CMT:` and `ENDCMT`
+- `original_text` exactly as written between the comment markers
 - `normalized_text` with surrounding whitespace trimmed
 - `start_line`, `start_column`
 - `end_line`, `end_column`
@@ -230,8 +245,8 @@ For each non-empty comment block, capture:
 
 These are fatal extraction errors:
 
-1. Nested `CMT:` while already inside a comment block
-2. `ENDCMT` encountered while not inside a comment block
+1. Nested comment start marker while already inside a comment block
+2. Comment end marker encountered while not inside a comment block or wrong end marker for the format
 3. End of file reached while still inside a comment block
 
 Every fatal parse error MUST report:
@@ -243,9 +258,9 @@ Every fatal parse error MUST report:
 
 Examples of acceptable messages:
 
-- `Comment parse error: nested CMT block at line 48, column 3 near "## Acceptance Criteria" (context: "CMT: split AC-2...")`
-- `Comment parse error: stray ENDCMT at line 109, column 1 near "## Task Breakdown" (context: "ENDCMT")`
-- `Comment parse error: missing ENDCMT for block opened at line 72, column 5 near "## Dependencies and Sequence"`
+- `Comment parse error: nested comment block at line 48, column 3 near "## Acceptance Criteria" (context: "<cmt>split AC-2...")`
+- `Comment parse error: stray comment end marker at line 109, column 1 near "## Task Breakdown" (context: "</comment>")`
+- `Comment parse error: missing end marker for block opened at line 72, column 5 near "## Dependencies and Sequence"`
 
 ### Outputs from Phase 2
 
@@ -403,7 +418,7 @@ Optional sections that MUST be preserved when present in the input:
 
 ### Refinement Rules
 
-1. Remove every resolved `CMT:` / `ENDCMT` tag and all enclosed comment text from the refined plan.
+1. Remove every resolved comment marker and all enclosed comment text from the refined plan.
 2. Do not add any new top-level schema section.
 3. Preserve `AC-X` / `AC-X.Y` formatting.
 4. Preserve task IDs unless a comment explicitly requests a structural change.
@@ -429,7 +444,7 @@ Rules:
 Before generating the QA document, verify:
 
 1. All required sections are still present
-2. No `CMT:` or `ENDCMT` markers remain
+2. No comment markers remain
 3. Every referenced `AC-*` exists
 4. Every task dependency references an existing task ID or `-`
 5. Every task row has exactly one valid routing tag: `coding` or `analyze`

@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.15.4**
+**Current Version: 1.16.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -25,6 +25,7 @@ A Claude Code plugin that provides iterative development with independent AI rev
 
 The loop has two phases: **Implementation** (Claude works, Codex reviews summaries) and **Code Review** (Codex checks code quality with severity markers). Issues feed back into implementation until resolved.
 
+
 ## Install
 
 ```bash
@@ -40,25 +41,39 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 
 ## Quick Start
 
-1. **Generate a plan** from your draft:
+1. **Generate an idea draft** from a loose thought (optional — skip if you already have a draft):
+   ```bash
+   /humanize:gen-idea "add undo/redo to the editor"
+   ```
+   Output goes to `.humanize/ideas/<slug>-<timestamp>.md` by default. Pass a `.md` path to expand existing rough notes. `--n` controls how many parallel directions explore the idea (default 6).
+
+2. **Generate a plan** from your draft:
    ```bash
    /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
 
-2. **Refine an annotated plan** before implementation when reviewers add `CMT:` ... `ENDCMT` comments:
+3. **Refine an annotated plan** before implementation when reviewers add comments (`CMT:` ... `ENDCMT`, `<cmt>` ... `</cmt>`, or `<comment>` ... `</comment>`):
    ```bash
    /humanize:refine-plan --input docs/plan.md
    ```
 
-3. **Run the loop**:
+4. **Run the loop**:
    ```bash
    /humanize:start-rlcr-loop docs/plan.md
    ```
 
-4. **Monitor progress**:
+5. **Consult Gemini** for deep web research (requires Gemini CLI):
    ```bash
-   source <path/to/humanize>/scripts/humanize.sh
-   humanize monitor rlcr
+   /humanize:ask-gemini What are the latest best practices for X?
+   ```
+
+6. **Monitor progress (in another terminal, not inside Claude Code)**:
+   ```bash
+   source <path/to/humanize>/scripts/humanize.sh # Or just add it into your .bashec or .zshrc
+   humanize monitor rlcr       # RLCR loop
+   humanize monitor skill      # All skill invocations (codex + gemini)
+   humanize monitor codex      # Codex invocations only
+   humanize monitor gemini     # Gemini invocations only
    ```
 
 ## Monitor Dashboard

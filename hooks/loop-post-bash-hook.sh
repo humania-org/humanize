@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # PostToolUse Bash Hook for RLCR loop
 #
@@ -26,8 +26,13 @@ set -euo pipefail
 # Read hook JSON input from stdin
 HOOK_INPUT=$(cat)
 
-# Determine project root
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# Determine project root using the shared deterministic resolver.
+# If neither CLAUDE_PROJECT_DIR nor a git toplevel is available, there
+# is no active loop to patch - exit cleanly (pwd is NOT used as a
+# fallback because it drifts with `cd` during a session).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$SCRIPT_DIR/lib/project-root.sh"
+PROJECT_ROOT="$(resolve_project_root)" || exit 0
 
 # Check for pending session_id signal file
 SIGNAL_FILE="$PROJECT_ROOT/.humanize/.pending-session-id"

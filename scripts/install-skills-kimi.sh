@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Convenience wrapper: install Humanize skills for Kimi target.
 #
