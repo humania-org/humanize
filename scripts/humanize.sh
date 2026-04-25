@@ -1187,6 +1187,166 @@ _humanize_monitor_codex() {
     fi
 }
 
+
+# Launch the web dashboard for one project. Foreground by default
+# (matches the UX of the other `humanize monitor` subcommands);
+# `--daemon` delegates to the existing tmux-backed launcher.
+#
+# Pass-through flags (forwarded to viz/server/app.py):
+#   --project <path>      Project root for the dashboard (default: cwd)
+#   --port <int>          Bound port (default: auto, 18000-18099)
+#   --host <addr>         Bind address (default: 127.0.0.1; remote auth
+#                         enforcement lands with T11 in a later round)
+#   --auth-token <token>  Bearer token for remote-mode auth (parsed and
+#                         forwarded; full enforcement lands with T11)
+#   --daemon              Run as a background tmux service via viz-start.sh
+_humanize_monitor_web() {
+    local project_dir
+    project_dir="$(pwd)"
+    local host="127.0.0.1"
+    local port=""
+    local auth_token=""
+    local daemon=false
+
+    local trust_proxy=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project) project_dir="$2"; shift 2 ;;
+            --host)    host="$2"; shift 2 ;;
+            --port)    port="$2"; shift 2 ;;
+            --auth-token) auth_token="$2"; shift 2 ;;
+            --trust-proxy) trust_proxy=true; shift ;;
+            --daemon)  daemon=true; shift ;;
+            -h|--help)
+                echo "Usage: humanize monitor web [--project <path>] [--host <addr>] [--port <int>] [--auth-token <tok>] [--trust-proxy] [--daemon]"
+                return 0
+                ;;
+            *)
+                echo "Error: unknown flag for 'monitor web': $1" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    project_dir="$(cd "$project_dir" 2>/dev/null && pwd)" || {
+        echo "Error: project directory not found: $project_dir" >&2
+        return 1
+    }
+    if [[ ! -d "$project_dir/.humanize" ]]; then
+        echo "Error: $project_dir/.humanize/ does not exist" >&2
+        echo "  This command must run inside a project initialized by humanize." >&2
+        return 1
+    fi
+
+    local viz_root="$HUMANIZE_SCRIPT_DIR/../viz"
+    local app_entry="$viz_root/server/app.py"
+    local static_dir="$viz_root/static"
+    local venv_dir="$project_dir/.humanize/viz-venv"
+    local requirements="$viz_root/server/requirements.txt"
+
+    if [[ "$daemon" == "true" ]]; then
+        # Daemon mode: reuse the tmux-backed launcher (now per-project
+        # named per T9). Forward every flag so remote-bind + token
+        # configuration reach the underlying app.py invocation.
+        local viz_start="$viz_root/scripts/viz-start.sh"
+        if [[ ! -x "$viz_start" ]]; then
+            echo "Error: viz-start.sh not found at $viz_start" >&2
+            return 1
+        fi
+        local -a daemon_args=(--project "$project_dir" --host "$host")
+        [[ -n "$port" ]] && daemon_args+=(--port "$port")
+        [[ -n "$auth_token" ]] && daemon_args+=(--auth-token "$auth_token")
+        [[ "$trust_proxy" == "true" ]] && daemon_args+=(--trust-proxy)
+        bash "$viz_start" "${daemon_args[@]}"
+        return $?
+    fi
+
+    # Foreground mode (default per DEC-1).
+    if [[ ! -d "$venv_dir" ]]; then
+        echo "Creating Python virtual environment for the dashboard..."
+        python3 -m venv "$venv_dir" || {
+            echo "Error: failed to create venv at $venv_dir" >&2
+            return 1
+        }
+        echo "Installing dependencies..."
+        "$venv_dir/bin/pip" install --quiet -r "$requirements" || {
+            echo "Error: failed to install requirements" >&2
+            return 1
+        }
+        touch "$venv_dir/.requirements_installed"
+    elif [[ "$requirements" -nt "$venv_dir/.requirements_installed" ]]; then
+        echo "Updating dependencies..."
+        if ! "$venv_dir/bin/pip" install --quiet -r "$requirements"; then
+            # Leave .requirements_installed untouched so the next
+            # launch re-detects the stale marker and retries the
+            # upgrade rather than silently starting with missing
+            # packages. Surface a non-zero exit so callers see it.
+            echo "Error: pip install failed during dependency refresh" >&2
+            return 1
+        fi
+        touch "$venv_dir/.requirements_installed"
+    fi
+
+    if [[ -z "$port" ]]; then
+        # Probe the requested bind host so port selection matches what
+        # app.run(host=BIND_HOST, port=$port) will actually try to bind.
+        # Loopback aliases and wildcards listen on localhost too, so
+        # localhost is a valid proxy for them; but a specific non-
+        # loopback address does NOT listen on localhost, so probing
+        # localhost misses EADDRINUSE conflicts on the external
+        # interface and Flask would die on startup. Mirrors the
+        # Round 14 fix in viz/scripts/viz-start.sh:find_port.
+        local probe_host
+        case "$host" in
+            127.0.0.1|::1|localhost|0.0.0.0|::)
+                probe_host="localhost"
+                ;;
+            *)
+                probe_host="$host"
+                ;;
+        esac
+        for candidate in $(seq 18000 18099); do
+            if ! (echo >/dev/tcp/$probe_host/$candidate) 2>/dev/null; then
+                port="$candidate"
+                break
+            fi
+        done
+        if [[ -z "$port" ]]; then
+            echo "Error: no available port in range 18000-18099" >&2
+            return 1
+        fi
+    fi
+
+    if [[ "$host" != "127.0.0.1" && "$host" != "localhost" && -z "$auth_token" ]]; then
+        echo "Warning: binding $host without --auth-token (full remote auth enforcement is T11)" >&2
+    fi
+
+    local visible_host="$host"
+    [[ "$host" == "127.0.0.1" || "$host" == "::1" ]] && visible_host="localhost"
+    local url="http://${visible_host}:${port}"
+    echo "Starting humanize monitor web at $url (project: $project_dir)"
+    echo "Press Ctrl+C to stop."
+
+    local -a fg_args=(
+        --host "$host"
+        --port "$port"
+        --project "$project_dir"
+        --static "$static_dir"
+    )
+    [[ -n "$auth_token" ]] && fg_args+=(--auth-token "$auth_token")
+    [[ "$trust_proxy" == "true" ]] && fg_args+=(--trust-proxy)
+
+    # Do NOT exec: `humanize` is a function sourced into the user's
+    # interactive shell (see scripts/humanize.sh usage in README).
+    # `exec` would replace that shell process with Python, so
+    # pressing Ctrl+C (or any server exit) would kill the whole
+    # interactive session. Running the command as a child process
+    # instead lets the function return normally on server exit and
+    # keeps the shell prompt alive.
+    "$venv_dir/bin/python" "$app_entry" "${fg_args[@]}"
+}
+
+
 # Main humanize function
 humanize() {
     local cmd="$1"
@@ -1209,16 +1369,20 @@ humanize() {
                 gemini)
                     _humanize_monitor_skill --tool-filter gemini "$@"
                     ;;
+                web)
+                    _humanize_monitor_web "$@"
+                    ;;
                 *)
-                    echo "Usage: humanize monitor <rlcr|skill|codex|gemini>"
+                    echo "Usage: humanize monitor <rlcr|skill|codex|gemini|web>"
                     echo ""
                     echo "Subcommands:"
                     echo "  rlcr    Monitor the latest RLCR loop log from .humanize/rlcr"
                     echo "  skill   Monitor all skill invocations (codex + gemini)"
                     echo "  codex   Monitor ask-codex skill invocations only"
                     echo "  gemini  Monitor ask-gemini skill invocations only"
+                    echo "  web     Launch the browser dashboard for one project"
                     echo ""
-                    echo "Features:"
+                    echo "Features (terminal monitors):"
                     echo "  - Fixed status bar showing session info, round progress, model config"
                     echo "  - Goal tracker summary: Ultimate Goal, AC progress, task status"
                     echo "  - Real-time log output in scrollable area below"
@@ -1235,6 +1399,7 @@ humanize() {
             echo "  monitor skill   Monitor all skill invocations (codex + gemini)"
             echo "  monitor codex   Monitor ask-codex skill invocations only"
             echo "  monitor gemini  Monitor ask-gemini skill invocations only"
+            echo "  monitor web     Launch the browser dashboard for one project"
             return 1
             ;;
     esac

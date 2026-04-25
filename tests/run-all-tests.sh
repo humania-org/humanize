@@ -99,6 +99,16 @@ TEST_SUITES=(
     "test-model-router.sh"
     # Skill monitor tests
     "test-skill-monitor.sh"
+    # Viz dashboard tests
+    "test-viz.sh"
+    "test-viz-isolation.sh"
+    "test-streaming.sh"
+    "test-app-auth.sh"
+    "test-app-routes-live.sh"
+    "test-cancel-session.sh"
+    "test-frontend-migration.sh"
+    "test-rlcr-sources.sh"
+    "test-style-compliance.sh"
     # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"
