@@ -898,7 +898,9 @@ is_cancel_authorized() {
 # Check if a path is inside .humanize/rlcr directory
 is_in_humanize_loop_dir() {
     local path="$1"
-    echo "$path" | grep -q '\.humanize/rlcr/'
+    # Normalize backslashes to forward slashes so Windows paths (C:\...\.humanize\rlcr\...)
+    # match the POSIX pattern the rest of the hook tree expects.
+    echo "${path//\\//}" | grep -q '\.humanize/rlcr/'
 }
 
 # ========================================

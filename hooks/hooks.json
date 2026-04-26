@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-plan-file-validator.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-plan-file-validator.sh\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-write-validator.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-write-validator.sh\""
           }
         ]
       },
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-edit-validator.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-edit-validator.sh\""
           }
         ]
       },
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-read-validator.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-read-validator.sh\""
           }
         ]
       },
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-bash-validator.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-bash-validator.sh\""
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-post-bash-hook.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-post-bash-hook.sh\""
           }
         ]
       }
@@ -65,12 +65,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/loop-codex-stop-hook.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/loop-codex-stop-hook.sh\"",
             "timeout": 7200
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-loop-stop-hook.sh",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-loop-stop-hook.sh\"",
             "timeout": 7200
           }
         ]
