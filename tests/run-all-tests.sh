@@ -80,6 +80,7 @@ TEST_SUITES=(
     "test-monitor-runtime.sh"
     "test-monitor-e2e-deletion.sh"
     "test-monitor-e2e-sigint.sh"
+    "test-gen-idea-wiring.sh"
     "test-gen-plan.sh"
     "test-refine-plan.sh"
     "test-task-tag-routing.sh"

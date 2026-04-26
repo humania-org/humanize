@@ -127,6 +127,12 @@ else
     fail "Codex install keeps humanize-rlcr entrypoint skill" "skills/humanize-rlcr/SKILL.md exists" "missing"
 fi
 
+if [[ -f "$CODEX_HOME_DIR/skills/humanize-gen-idea/SKILL.md" ]]; then
+    pass "Codex install keeps humanize-gen-idea entrypoint skill"
+else
+    fail "Codex install keeps humanize-gen-idea entrypoint skill" "skills/humanize-gen-idea/SKILL.md exists" "missing"
+fi
+
 if [[ -f "$HOOKS_FILE" ]]; then
     pass "Codex install writes hooks.json"
 else
