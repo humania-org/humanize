@@ -25,8 +25,97 @@ usage() {
 }
 
 IDEA_INPUT=""
+IDEA_PARTS=()
 N=6
 OUTPUT_FILE=""
+
+if [[ $# -eq 2 && "$1" == "--raw-arguments" ]]; then
+    RAW_ARGUMENTS="$2"
+    PARSED_ARGS_FILE="$(mktemp)"
+    if ! python3 - "$RAW_ARGUMENTS" > "$PARSED_ARGS_FILE" <<'PY'
+import sys
+
+raw = sys.argv[1]
+length = len(raw)
+tokens = []
+
+
+def read_token(pos):
+    if pos >= length:
+        return "", pos
+    if raw[pos] in ("'", '"'):
+        quote = raw[pos]
+        end = raw.find(quote, pos + 1)
+        if end != -1:
+            return raw[pos + 1:end], end + 1
+    end = pos
+    while end < length and not raw[end].isspace():
+        end += 1
+    return raw[pos:end], end
+
+
+idx = 0
+while idx < length:
+    while idx < length and raw[idx].isspace():
+        idx += 1
+    if idx >= length:
+        break
+    start = idx
+    value, idx = read_token(idx)
+    tokens.append((value, start, idx))
+
+
+def strip_outer_quotes(text):
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        return text[1:-1]
+    return text
+
+
+args = []
+skip_spans = []
+idx = 0
+while idx < len(tokens):
+    token, start, end = tokens[idx]
+    if token in ("--n", "--output"):
+        args.append(token)
+        skip_spans.append((start, end))
+        if idx + 1 < len(tokens):
+            value, value_start, value_end = tokens[idx + 1]
+            args.append(value)
+            skip_spans.append((value_start, value_end))
+            idx += 2
+        else:
+            idx += 1
+        continue
+    if token in ("-h", "--help") or token.startswith("--"):
+        args.append(token)
+        skip_spans.append((start, end))
+    idx += 1
+
+chars = list(raw)
+for start, end in skip_spans:
+    for pos in range(start, end):
+        chars[pos] = " "
+idea = strip_outer_quotes(" ".join("".join(chars).strip().split()))
+if idea:
+    args.append(idea)
+
+for arg in args:
+    sys.stdout.buffer.write(arg.encode("utf-8") + b"\0")
+PY
+    then
+        cat "$PARSED_ARGS_FILE" 2>/dev/null || true
+        rm -f "$PARSED_ARGS_FILE"
+        usage
+    fi
+
+    PARSED_ARGS=()
+    while IFS= read -r -d '' arg; do
+        PARSED_ARGS+=("$arg")
+    done < "$PARSED_ARGS_FILE"
+    rm -f "$PARSED_ARGS_FILE"
+    set -- "${PARSED_ARGS[@]}"
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -54,16 +143,15 @@ while [[ $# -gt 0 ]]; do
             usage
             ;;
         *)
-            if [[ -z "$IDEA_INPUT" ]]; then
-                IDEA_INPUT="$1"
-                shift
-            else
-                echo "ERROR: Unexpected positional argument: $1"
-                usage
-            fi
+            IDEA_PARTS+=("$1")
+            shift
             ;;
     esac
 done
+
+if (( ${#IDEA_PARTS[@]} > 0 )); then
+    IDEA_INPUT="${IDEA_PARTS[*]}"
+fi
 
 if [[ -z "$IDEA_INPUT" ]]; then
     echo "VALIDATION_ERROR: MISSING_IDEA"

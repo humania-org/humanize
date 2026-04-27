@@ -3,7 +3,7 @@
 # Install/upgrade Humanize skills for Kimi and/or Codex.
 #
 # What this does:
-# 1) Sync skills/{humanize,humanize-gen-plan,humanize-rlcr} to target skills dir(s)
+# 1) Sync Humanize skills to target skills dir(s)
 # 2) Copy runtime dependencies into <skills-dir>/humanize/{scripts,hooks,prompt-template}
 # 3) Hydrate SKILL.md command paths with concrete runtime root paths
 #
@@ -39,6 +39,7 @@ DRY_RUN="false"
 SKILL_NAMES=(
     "humanize"
     "humanize-gen-plan"
+    "humanize-plan-check"
     "humanize-refine-plan"
     "humanize-rlcr"
 )
@@ -273,15 +274,15 @@ install_codex_user_config() {
     local user_config_file="$user_config_dir/config.json"
     local default_config_file="$runtime_root/config/default_config.json"
 
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log "DRY-RUN seed Codex-friendly BitLesson config in $user_config_file"
+        return
+    fi
+
     [[ -f "$default_config_file" ]] || die "missing default config: $default_config_file"
 
     if ! command -v python3 >/dev/null 2>&1; then
         die "python3 is required to update Humanize user config for Codex installs"
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-        log "DRY-RUN seed Codex-friendly BitLesson config in $user_config_file"
-        return
     fi
 
     mkdir -p "$user_config_dir"

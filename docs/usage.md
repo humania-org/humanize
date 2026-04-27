@@ -63,6 +63,7 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
 | `/refine-plan --input <annotated-plan.md>` | Refine an annotated plan and generate a QA ledger |
+| `/plan-check --plan <plan.md>` | Check a plan for contradictions, ambiguities, and schema compliance |
 | `/ask-codex [question]` | One-shot consultation with Codex |
 
 ## Command Reference
@@ -112,6 +113,8 @@ OPTIONS:
              (discussion mode only; ignored in --direct)
   --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
   --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
+  --check       Enable integrated draft-check and plan-check mode for this invocation
+  --no-check    Disable integrated check mode for this invocation (overrides --check and config)
   -h, --help             Show help message
 ```
 
@@ -120,13 +123,58 @@ The gen-plan command transforms rough draft documents into structured implementa
 Workflow:
 1. Validates input/output paths
 2. Checks if draft is relevant to the repository
-3. Analyzes draft for clarity, consistency, completeness, and functionality
-4. Engages user to resolve any issues found
-5. Generates a structured plan.md with acceptance criteria
-6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
+3. When check mode is enabled, runs `check-draft` to detect contradictions and ambiguities that would affect plan generation
+4. Analyzes draft for clarity, consistency, completeness, and functionality
+5. Engages user to resolve any issues found
+6. Generates a structured plan.md with acceptance criteria
+7. When check mode is enabled, runs `check-plan` against the generated plan and repairs discrepancies using the original draft as the source of truth
+8. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
 
 If reviewers later annotate the generated plan with comment blocks, run
 `/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.
+
+#### Check Mode
+
+Check mode adds pre-generation draft checking and post-generation plan checking with targeted repair. It is **disabled by default**.
+
+Enable check mode via CLI flag:
+```bash
+/humanize:gen-plan --input draft.md --output plan.md --check
+```
+
+Disable check mode for one invocation even if config enables it:
+```bash
+/humanize:gen-plan --input draft.md --output plan.md --no-check
+```
+
+Enable check mode by default via config (`gen_plan_check`):
+```json
+{
+  "gen_plan_check": true
+}
+```
+
+**Resolution priority** (highest to lowest):
+1. `--no-check` flag forces disabled
+2. `--check` flag forces enabled
+3. Merged config `gen_plan_check` value (`true` or `false`)
+4. Default: disabled
+
+If the merged config contains an invalid value (anything other than `true` or `false`), a warning is printed and check mode falls back to disabled unless `--check` is passed.
+
+**Check mode behavior**:
+- `check-draft`: Runs after the relevance check and before plan generation. Detects contradictions and ambiguities in the draft that would affect plan generation. Blocker findings are presented to the user for clarification before the plan is generated.
+- `check-plan`: Runs after the plan body is written. Validates schema compliance, internal consistency, and draft-vs-plan drift. Findings are repaired using source-of-truth precedence: explicit user answers > original draft text > repository facts > safe leader-agent judgment.
+- `repair`: High-priority-source rewrites (clarifications, draft text, repo facts) are applied silently. Leader-agent-judgment rewrites require a diff preview and user confirmation.
+- `recheck`: Controlled by the existing `plan_check_recheck` config. When enabled and at least one repair changed plan bytes, `check-plan` runs once more in check-only mode (no further repair).
+
+**Artifacts**: When check mode is enabled, diagnostic artifacts are written to `.humanize/gen-plan-check/<timestamp>/`:
+- `draft-findings.json` -- findings from the draft-check phase
+- `plan-findings.json` -- findings from the plan-check phase
+- `report.md` -- combined human-readable report
+- `resolution.json` -- resolution records for repaired findings
+- `backup/` -- backup of the plan before each accepted rewrite
+- `tmp/` -- ephemeral temp files (deleted before the command exits)
 
 ### refine-plan
 
@@ -253,6 +301,59 @@ for getting a second opinion, reviewing a design, or asking domain-specific ques
 Responses are saved to `.humanize/skill/<timestamp>/` with `input.md`, `output.md`,
 and `metadata.md` for reference.
 
+### plan-check
+
+```
+/humanize:plan-check --plan <path/to/plan.md> [OPTIONS]
+
+OPTIONS:
+  --plan <path>         Path to the plan file to check (required)
+  --recheck             Re-run plan-check after an accepted rewrite (default: disabled)
+  --alt-language <lang> Generate an additional report in the specified language
+  -h, --help            Show help message
+```
+
+The `plan-check` command analyzes a plan file for internal contradictions,
+ambiguities, and structural schema compliance before implementation begins.
+
+**What it checks:**
+- **Contradictions**: Statements that assign two incompatible definitions to the same symbol or mechanism
+- **Ambiguities**: Statements that admit multiple valid interpretations affecting execution
+- **Schema compliance**: Required sections, duplicate AC IDs, invalid task tags, orphaned dependencies, circular dependencies, appendix drift
+
+**How it works:**
+1. Runs deterministic schema validation using the canonical `gen-plan-template.md`
+2. Spawns a sub-agent to perform semantic contradiction and ambiguity detection
+3. Generates a structured findings report under `.humanize/plan-check/<timestamp>/`
+4. Presents contradictions to the user for interactive resolution
+5. Presents ambiguities atomically for clarification
+6. Optionally rewrites the plan file in-place after user confirmation
+
+By default, `plan-check` does not re-run after an accepted rewrite. Use `--recheck`
+for a single run, or set `"plan_check_recheck": true` in Humanize config to make
+recheck the default for the project or user.
+
+**Report artifacts:**
+- `report.md` -- Human-readable findings report
+- `findings.json` -- Machine-readable findings (schema v1.0)
+- `resolution.json` -- Post-resolution report with user clarifications (if applicable)
+- `backup/plan.md.bak` -- Backup of the original plan (if rewrite is performed)
+
+**Exit codes:**
+- `0` -- No unresolved blockers remain
+- `1` -- Unresolved blockers exist
+
+**Example:**
+```bash
+/humanize:plan-check --plan .humanize/plans/my-plan.md
+```
+
+In Codex, use the installed skill form:
+
+```bash
+$humanize-plan-check --plan .humanize/plans/my-plan.md
+```
+
 ## Configuration
 
 Humanize uses a 4-layer config hierarchy (lowest to highest priority):
@@ -272,6 +373,7 @@ Current built-in keys:
 | `agent_teams` | `false` | Project-level default for agent teams workflow |
 | `alternative_plan_language` | `""` | Optional translated plan variant language; supported values include `Chinese`, `Korean`, `Japanese`, `Spanish`, `French`, `German`, `Portuguese`, `Russian`, `Arabic`, or ISO codes like `zh` |
 | `gen_plan_mode` | `discussion` | Default plan-generation mode |
+| `plan_check_recheck` | `false` | Re-run `plan-check` after an accepted rewrite; CLI `--recheck` enables this for a single run |
 
 ### Codex Model Configuration
 

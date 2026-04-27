@@ -413,6 +413,55 @@ else
 fi
 
 echo ""
+echo "--- Test 8b: Empty codex_model falls back without nounset abort ---"
+echo ""
+
+setup_test_dir
+create_real_bitlesson "$TEST_DIR"
+mkdir -p "$TEST_DIR/.humanize"
+printf '{"bitlesson_model": "haiku", "codex_model": "", "provider_mode": "codex-only"}' > "$TEST_DIR/.humanize/config.json"
+EMPTY_FALLBACK_BIN="$TEST_DIR/empty-fallback-bin"
+mkdir -p "$EMPTY_FALLBACK_BIN"
+cat > "$EMPTY_FALLBACK_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--help" ]] || [[ "${2:-}" == "--help" ]]; then
+    echo "  --disable <feature>   Disable a feature"
+    exit 0
+fi
+printf '%s\n' "$@" > "${TEST_CAPTURE_ARGS:?}"
+cat > /dev/null
+cat <<'OUT'
+LESSON_IDS: NONE
+RATIONALE: Empty codex_model fell back to the default Codex model.
+OUT
+EOF
+chmod +x "$EMPTY_FALLBACK_BIN/codex"
+
+CAPTURE_ARGS="$TEST_DIR/empty-codex-model-args.txt"
+exit_code=0
+stdout_out=""
+stdout_out=$(TEST_CAPTURE_ARGS="$CAPTURE_ARGS" CLAUDE_PROJECT_DIR="$TEST_DIR" XDG_CONFIG_HOME="$TEST_DIR/no-user" \
+    PATH="$EMPTY_FALLBACK_BIN:$SAFE_BASE_PATH" \
+    bash "$BITLESSON_SELECT" \
+    --task "Initialize tracker" \
+    --paths "plans/plan.md" \
+    --bitlesson-file "$TEST_DIR/bitlesson.md" 2>/dev/null) || exit_code=$?
+
+captured_args="$(cat "$CAPTURE_ARGS" 2>/dev/null || true)"
+expected_default_model="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["codex_model"])' "$PROJECT_ROOT/config/default_config.json")"
+
+if [[ $exit_code -eq 0 ]] \
+    && echo "$stdout_out" | grep -q "LESSON_IDS: NONE" \
+    && echo "$captured_args" | grep -q -- "-m" \
+    && echo "$captured_args" | grep -q -- "$expected_default_model"; then
+    pass "empty codex_model falls back to DEFAULT_CODEX_MODEL"
+else
+    fail "empty codex_model falls back to DEFAULT_CODEX_MODEL" \
+        "exit=0 + -m $expected_default_model" \
+        "exit=$exit_code, stdout=$stdout_out, args=$captured_args"
+fi
+
+echo ""
 echo "--- Test 9: Placeholder BitLesson file short-circuits to NONE ---"
 echo ""
 

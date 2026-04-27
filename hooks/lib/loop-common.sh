@@ -1030,6 +1030,23 @@ _normalize_path() {
     echo "$1" | sed 's|/\./|/|g; s|//|/|g'
 }
 
+# Compare paths using the same normalization and parent-canonicalization used by
+# loop-file validators. This accepts symlinked project prefixes without
+# dereferencing the target filename itself.
+loop_paths_match() {
+    local left="$1"
+    local right="$2"
+    local normalized_left normalized_right
+    local canonical_left canonical_right
+
+    normalized_left=$(_normalize_path "$left")
+    normalized_right=$(_normalize_path "$right")
+    canonical_left=$(canonicalize_path_prefix "$normalized_left")
+    canonical_right=$(canonicalize_path_prefix "$normalized_right")
+
+    [[ "${canonical_left:-$normalized_left}" == "${canonical_right:-$normalized_right}" ]]
+}
+
 # Check if cancel operation is authorized via signal file
 # Usage: is_cancel_authorized "$active_loop_dir" "$command_lower"
 # Returns: 0 if authorized, non-zero otherwise
@@ -1522,7 +1539,7 @@ Use Write or Edit on: {{CORRECT_PATH}}
 
 Rules:
 - Keep the **IMMUTABLE SECTION** unchanged
-- Do not modify `goal-tracker.md` via Bash
+- Do not modify \`goal-tracker.md\` via Bash
 - Do not write to an old loop session's tracker"
 
     load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \

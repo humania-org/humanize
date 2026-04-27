@@ -11,6 +11,14 @@ source "$SCRIPT_DIR/lib/config-loader.sh"
 source "$SCRIPT_DIR/lib/model-router.sh"
 source "$SCRIPT_DIR/../hooks/lib/project-root.sh"
 
+# Source portable timeout wrapper
+source "$SCRIPT_DIR/portable-timeout.sh"
+
+# Source shared loop library before config fallback expansion so
+# DEFAULT_CODEX_MODEL is initialized under set -u.
+HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
+source "$HOOKS_LIB_DIR/loop-common.sh"
+
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(resolve_project_root)" || {
     echo "Error: Cannot determine project root." >&2
@@ -24,13 +32,6 @@ CODEX_FALLBACK_MODEL="$(get_config_value "$MERGED_CONFIG" "codex_model")"
 CODEX_FALLBACK_MODEL="${CODEX_FALLBACK_MODEL:-$DEFAULT_CODEX_MODEL}"
 PROVIDER_MODE="$(get_config_value "$MERGED_CONFIG" "provider_mode")"
 PROVIDER_MODE="${PROVIDER_MODE:-auto}"
-
-# Source portable timeout wrapper
-source "$SCRIPT_DIR/portable-timeout.sh"
-
-# Source shared loop library (kept for consistency with ask-codex.sh)
-HOOKS_LIB_DIR="$(cd "$SCRIPT_DIR/../hooks/lib" && pwd)"
-source "$HOOKS_LIB_DIR/loop-common.sh"
 
 usage() {
     cat <<'USAGE_EOF' >&2

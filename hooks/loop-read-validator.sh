@@ -226,10 +226,8 @@ fi
 
 if [[ "$IS_GOAL_TRACKER" == "true" ]] && [[ "$IN_HUMANIZE_LOOP_DIR" == "true" ]]; then
     CORRECT_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
-    NORMALIZED_FILE_PATH=$(_normalize_path "$FILE_PATH")
-    NORMALIZED_CORRECT_PATH=$(_normalize_path "$CORRECT_PATH")
 
-    if [[ "$NORMALIZED_FILE_PATH" != "$NORMALIZED_CORRECT_PATH" ]]; then
+    if ! loop_paths_match "$FILE_PATH" "$CORRECT_PATH"; then
         FALLBACK="# Wrong Goal Tracker Path
 
 Read the active loop goal tracker instead: {{CORRECT_PATH}}"

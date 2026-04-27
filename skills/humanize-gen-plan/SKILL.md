@@ -18,7 +18,7 @@ The installer hydrates this skill with an absolute runtime root path:
 
 ```mermaid
 flowchart TD
-    BEGIN([BEGIN]) --> VALIDATE[Validate input/output paths<br/>Run: {{HUMANIZE_RUNTIME_ROOT}}/scripts/validate-gen-plan-io.sh --input &lt;draft&gt; --output &lt;plan&gt;]
+    BEGIN([BEGIN]) --> VALIDATE[Validate input/output paths and mode flags<br/>Run: {{HUMANIZE_RUNTIME_ROOT}}/scripts/validate-gen-plan-io.sh --input &lt;draft&gt; --output &lt;plan&gt; [--check|--no-check]]
     VALIDATE --> CHECK{Validation passed?}
     CHECK -->|No| REPORT_ERROR[Report validation error<br/>Stop]
     REPORT_ERROR --> END_FAIL([END])
@@ -51,6 +51,15 @@ flowchart TD
 **Required Arguments:**
 - `--input <path/to/draft.md>` - The draft document
 - `--output <path/to/plan.md>` - Where to write the plan
+
+**Optional Arguments:**
+- `--check` - Enable integrated draft-check before plan generation and plan-check with targeted repair after plan generation.
+- `--no-check` - Disable integrated check mode for this invocation, overriding `--check` and config.
+- `--discussion` - Use iterative discussion mode.
+- `--direct` - Use direct mode.
+- `--auto-start-rlcr-if-converged` - Start RLCR automatically when discussion mode converges and check-mode gates pass.
+
+Check mode can also be enabled by the merged `gen_plan_check` config key. Effective priority is `--no-check` > `--check` > `gen_plan_check` > default disabled.
 
 ## Plan Structure Output
 
@@ -110,7 +119,10 @@ Minimum viable implementation
 
 ```bash
 # Start the flow
-/flow:humanize-gen-plan
+/flow:humanize-gen-plan --input .humanize/drafts/example.md --output .humanize/plans/example.md
+
+# Start with integrated check mode
+/flow:humanize-gen-plan --input .humanize/drafts/example.md --output .humanize/plans/example.md --check
 
 # The flow will ask for:
 # - Input draft file path

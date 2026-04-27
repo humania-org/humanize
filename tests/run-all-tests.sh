@@ -62,6 +62,8 @@ TEST_SUITES=(
     "test-bash-validator-patterns.sh"
     "test-todo-checker.sh"
     "test-plan-file-validation.sh"
+    "test-plan-check.sh"
+
     "test-template-references.sh"
     "test-state-exit-naming.sh"
     "test-stop-gate.sh"
@@ -81,6 +83,7 @@ TEST_SUITES=(
     "test-monitor-e2e-deletion.sh"
     "test-monitor-e2e-sigint.sh"
     "test-gen-plan.sh"
+    "test-gen-plan-check.sh"
     "test-refine-plan.sh"
     "test-task-tag-routing.sh"
     "test-config-merge.sh"

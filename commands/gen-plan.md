@@ -1,10 +1,13 @@
 ---
 description: "Generate implementation plan from draft document"
-argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct]"
+argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct] [--check|--no-check]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-plan-io.sh:*)"
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh:*)"
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-rlcr-loop.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-check-common.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/lib/gen-plan-check-mode.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/plan-check.sh:*)"
   - "Read"
   - "Glob"
   - "Grep"
@@ -24,6 +27,16 @@ This command MUST ONLY generate a plan document during the planning phases. It M
 Permitted writes (before any optional auto-start) are limited to:
 - The plan output file (`--output`)
 - Optional translated language variant (only when `ALT_PLAN_LANGUAGE` is configured)
+- When `EFFECTIVE_CHECK_MODE=true`:
+  - `.humanize/gen-plan-check/<timestamp>/draft-findings.json`
+  - `.humanize/gen-plan-check/<timestamp>/plan-findings.json`
+  - `.humanize/gen-plan-check/<timestamp>/report.md`
+  - `.humanize/gen-plan-check/<timestamp>/resolution.json`
+  - `.humanize/gen-plan-check/<timestamp>/backup/<plan-basename>.bak`
+  - Ephemeral temp files under `.humanize/gen-plan-check/<timestamp>/tmp/` (the `tmp/` directory is recursively deleted before the command exits on both success and failure)
+  - Ephemeral atomic-write temp files in the same directory as `--output`, named `.plan-check-write.*` (created by `plan_check_atomic_write` and immediately moved over the target file)
+
+The persistent layout under `.humanize/gen-plan-check/<timestamp>/` is flat. No `draft/` or `plan/` subdirectories are permitted.
 
 If `--auto-start-rlcr-if-converged` is enabled, the command MAY immediately start the RLCR loop by running `/humanize:start-rlcr-loop <output-plan-path>`, but only in `discussion` mode when `PLAN_CONVERGENCE_STATUS=converged` and there are no pending user decisions. All coding happens in that subsequent command/loop, not during plan generation.
 
@@ -53,6 +66,8 @@ Parse `$ARGUMENTS` and set:
 - `AUTO_START_RLCR_IF_CONVERGED=false` otherwise
 - `GEN_PLAN_MODE_DISCUSSION=true` if `--discussion` is present
 - `GEN_PLAN_MODE_DIRECT=true` if `--direct` is present
+- `CHECK_FLAG=true` if `--check` is present
+- `NO_CHECK_FLAG=true` if `--no-check` is present
 - If both `--discussion` and `--direct` are present simultaneously, report error "Cannot use --discussion and --direct together" and stop
 
 `AUTO_START_RLCR_IF_CONVERGED=true` allows skipping manual plan review and starting implementation immediately (by invoking `/humanize:start-rlcr-loop <output-plan-path>`), but only when `GEN_PLAN_MODE=discussion`, plan convergence is achieved, and no pending user decisions remain. In `direct` mode this condition is never satisfied.
@@ -123,7 +138,17 @@ Also detect whether `alternative_plan_language` is explicitly present in `MERGED
    - CLI flag: if `GEN_PLAN_MODE_DISCUSSION=true`, set `GEN_PLAN_MODE=discussion`; if `GEN_PLAN_MODE_DIRECT=true`, set `GEN_PLAN_MODE=direct`
    - Merged config `gen_plan_mode` field (if valid)
    - Default: `discussion`
-6. Malformed optional user or project config files should be reported as warnings by `load_merged_config` and must NOT stop execution. In those cases, continue with the remaining valid layers and the same effective defaults (`ALT_PLAN_LANGUAGE=""`, `ALT_PLAN_LANG_CODE=""`, and `GEN_PLAN_MODE=discussion`) when no higher-precedence value is available.
+6. Resolve `EFFECTIVE_CHECK_MODE`:
+   - Source `${CLAUDE_PLUGIN_ROOT}/scripts/lib/gen-plan-check-mode.sh`.
+   - Extract `CONFIG_GEN_PLAN_CHECK_RAW` from `MERGED_CONFIG_JSON` using `get_config_value MERGED gen_plan_check`.
+   - Call `_gen_plan_resolve_check_mode "$CHECK_FLAG" "$NO_CHECK_FLAG" "$CONFIG_GEN_PLAN_CHECK_RAW"`.
+   - The helper implements the following priority (highest to lowest):
+     - `--no-check` flag forces `EFFECTIVE_CHECK_MODE=false`
+     - `--check` flag forces `EFFECTIVE_CHECK_MODE=true`
+     - Merged config `gen_plan_check` value (`true` or `false`)
+     - Default: `EFFECTIVE_CHECK_MODE=false`
+   - If the merged config contains an invalid value (anything other than `true`, `false`, or empty/missing), the helper prints: `Warning: unsupported gen_plan_check "<value>". Expected true or false. Check mode is disabled unless --check is passed.` and sets `EFFECTIVE_CHECK_MODE=false`. An explicit `null` in any config layer is silently stripped by `load_merged_config` before the resolver sees it, so no warning is emitted for `null`.
+7. Malformed optional user or project config files should be reported as warnings by `load_merged_config` and must NOT stop execution. In those cases, continue with the remaining valid layers and the same effective defaults (`ALT_PLAN_LANGUAGE=""`, `ALT_PLAN_LANG_CODE=""`, and `GEN_PLAN_MODE=discussion`) when no higher-precedence value is available.
 
 `ALT_PLAN_LANGUAGE` and `ALT_PLAN_LANG_CODE` control whether a translated language variant of the output file is written in Phase 8. When `ALT_PLAN_LANGUAGE` is non-empty, a variant file with the `_<ALT_PLAN_LANG_CODE>` suffix is generated.
 
@@ -173,11 +198,117 @@ After IO validation passes, check if the draft is relevant to this repository.
    - Show the reason from the relevance check
    - Stop the command
 
-4. **If RELEVANT**: Create the output plan file by copying the template and appending the draft:
+4. **If RELEVANT**:
+   - If `EFFECTIVE_CHECK_MODE=true`: Continue to Phase 2.5. Output file creation is deferred until after check-draft resolves.
+   - If `EFFECTIVE_CHECK_MODE=false`: Create the output plan file immediately by copying the template and appending the draft:
+     ```bash
+     {
+       cat "$TEMPLATE_FILE"
+       printf '\n--- Original Design Draft Start ---\n'
+       cat "$INPUT_FILE"
+       printf '\n--- Original Design Draft End ---\n'
+     } > "$OUTPUT_FILE"
+     ```
+     The bytes between the LF after the start marker and the LF before the end marker are exactly the bytes of `$INPUT_FILE`. Then continue to Phase 3.
+
+---
+
+## Phase 2.5: Check-Draft (Conditional)
+
+This phase runs only when `EFFECTIVE_CHECK_MODE=true`.
+
+### Step 1: Initialize Report Directory
+
+Create a timestamped directory for check-mode artifacts:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-check-common.sh"
+CHECK_REPORT_DIR="$(plan_check_init_report_dir "${PROJECT_ROOT}/.humanize/gen-plan-check")"
+mkdir -p "${CHECK_REPORT_DIR}/tmp"
+```
+
+Set a trap to recursively remove `${CHECK_REPORT_DIR}/tmp/` on both success and failure paths before the command exits.
+
+### Step 2: Run Draft Checkers
+
+Invoke the draft checker agents via `ask-codex.sh`. Each agent receives the raw draft content.
+
+1. Run draft-consistency-checker:
    ```bash
-   cp "$TEMPLATE_FILE" "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && echo "--- Original Design Draft Start ---" >> "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && cat "$INPUT_FILE" >> "$OUTPUT_FILE" && echo "" >> "$OUTPUT_FILE" && echo "--- Original Design Draft End ---" >> "$OUTPUT_FILE"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "<prompt with draft content>"
    ```
-   Then continue to Phase 3.
+   Expected output: JSON array of contradiction findings with `source_checker: draft-consistency-checker`.
+
+2. Run draft-ambiguity-checker:
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "<prompt with draft content>"
+   ```
+   Expected output: JSON array of ambiguity findings with `source_checker: draft-ambiguity-checker`.
+
+If `ask-codex.sh` fails (missing CLI, timeout, or runtime error), do not silently continue:
+- Use AskUserQuestion with options: Retry or Abort.
+- If the user chooses Abort: stop the command.
+- If the user chooses Retry: re-run the failed checker once. If it fails again, persist a `runtime-error` diagnostic finding with severity `info` and category `runtime-error`, and treat the check-draft phase as having unresolved blockers for auto-start gating.
+
+### Step 3: Merge and Persist Draft Findings
+
+Merge findings from both agents into a single array. Persist:
+- `${CHECK_REPORT_DIR}/draft-findings.json`
+- Draft section appended to `${CHECK_REPORT_DIR}/report.md`
+
+### Step 4: Process Blocker Findings
+
+For each finding with `severity=blocker`:
+
+1. Present the finding to the user via AskUserQuestion with exactly these options:
+   - Provide an answer that resolves the blocker
+   - Abort the command
+   (No `skip` option is offered.)
+
+2. If the user provides an answer:
+   - Record the clarification in an in-memory structure: `clarifications[id] = {source: "user", answer: ..., finding_id: ...}`
+
+3. If the user does not provide an answer (or AskUserQuestion is not available):
+   - The leader agent must decide via Source-of-Truth precedence using the original draft text and repository context.
+   - Record the decision: `clarifications[id] = {source: "agent", answer: ..., rationale: ..., finding_id: ...}`
+
+4. Clarifications are stored in memory for downstream phases. They supplement the original draft but NEVER overwrite it.
+
+5. Do NOT create any `## Pending User Decisions` entry for check-draft blockers.
+
+### Step 5: Handle Abort
+
+If the user chooses `abort` at any point during Step 4:
+- Stop the command before any output plan file is created.
+- Retain diagnostic artifacts already written under `${CHECK_REPORT_DIR}/` (specifically `draft-findings.json`, `report.md`, and `resolution.json` if persisted) for post-mortem inspection.
+- Recursively remove `${CHECK_REPORT_DIR}/tmp/`.
+- Report: "Draft check aborted. No output plan was created. Diagnostic artifacts are available at ${CHECK_REPORT_DIR}/"
+
+### Step 6: Create Output Plan File
+
+Only after all blocker findings are resolved (user-answered or agent-fallback-resolved), create the output plan file by copying the template and appending the draft:
+
+```bash
+{
+  cat "$TEMPLATE_FILE"
+  printf '\n--- Original Design Draft Start ---\n'
+  cat "$INPUT_FILE"
+  printf '\n--- Original Design Draft End ---\n'
+} > "$OUTPUT_FILE"
+```
+
+The bytes between the LF after the start marker and the LF before the end marker are exactly the bytes of `$INPUT_FILE`.
+
+This deferred creation ensures that if check-draft aborts, no output file exists on disk.
+
+### Step 7: Feed Clarifications into Downstream Phases
+
+Include the collected clarifications in the context fed to:
+- Phase 3 (Codex First-Pass Analysis)
+- Phase 4 (Claude Candidate Plan)
+- All downstream planning phases
+
+Treat clarifications as source material alongside the original draft. When an explicit user clarification corrects, supersedes, or narrows older draft text, the clarification is the higher-priority source for that topic. Preserve the original draft appendix bytes, but do not treat superseded draft statements as active plan requirements.
 
 ---
 
@@ -300,7 +431,7 @@ Set convergence state explicitly:
 
 ## Phase 6: Issue and Disagreement Resolution
 
-> **Critical**: The draft document contains the most valuable human input. During issue resolution, NEVER discard or override any original draft content. All clarifications should be treated as incremental additions that supplement the draft, not replacements. Keep track of both the original draft statements and the clarified information.
+> **Critical**: The draft document and explicit user clarifications are high-priority source material. Preserve the original draft appendix bytes exactly, track both original draft statements and clarifications, and treat newer explicit clarifications as authoritative when they supersede or narrow older draft text.
 
 ### Step 1: Manual Review Gate
 
@@ -520,7 +651,7 @@ When `alternative_plan_language` is empty, absent, set to `"English"`, or set to
 
 10. **Code Style Constraint**: The generated plan MUST include a section or note instructing that implementation code and comments should NOT contain plan-specific progress terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers. These terms belong in the plan document, not in the resulting codebase.
 
-11. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 6 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
+11. **Active Source Fidelity**: The generated plan MUST preserve active source-of-truth requirements from the draft and clarifications. Preserve the original draft appendix bytes exactly, but do not force rough-draft notes or clarification-superseded statements into the generated plan body. When an explicit user clarification corrects, supersedes, or narrows older draft text, the clarification takes precedence for that topic.
 
 12. **Debate Traceability**: The plan MUST include Codex-first findings, Claude/Codex agreements, resolved disagreements, and unresolved decisions. Unresolved opposite opinions MUST be recorded in `## Pending User Decisions` for explicit user decision.
 
@@ -541,12 +672,138 @@ Use the **Edit tool** (not Write) to update the plan file with the generated con
 - Keep the original draft section intact at the bottom of the file
 - The final file should contain both the structured plan AND the original draft for reference
 
+### Step 1.5: Check-Plan and Repair (Conditional)
+
+This step runs only when `EFFECTIVE_CHECK_MODE=true`.
+
+> **Note**: If `EFFECTIVE_CHECK_MODE=false`, skip this entire step and proceed directly to Step 2.
+
+#### Step 1.5.1: Run Deterministic Schema Validation
+
+Invoke the deterministic schema validator on the plan file using the canonical template:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-check-common.sh"
+SCHEMA_FINDINGS=$(TMPDIR="${CHECK_REPORT_DIR}/tmp" plan_check_validate_schema "$OUTPUT_FILE" "${CLAUDE_PLUGIN_ROOT}/prompt-template/plan/gen-plan-template.md")
+```
+
+This checks for required core sections, AC IDs, optional task tags, dependencies, and circular dependencies when `## Task Breakdown` is present. The returned `SCHEMA_FINDINGS` is a comma-separated string of JSON finding objects.
+
+#### Step 1.5.2: Run Semantic Checkers
+
+Invoke the primary semantic checker agents via `ask-codex.sh`.
+
+1. Run plan-consistency-checker on the plan body.
+2. Run plan-ambiguity-checker on the plan body.
+
+After both primary checker results are available, collect the contradiction and ambiguity findings returned by `plan-consistency-checker` and `plan-ambiguity-checker` into `PRIMARY_PLAN_FINDINGS`.
+
+Run `draft-plan-drift-checker` only if `PRIMARY_PLAN_FINDINGS` is non-empty. When invoked, pass all of the following explicit context:
+- The plan body
+- The original draft content
+- The collected clarifications
+- `PRIMARY_PLAN_FINDINGS` as the existing plan findings to inspect
+
+If `PRIMARY_PLAN_FINDINGS` is empty, skip `draft-plan-drift-checker` and treat its result as `[]`.
+
+`draft-plan-drift-checker` is a secondary source-recovery pass for existing contradiction or ambiguity findings. It must not run as an independent whole-plan draft completeness audit.
+
+Each invocation receives the appropriate content and returns a JSON array of findings.
+
+If `ask-codex.sh` fails (missing CLI, timeout, or runtime error), do not silently continue:
+- Use AskUserQuestion with options: Retry or Abort.
+- If the user chooses Abort: stop the command.
+- If the user chooses Retry: re-run the failed checker once. If it fails again, persist a `runtime-error` diagnostic finding with severity `info` and category `runtime-error`, and treat any unresolved semantic findings as blockers for auto-start gating.
+
+#### Step 1.5.3: Merge Findings and Persist
+
+Merge `SCHEMA_FINDINGS`, the primary semantic checker findings, and any conditional draft-plan drift findings into a single JSON array and write to:
+- `${CHECK_REPORT_DIR}/plan-findings.json`
+
+Also append the plan section to `${CHECK_REPORT_DIR}/report.md`.
+
+#### Step 1.5.4: Source-of-Truth Precedence Repair
+
+For each finding with `severity=blocker`:
+
+1. Determine the resolution source in this priority order:
+   - **Explicit user answers** collected during check-draft (the in-memory clarifications structure)
+   - **Original draft text** (the inner byte range between `--- Original Design Draft Start ---` and `--- Original Design Draft End ---`)
+   - **Repository facts** discovered during planning
+   - **Safe leader-agent judgment** for purely structural or wording fixes
+   - Generated plan text (lowest priority)
+
+2. If the resolution source is clarifications, draft text, or repository facts (high-priority sources):
+   - Compute the repair patch.
+   - Apply the rewrite **silently** (no diff preview, no AskUserQuestion):
+     ```bash
+     plan_check_backup_plan "$OUTPUT_FILE" "$CHECK_REPORT_DIR"
+     plan_check_atomic_write "$OUTPUT_FILE" "$patched_content"
+     ```
+   - Record the resolution in an in-memory structure with citation to the source.
+
+3. If the resolution source is leader-agent judgment:
+   - Compute the repair patch.
+   - Present a diff preview to the user.
+   - Use AskUserQuestion to confirm: "Apply this repair?"
+   - If confirmed:
+     ```bash
+     plan_check_backup_plan "$OUTPUT_FILE" "$CHECK_REPORT_DIR"
+     plan_check_atomic_write "$OUTPUT_FILE" "$patched_content"
+     ```
+   - Record the resolution with rationale.
+
+4. If the resolution cannot be determined from any high-priority source:
+   - Use AskUserQuestion to ask the user for a product-level decision.
+   - Record the answer and apply the repair through the same backup + atomic write path.
+
+5. **Appendix preservation constraint**: No repair may modify any byte in the inner appendix byte range (the content between the `--- Original Design Draft Start ---` and `--- Original Design Draft End ---` markers). If a repair would touch the appendix, it must be rejected or adjusted to preserve the original draft bytes exactly.
+
+#### Step 1.5.5: Persist Resolution Records
+
+After all repair decisions are made, persist:
+- `${CHECK_REPORT_DIR}/resolution.json` containing the resolution records for every blocker finding.
+
+#### Step 1.5.6: Optional Recheck
+
+Check whether a recheck should run:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/config-loader.sh"
+RECHECK_CONFIG="$(get_config_value "$MERGED_CONFIG_JSON" plan_check_recheck)"
+```
+
+Recheck runs **exactly once** if and only if **all** of the following are true:
+- `RECHECK_CONFIG` is `true`
+- At least one accepted repair during Step 1.5.4 changed plan bytes
+
+If recheck runs:
+- Run `plan_check_validate_schema` again on the repaired plan with `TMPDIR="${CHECK_REPORT_DIR}/tmp"`.
+- Run `plan-consistency-checker` and `plan-ambiguity-checker` again on the repaired plan.
+- Collect contradiction and ambiguity findings from those two recheck results.
+- Run `draft-plan-drift-checker` during recheck only when the recheck primary findings collection is non-empty, and pass that collection as explicit context.
+- Merge findings and update `${CHECK_REPORT_DIR}/plan-findings.json`.
+- **This recheck is check-only**: findings are recorded but no further repair is performed.
+- Update the unresolved-blocker state for the auto-start gate.
+
+If recheck does not run (recheck disabled or zero byte-changing repairs), proceed without recheck.
+
+#### Step 1.5.7: Finalize Unresolved Blocker State
+
+After repair (and optional recheck), compute the final unresolved-blocker state:
+
+- `UNRESOLVED_DRAFT_BLOCKERS`: count of draft-check blockers that remain unresolved after check-draft.
+- `UNRESOLVED_PLAN_BLOCKERS`: count of plan-check blockers (categories: `contradiction`, `ambiguity`, `schema`, `dependency`, `appendix-drift`, `draft-plan-drift`) with `severity=blocker` that remain unresolved after repair and optional recheck. `runtime-error` findings do not count toward this total.
+- `RECHECK_NEW_BLOCKERS`: count of new blockers introduced during the recheck pass.
+
+This state is used by the auto-start gate in Phase 8 Step 5.
+
 ### Step 2: Comprehensive Review
 
 After updating, **read the complete plan file** and verify:
 - The plan is complete and comprehensive
 - All sections are consistent with each other
-- The structured plan aligns with the original draft content
+- The structured plan does not contradict high-priority source material, including resolved clarifications and active draft requirements
 - Claude/Codex disagreement handling is explicit and correctly reflected
 - No contradictions exist between different parts of the document
 
@@ -589,6 +846,8 @@ Algorithm:
 - The variant file is a translated reading view of the same plan; it must not add new information not present in the main file.
 - The original draft section at the bottom should be kept as-is (not re-translated).
 
+When `EFFECTIVE_CHECK_MODE=true`, the translated variant reflects the **final repaired plan content** after Step 1.5 (Check-Plan and Repair). The variant is produced only after all repairs and optional recheck have completed.
+
 If `ALT_PLAN_LANGUAGE` is empty (the default), do NOT create a translated variant file.
 
 ### Step 5: Optional Direct Work Start
@@ -598,6 +857,16 @@ If all of the following are true:
 - `PLAN_CONVERGENCE_STATUS=converged`
 - `GEN_PLAN_MODE=discussion`
 - There are no pending decisions with status `PENDING`
+- When `EFFECTIVE_CHECK_MODE=true`, all of the following must also hold:
+  - `UNRESOLVED_DRAFT_BLOCKERS` is 0 (no unresolved draft-check blockers)
+  - `UNRESOLVED_PLAN_BLOCKERS` is 0 (no unresolved plan-check blockers after repair and optional recheck)
+  - `RECHECK_NEW_BLOCKERS` is 0 (no new blockers introduced during recheck)
+
+If any check-mode gate is violated, skip auto-start and report the specific rule:
+- `Auto-start skipped: unresolved-draft-blocker (finding IDs)` when draft-check blockers remain.
+- `Auto-start skipped: unresolved-plan-check-blocker (count: finding ID category)` when plan-check blockers remain.
+- `Auto-start skipped: recheck-failure (new blockers)` when recheck introduces new blockers.
+- `Auto-start skipped: existing-rlcr-constraint (reason)` when existing constraints fail.
 
 Then start work immediately by running:
 
@@ -629,6 +898,7 @@ Report to the user:
 - Number of unresolved user decisions (if any)
 - Whether language was unified (if applicable)
 - Whether direct work start was attempted, and its result
+- When `EFFECTIVE_CHECK_MODE=true`: path to check-mode artifacts under `.humanize/gen-plan-check/<timestamp>/` and summary of draft-check / plan-check / repair / recheck status
 
 ---
 

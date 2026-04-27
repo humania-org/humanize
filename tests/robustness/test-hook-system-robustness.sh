@@ -461,6 +461,24 @@ else
     fail "Goal-tracker mutable write" "exit 0" "exit $EXIT_CODE, result: $RESULT"
 fi
 
+# Test 12ca: Write validator allows active goal-tracker update through symlinked project root
+echo ""
+echo "Test 12ca: Write validator allows symlinked active goal-tracker path"
+SYMLINK_PARENT="$TEST_DIR/symlink-root"
+SYMLINK_PROJECT="$SYMLINK_PARENT/project"
+mkdir -p "$SYMLINK_PARENT"
+ln -s "$TEST_DIR" "$SYMLINK_PROJECT"
+JSON='{"tool_name":"Write","tool_input":{"file_path":"'"$SYMLINK_PROJECT"'/.humanize/rlcr/2026-01-19_12-00-00/goal-tracker.md","content":'"$UPDATED_CONTENT"'}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$SYMLINK_PROJECT" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write allows symlinked active goal-tracker path"
+else
+    fail "Goal-tracker symlinked active write" "exit 0" "exit $EXIT_CODE, result: $RESULT"
+fi
+
 # Test 12d: Write validator blocks immutable goal-tracker changes after round 0
 echo ""
 echo "Test 12d: Write validator blocks immutable goal-tracker changes after round 0"
@@ -493,6 +511,12 @@ else
     fail "Goal-tracker immutable write" "exit 2" "exit $EXIT_CODE, result: $RESULT"
 fi
 
+if ! echo "$RESULT" | grep -qF "command not found" && echo "$RESULT" | grep -qF '`goal-tracker.md`'; then
+    pass "Goal-tracker blocked fallback preserves literal backticks"
+else
+    fail "Goal-tracker blocked fallback preserves literal backticks" "literal backticks and no command-not-found noise" "result: $RESULT"
+fi
+
 # Test 12e: Edit validator allows mutable goal-tracker edits after round 0
 echo ""
 echo "Test 12e: Edit validator allows mutable goal-tracker edits after round 0"
@@ -505,6 +529,20 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "Edit allows mutable goal-tracker updates after round 0"
 else
     fail "Goal-tracker mutable edit" "exit 0" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12eb: Edit validator allows active goal-tracker edit through symlinked project root
+echo ""
+echo "Test 12eb: Edit validator allows symlinked active goal-tracker path"
+JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$SYMLINK_PROJECT"'/.humanize/rlcr/2026-01-19_12-00-00/goal-tracker.md","old_string":"| [mainline] Keep AC-1 moving | AC-1 | pending | - |","new_string":"| [mainline] Keep AC-1 moving | AC-1 | in_progress | re-anchored |"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$SYMLINK_PROJECT" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit allows symlinked active goal-tracker path"
+else
+    fail "Goal-tracker symlinked active edit" "exit 0" "exit $EXIT_CODE, result: $RESULT"
 fi
 
 # Test 12f: Edit validator blocks immutable goal-tracker edits after round 0
@@ -547,6 +585,20 @@ if [[ $EXIT_CODE -eq 2 ]]; then
     pass "Read blocks old-session goal-tracker.md"
 else
     fail "Goal-tracker old-session read" "exit 2" "exit $EXIT_CODE, result: $RESULT"
+fi
+
+# Test 12ga: Read validator allows active goal-tracker read through symlinked project root
+echo ""
+echo "Test 12ga: Read validator allows symlinked active goal-tracker path"
+JSON='{"tool_name":"Read","tool_input":{"file_path":"'"$SYMLINK_PROJECT"'/.humanize/rlcr/2026-01-19_12-00-00/goal-tracker.md"}}'
+set +e
+RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$SYMLINK_PROJECT" bash "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Read allows symlinked active goal-tracker path"
+else
+    fail "Goal-tracker symlinked active read" "exit 0" "exit $EXIT_CODE, result: $RESULT"
 fi
 
 # Test 12h: Unrelated dangerous commands are allowed through (sandbox handles security)

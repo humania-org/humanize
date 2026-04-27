@@ -47,7 +47,7 @@ Do not interpret or rewrite the idea text here. Pass `$ARGUMENTS` through to Pha
 
 Run:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-idea-io.sh" $ARGUMENTS
+"${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-idea-io.sh" --raw-arguments "$ARGUMENTS"
 ```
 
 Handle exit codes:

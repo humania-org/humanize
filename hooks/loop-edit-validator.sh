@@ -203,10 +203,8 @@ fi
 
 if is_goal_tracker_path "$FILE_PATH_LOWER"; then
     GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
-    NORMALIZED_FILE_PATH=$(_normalize_path "$FILE_PATH")
-    NORMALIZED_GOAL_TRACKER_PATH=$(_normalize_path "$GOAL_TRACKER_PATH")
 
-    if [[ "$NORMALIZED_FILE_PATH" != "$NORMALIZED_GOAL_TRACKER_PATH" ]]; then
+    if ! loop_paths_match "$FILE_PATH" "$GOAL_TRACKER_PATH"; then
         goal_tracker_blocked_message "$CURRENT_ROUND" "$GOAL_TRACKER_PATH" >&2
         exit 2
     fi
@@ -269,6 +267,26 @@ Edit: {{CORRECT_PATH}}"
                 "CORRECT_PATH=$CORRECT_PATH" >&2
             exit 2
         fi
+    fi
+fi
+
+# ========================================
+# Validate Directory Path
+# ========================================
+
+if [[ -n "${CLAUDE_FILENAME:-}" ]]; then
+    CORRECT_PATH="$ACTIVE_LOOP_DIR/$CLAUDE_FILENAME"
+    _EDIT_FILE_REAL=$(canonicalize_path_prefix "$FILE_PATH")
+    _EDIT_CORRECT_REAL=$(canonicalize_path_prefix "$CORRECT_PATH")
+    if [[ "${_EDIT_FILE_REAL:-$FILE_PATH}" != "${_EDIT_CORRECT_REAL:-$CORRECT_PATH}" ]]; then
+        FALLBACK="# Wrong Directory Path
+
+You tried to {{ACTION}} {{FILE_PATH}} but the correct path is {{CORRECT_PATH}}"
+        load_and_render_safe "$TEMPLATE_DIR" "block/wrong-directory-path.md" "$FALLBACK" \
+            "ACTION=edit" \
+            "FILE_PATH=$FILE_PATH" \
+            "CORRECT_PATH=$CORRECT_PATH" >&2
+        exit 2
     fi
 fi
 

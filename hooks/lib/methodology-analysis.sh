@@ -99,19 +99,19 @@ When done, write a completion note to $LOOP_DIR/methodology-analysis-done.md."
     return 0
 }
 
-# Complete the methodology analysis phase
+# Check whether the methodology analysis phase is ready to complete
 #
-# Checks the completion artifact, reads the original exit reason, renames the
-# state file to the appropriate terminal state, and cleans up marker files.
+# Checks the completion artifact, analysis report, and original exit reason
+# without changing loop state.
 #
 # Globals read:
 #   LOOP_DIR - path to the loop directory
 #
 # Returns:
-#   0 - completion successful, caller should exit 0 (allow exit)
+#   0 - completion gates passed
 #   1 - incomplete (done marker missing/empty, report missing, or exit reason invalid)
 #
-complete_methodology_analysis() {
+methodology_analysis_ready_to_complete() {
     local done_file="$LOOP_DIR/methodology-analysis-done.md"
     local report_file="$LOOP_DIR/methodology-analysis-report.md"
 
@@ -161,6 +161,30 @@ complete_methodology_analysis() {
             return 1
             ;;
     esac
+
+    return 0
+}
+
+# Complete the methodology analysis phase
+#
+# Checks readiness, then renames the state file to the appropriate terminal
+# state and cleans up marker files.
+#
+# Globals read:
+#   LOOP_DIR - path to the loop directory
+#
+# Returns:
+#   0 - completion successful, caller should exit 0 (allow exit)
+#   1 - incomplete (done marker missing/empty, report missing, or exit reason invalid)
+#
+complete_methodology_analysis() {
+    if ! methodology_analysis_ready_to_complete; then
+        return 1
+    fi
+
+    local exit_reason
+    exit_reason=$(cat "$LOOP_DIR/.methodology-exit-reason" 2>/dev/null || echo "")
+    exit_reason=$(echo "$exit_reason" | tr -d '[:space:]')
 
     # Rename methodology-analysis-state.md to the terminal state
     local target_name="${exit_reason}-state.md"

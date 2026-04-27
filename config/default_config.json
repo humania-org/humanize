@@ -4,5 +4,7 @@
   "bitlesson_model": "haiku",
   "agent_teams": false,
   "alternative_plan_language": "",
-  "gen_plan_mode": "discussion"
+  "gen_plan_mode": "discussion",
+  "plan_check_recheck": false,
+  "gen_plan_check": false
 }

@@ -40,6 +40,13 @@ cat > "$MOCK_BIN_DIR/codex" << 'MOCK_EOF'
 #!/usr/bin/env bash
 # Mock codex binary for testing ask-codex.sh
 # Controlled via environment variables.
+if [[ "${1:-}" == "--help" ]]; then
+    echo "  --disable <HOOK>         Disable a specific Codex hook (e.g. codex_hooks)"
+    exit 0
+fi
+if [[ -n "${MOCK_CODEX_ARGS_FILE:-}" ]]; then
+    printf '%s\n' "$@" > "$MOCK_CODEX_ARGS_FILE"
+fi
 if [[ -n "${MOCK_CODEX_STDERR:-}" ]]; then
     echo "$MOCK_CODEX_STDERR" >&2
 fi
@@ -52,17 +59,14 @@ exit "${MOCK_CODEX_EXIT_CODE:-0}"
 MOCK_EOF
 chmod +x "$MOCK_BIN_DIR/codex"
 
-# Export mock variables so child processes (the mock codex) can see them
-export MOCK_CODEX_EXIT_CODE=""
-export MOCK_CODEX_STDOUT=""
-export MOCK_CODEX_STDERR=""
-
 # Reset mock state between tests
 reset_mock() {
     export MOCK_CODEX_EXIT_CODE="0"
     export MOCK_CODEX_STDOUT=""
     export MOCK_CODEX_STDERR=""
+    export MOCK_CODEX_ARGS_FILE=""
 }
+reset_mock
 
 # Helper: run ask-codex with mock codex in PATH, inside mock project
 run_ask_codex() {
@@ -70,6 +74,7 @@ run_ask_codex() {
         cd "$MOCK_PROJECT"
         export CLAUDE_PROJECT_DIR="$MOCK_PROJECT"
         export XDG_CACHE_HOME="$TEST_DIR/cache"
+        export XDG_CONFIG_HOME="$TEST_DIR/config"
         PATH="$MOCK_BIN_DIR:$PATH" bash "$ASK_CODEX_SCRIPT" "$@"
     )
 }
@@ -207,6 +212,21 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "successful run exits 0"
 else
     fail "successful run exits 0" "exit 0" "exit=$EXIT_CODE"
+fi
+
+# Test: nested codex exec disables Codex hooks
+reset_mock
+export MOCK_CODEX_STDOUT="hook-disable-test"
+CODEX_ARGS_FILE="$TEST_DIR/ask-codex-args.txt"
+export MOCK_CODEX_ARGS_FILE="$CODEX_ARGS_FILE"
+run_ask_codex "hook disable test" > /dev/null 2>&1
+if [[ -f "$CODEX_ARGS_FILE" ]] \
+    && grep -qx -- "exec" "$CODEX_ARGS_FILE" \
+    && grep -qx -- "--disable" "$CODEX_ARGS_FILE" \
+    && grep -qx -- "codex_hooks" "$CODEX_ARGS_FILE"; then
+    pass "nested codex exec disables codex_hooks"
+else
+    fail "nested codex exec disables codex_hooks" "exec args include --disable codex_hooks" "$(cat "$CODEX_ARGS_FILE" 2>/dev/null || echo missing)"
 fi
 
 # ========================================

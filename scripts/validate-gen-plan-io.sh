@@ -14,7 +14,7 @@
 set -e
 
 usage() {
-    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct]"
+    echo "Usage: $0 --input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct] [--check|--no-check]"
     echo ""
     echo "Options:"
     echo "  --input   Path to the input draft file (required)"
@@ -22,6 +22,8 @@ usage() {
     echo "  --auto-start-rlcr-if-converged  Enable direct RLCR start after converged planning (discussion mode only)"
     echo "  --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)"
     echo "  --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)"
+    echo "  --check       Enable integrated draft-check and plan-check mode for this invocation"
+    echo "  --no-check    Disable integrated check mode for this invocation (overrides --check and config)"
     echo "  -h, --help  Show this help message"
     exit 6
 }
@@ -31,6 +33,8 @@ OUTPUT_FILE=""
 AUTO_START_RLCR_IF_CONVERGED="false"
 GEN_PLAN_MODE_DISCUSSION="false"
 GEN_PLAN_MODE_DIRECT="false"
+CHECK_FLAG="false"
+NO_CHECK_FLAG="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -61,6 +65,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --direct)
             GEN_PLAN_MODE_DIRECT="true"
+            shift
+            ;;
+        --check)
+            CHECK_FLAG="true"
+            shift
+            ;;
+        --no-check)
+            NO_CHECK_FLAG="true"
             shift
             ;;
         -h|--help)

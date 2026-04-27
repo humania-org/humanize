@@ -63,6 +63,13 @@ else
     fail "default-only: gen_plan_mode is set from defaults" "non-empty value" "empty"
 fi
 
+val=$(get_config_value "$merged" "plan_check_recheck")
+if [[ "$val" == "false" ]]; then
+    pass "default-only: plan_check_recheck defaults to false"
+else
+    fail "default-only: plan_check_recheck defaults to false" "false" "$val"
+fi
+
 # ========================================
 # Test 2: Project config overrides a default key
 # ========================================
@@ -86,6 +93,15 @@ if [[ "$val" == "false" ]]; then
     pass "project override: non-overridden keys still use defaults"
 else
     fail "project override: non-overridden keys still use defaults" "false" "$val"
+fi
+
+printf '{"plan_check_recheck": true}' > "$PROJECT_DIR/.humanize/config.json"
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config2" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+val=$(get_config_value "$merged" "plan_check_recheck")
+if [[ "$val" == "true" ]]; then
+    pass "project override: plan_check_recheck can enable recheck"
+else
+    fail "project override: plan_check_recheck can enable recheck" "true" "$val"
 fi
 
 # ========================================
@@ -195,6 +211,95 @@ else
     fail "all-layers: all three layers contribute distinct keys" \
         "user-plan-mode + true + haiku" \
         "$val_g + $val_a + $val_b"
+fi
+
+# ========================================
+# Test 8: gen_plan_check default is false
+# ========================================
+
+setup_test_dir
+PROJECT_DIR="$TEST_DIR/gen-plan-check-default"
+mkdir -p "$PROJECT_DIR"
+
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg-gpc" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+
+val=$(get_config_value "$merged" "gen_plan_check")
+if [[ "$val" == "false" ]]; then
+    pass "gen_plan_check default: defaults to false"
+else
+    fail "gen_plan_check default: defaults to false" "false" "$val"
+fi
+
+# ========================================
+# Test 9: Project config can override gen_plan_check to true
+# ========================================
+
+setup_test_dir
+PROJECT_DIR="$TEST_DIR/gen-plan-check-override-true"
+mkdir -p "$PROJECT_DIR/.humanize"
+printf '{"gen_plan_check": true}' > "$PROJECT_DIR/.humanize/config.json"
+
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg-gpc2" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+
+val=$(get_config_value "$merged" "gen_plan_check")
+if [[ "$val" == "true" ]]; then
+    pass "gen_plan_check override: project config can set true"
+else
+    fail "gen_plan_check override: project config can set true" "true" "$val"
+fi
+
+# ========================================
+# Test 10: Project config can override gen_plan_check to false
+# ========================================
+
+setup_test_dir
+PROJECT_DIR="$TEST_DIR/gen-plan-check-override-false"
+mkdir -p "$PROJECT_DIR/.humanize"
+printf '{"gen_plan_check": false}' > "$PROJECT_DIR/.humanize/config.json"
+
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg-gpc3" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+
+val=$(get_config_value "$merged" "gen_plan_check")
+if [[ "$val" == "false" ]]; then
+    pass "gen_plan_check override: project config can set false"
+else
+    fail "gen_plan_check override: project config can set false" "false" "$val"
+fi
+
+# ========================================
+# Test 11: Invalid gen_plan_check value is present in merged config
+# ========================================
+
+setup_test_dir
+PROJECT_DIR="$TEST_DIR/gen-plan-check-invalid"
+mkdir -p "$PROJECT_DIR/.humanize"
+printf '{"gen_plan_check": "yes"}' > "$PROJECT_DIR/.humanize/config.json"
+
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg-gpc4" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+
+val=$(get_config_value "$merged" "gen_plan_check")
+if [[ "$val" == "yes" ]]; then
+    pass "gen_plan_check invalid: invalid value is preserved in merged config (resolver handles fallback)"
+else
+    fail "gen_plan_check invalid: invalid value should be preserved in merged config" "yes" "$val"
+fi
+
+# ========================================
+# Test 12: Null gen_plan_check is stripped by merged config loader
+# ========================================
+
+setup_test_dir
+PROJECT_DIR="$TEST_DIR/gen-plan-check-null"
+mkdir -p "$PROJECT_DIR/.humanize"
+printf '{"gen_plan_check": null}' > "$PROJECT_DIR/.humanize/config.json"
+
+merged=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-cfg-gpc5" load_merged_config "$PROJECT_ROOT" "$PROJECT_DIR" 2>/dev/null)
+
+val=$(get_config_value "$merged" "gen_plan_check")
+if [[ "$val" == "false" ]]; then
+    pass "gen_plan_check null: null is silently stripped, default false remains"
+else
+    fail "gen_plan_check null: null should be silently stripped, leaving default false" "false" "$val"
 fi
 
 print_test_summary "Config Merge Tests"

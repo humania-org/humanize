@@ -135,7 +135,7 @@ if [[ ! -f "$LOOP_COMMON" ]]; then
     skip "loop-common.sh tests require loop-common.sh" "file not found"
 else
     # Test default values load correctly
-    result=$(bash -c "
+    result=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config-defaults" bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         echo \"\$DEFAULT_CODEX_MODEL|\$DEFAULT_CODEX_EFFORT\"
     " 2>/dev/null || echo "ERROR")
@@ -147,7 +147,7 @@ else
         "high" "$(echo "$result" | cut -d'|' -f2)"
 
     # Verify no reviewer constants or defaults exist
-    result=$(bash -c "
+    result=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config-defaults" bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         echo \"\${FIELD_LOOP_REVIEWER_MODEL:-ABSENT}|\${DEFAULT_LOOP_REVIEWER_MODEL:-ABSENT}\"
     " 2>/dev/null || echo "ERROR")
@@ -281,7 +281,7 @@ agent_teams: false
 ---
 STATE_EOF
 
-    result=$(bash -c "
+    result=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config-defaults" bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/codex-state.md'
         EXEC_MODEL=\"\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}\"
@@ -316,7 +316,7 @@ agent_teams: false
 ---
 BARE_EOF
 
-    result=$(bash -c "
+    result=$(XDG_CONFIG_HOME="$TEST_DIR/no-user-config-defaults" bash -c "
         source '$LOOP_COMMON' 2>/dev/null
         parse_state_file '$TEST_DIR/bare-state.md'
         EXEC_MODEL=\"\${STATE_CODEX_MODEL:-\$DEFAULT_CODEX_MODEL}\"

@@ -615,7 +615,7 @@ fi
 # if .humanize is tracked, which would block exit before reaching this handler.
 
 if [[ "$IS_METHODOLOGY_ANALYSIS_PHASE" == "true" ]]; then
-    if complete_methodology_analysis; then
+    if methodology_analysis_ready_to_complete; then
         # Before allowing the terminal state transition, re-verify the
         # working tree is clean. The main git-clean gate below is skipped
         # in the methodology branch, so without this check, tracked edits
@@ -653,6 +653,9 @@ Please commit all changes before allowing the loop to exit.
                     }'
                 exit 0
             fi
+        fi
+        if ! complete_methodology_analysis; then
+            block_methodology_analysis_incomplete
         fi
         # Analysis complete and tree clean, allow exit
         exit 0

@@ -261,8 +261,24 @@ else
     fail "Edit validator round-5-contract.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
-# Test 13c: Edit validator blocks stale round contract
-echo "Test 13c: Edit validator blocks round-0-contract.md"
+# Test 13c: Edit validator blocks same-round stale loop contract
+echo "Test 13c: Edit validator blocks same-round stale loop contract"
+STALE_LOOP_DIR="$TEST_DIR/.humanize/rlcr/2024-01-01_11-00-00"
+mkdir -p "$STALE_LOOP_DIR"
+touch "$STALE_LOOP_DIR/round-5-contract.md"
+HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$STALE_LOOP_DIR'/round-5-contract.md"}}'
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "correct path"; then
+    pass "Edit validator blocks same-round stale loop contract"
+else
+    fail "Edit validator same-round stale loop contract" "exit 2 with correct path error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13d: Edit validator blocks stale round contract
+echo "Test 13d: Edit validator blocks round-0-contract.md"
 HOOK_INPUT='{"tool_name": "Edit", "tool_input": {"file_path": "'$LOOP_DIR'/round-0-contract.md"}}'
 set +e
 RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)

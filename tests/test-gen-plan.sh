@@ -128,6 +128,19 @@ else
     fail "gen-plan command allows ask-codex script" "ask-codex script reference" "missing"
 fi
 
+GEN_PLAN_SKILL="$PROJECT_ROOT/skills/humanize-gen-plan/SKILL.md"
+if [[ -f "$GEN_PLAN_SKILL" ]] && grep -q -- "--check" "$GEN_PLAN_SKILL" && grep -q -- "--no-check" "$GEN_PLAN_SKILL"; then
+    pass "humanize-gen-plan skill documents check-mode flags"
+else
+    fail "humanize-gen-plan skill documents check-mode flags" "--check and --no-check in SKILL.md" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_SKILL" ]] && grep -q "gen_plan_check" "$GEN_PLAN_SKILL"; then
+    pass "humanize-gen-plan skill documents gen_plan_check config"
+else
+    fail "humanize-gen-plan skill documents gen_plan_check config" "gen_plan_check in SKILL.md" "missing"
+fi
+
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q -- "--auto-start-rlcr-if-converged" "$GEN_PLAN_CMD"; then
     pass "gen-plan command exposes auto-start-if-converged option"
 else
@@ -691,6 +704,82 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         pass "validate script rejects --discussion and --direct together"
     else
         fail "validate script rejects --discussion and --direct together" "mutual exclusion error" "no error produced"
+    fi
+
+    # Test: --check flag is accepted
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/check-output.md" --check 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: --check accepted"
+    else
+        fail "validate-gen-plan-io: --check should be accepted" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --no-check flag is accepted
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/no-check-output.md" --no-check 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: --no-check accepted"
+    else
+        fail "validate-gen-plan-io: --no-check should be accepted" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --check + --discussion is compatible
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/check-discussion.md" --check --discussion 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: --check + --discussion compatible"
+    else
+        fail "validate-gen-plan-io: --check + --discussion should be compatible" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --check + --direct is compatible
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/check-direct.md" --check --direct 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: --check + --direct compatible"
+    else
+        fail "validate-gen-plan-io: --check + --direct should be compatible" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --no-check + --discussion is compatible
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/no-check-discussion.md" --no-check --discussion 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: --no-check + --discussion compatible"
+    else
+        fail "validate-gen-plan-io: --no-check + --discussion should be compatible" "0" "$EXIT_CODE"
+    fi
+
+    # Test: --check with value exits 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/out.md" --check value 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --check value exits 6"
+    else
+        fail "validate-gen-plan-io: --check value should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: --no-check with value exits 6
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/out.md" --no-check value 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: --no-check value exits 6"
+    else
+        fail "validate-gen-plan-io: --no-check value should exit 6" "6" "$EXIT_CODE"
+    fi
+
+    # Test: Usage text mentions --check and --no-check
+    OUTPUT=$("$VALIDATE_SCRIPT" --help 2>&1) || true
+    if echo "$OUTPUT" | grep -q -- '--check'; then
+        pass "validate-gen-plan-io: usage mentions --check"
+    else
+        fail "validate-gen-plan-io: usage should mention --check" "mentioned" "missing"
+    fi
+    if echo "$OUTPUT" | grep -q -- '--no-check'; then
+        pass "validate-gen-plan-io: usage mentions --no-check"
+    else
+        fail "validate-gen-plan-io: usage should mention --no-check" "mentioned" "missing"
     fi
 
     # Test: Help option should exit 6

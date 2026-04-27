@@ -24,7 +24,7 @@ From the Humanize repo root, run:
 ```
 
 This command will:
-- Sync `humanize`, `humanize-gen-plan`, `humanize-refine-plan`, and `humanize-rlcr` into `~/.config/agents/skills`
+- Sync `humanize`, `humanize-gen-plan`, `humanize-plan-check`, `humanize-refine-plan`, and `humanize-rlcr` into `~/.config/agents/skills`
 - Copy runtime dependencies into `~/.config/agents/skills/humanize`
 
 Common installer script (all targets):
@@ -47,9 +47,10 @@ cd /path/to/humanize
 # Create the skills directory if it doesn't exist
 mkdir -p ~/.config/agents/skills
 
-# Copy all four skills
+# Copy all Humanize skills
 cp -r skills/humanize ~/.config/agents/skills/
 cp -r skills/humanize-gen-plan ~/.config/agents/skills/
+cp -r skills/humanize-plan-check ~/.config/agents/skills/
 cp -r skills/humanize-refine-plan ~/.config/agents/skills/
 cp -r skills/humanize-rlcr ~/.config/agents/skills/
 
@@ -63,14 +64,14 @@ cp -r config ~/.config/agents/skills/humanize/
 cp -r agents ~/.config/agents/skills/humanize/
 
 # Hydrate runtime root placeholders inside SKILL.md files
-for skill in humanize humanize-gen-plan humanize-refine-plan humanize-rlcr; do
+for skill in humanize humanize-gen-plan humanize-plan-check humanize-refine-plan humanize-rlcr; do
   sed -i.bak "s|{{HUMANIZE_RUNTIME_ROOT}}|$HOME/.config/agents/skills/humanize|g" \
     "$HOME/.config/agents/skills/$skill/SKILL.md"
 done
 
 # Strip user-invocable flag from SKILL.md files for runtime visibility
 # (This matches the behavior of scripts/install-skill.sh)
-for skill in humanize humanize-gen-plan humanize-refine-plan humanize-rlcr; do
+for skill in humanize humanize-gen-plan humanize-plan-check humanize-refine-plan humanize-rlcr; do
   awk '
     BEGIN { in_fm = 0; fm_done = 0 }
     /^---[[:space:]]*$/ {
@@ -99,6 +100,7 @@ ls -la ~/.config/agents/skills/
 # Should show:
 # humanize/
 # humanize-gen-plan/
+# humanize-plan-check/
 # humanize-refine-plan/
 # humanize-rlcr/
 ```

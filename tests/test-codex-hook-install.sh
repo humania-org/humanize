@@ -10,6 +10,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/test-helpers.sh"
 
 INSTALL_SCRIPT="$PROJECT_ROOT/scripts/install-skill.sh"
+HOOK_INSTALL_SCRIPT="$PROJECT_ROOT/scripts/install-codex-hooks.sh"
 
 echo "=========================================="
 echo "Codex Hook Install Tests"
@@ -23,6 +24,11 @@ fi
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "FATAL: python3 is required for this test" >&2
+    exit 1
+fi
+
+if [[ ! -x "$HOOK_INSTALL_SCRIPT" ]]; then
+    echo "FATAL: install-codex-hooks.sh not found at $HOOK_INSTALL_SCRIPT" >&2
     exit 1
 fi
 
@@ -42,9 +48,10 @@ cat > "$FAKE_BIN/codex" <<'EOF'
 set -euo pipefail
 
 if [[ "${1:-}" == "features" && "${2:-}" == "list" ]]; then
-    cat <<'LIST'
-codex_hooks                      under development  false
-LIST
+    printf 'codex_hooks                      under development  false\n'
+    for ((i = 0; i < 20000; i++)); do
+        printf 'feature_%05d                    stable             false\n' "$i"
+    done
     exit 0
 fi
 
@@ -125,6 +132,12 @@ if [[ -f "$CODEX_HOME_DIR/skills/humanize-rlcr/SKILL.md" ]]; then
     pass "Codex install keeps humanize-rlcr entrypoint skill"
 else
     fail "Codex install keeps humanize-rlcr entrypoint skill" "skills/humanize-rlcr/SKILL.md exists" "missing"
+fi
+
+if [[ -f "$CODEX_HOME_DIR/skills/humanize-plan-check/SKILL.md" ]]; then
+    pass "Codex install keeps humanize-plan-check entrypoint skill"
+else
+    fail "Codex install keeps humanize-plan-check entrypoint skill" "skills/humanize-plan-check/SKILL.md exists" "missing"
 fi
 
 if [[ -f "$HOOKS_FILE" ]]; then
@@ -329,6 +342,54 @@ else
     fail "Unsupported Codex failure explains missing codex_hooks feature" \
         "error mentioning codex_hooks feature" \
         "$(cat "$TEST_DIR/install-unsupported.log")"
+fi
+
+DRY_RUN_BIN="$TEST_DIR/bin-dry-run"
+DRY_RUN_HOME="$TEST_DIR/codex-home-dry-run"
+DRY_RUN_CALL_LOG="$TEST_DIR/dry-run-codex-calls.log"
+DRY_RUN_LOG="$TEST_DIR/install-codex-hooks-dry-run.log"
+mkdir -p "$DRY_RUN_BIN" "$DRY_RUN_HOME"
+
+cat > "$DRY_RUN_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'called: %s\n' "$*" >> "${DRY_RUN_CODEX_CALL_LOG:?}"
+exit 99
+EOF
+chmod +x "$DRY_RUN_BIN/codex"
+
+set +e
+PATH="$DRY_RUN_BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
+    DRY_RUN_CODEX_CALL_LOG="$DRY_RUN_CALL_LOG" \
+    "$HOOK_INSTALL_SCRIPT" \
+    --codex-config-dir "$DRY_RUN_HOME" \
+    --runtime-root "$DRY_RUN_HOME/skills/humanize" \
+    --dry-run \
+    > "$DRY_RUN_LOG" 2>&1
+DRY_RUN_EXIT=$?
+set -e
+
+if [[ "$DRY_RUN_EXIT" -eq 0 ]]; then
+    pass "Codex hooks installer dry-run succeeds without probing codex_hooks support"
+else
+    fail "Codex hooks installer dry-run succeeds without probing codex_hooks support" \
+        "exit 0" "exit $DRY_RUN_EXIT, output=$(cat "$DRY_RUN_LOG")"
+fi
+
+if grep -q "DRY-RUN merge" "$DRY_RUN_LOG" \
+    && grep -q "DRY-RUN enable codex_hooks feature" "$DRY_RUN_LOG"; then
+    pass "Codex hooks installer dry-run prints planned actions"
+else
+    fail "Codex hooks installer dry-run prints planned actions" \
+        "DRY-RUN merge and enable messages" \
+        "$(cat "$DRY_RUN_LOG")"
+fi
+
+if [[ ! -f "$DRY_RUN_CALL_LOG" ]]; then
+    pass "Codex hooks installer dry-run does not invoke codex"
+else
+    fail "Codex hooks installer dry-run does not invoke codex" \
+        "no codex invocations" "$(cat "$DRY_RUN_CALL_LOG")"
 fi
 
 print_test_summary "Codex Hook Install Tests"
