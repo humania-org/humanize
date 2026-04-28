@@ -23,7 +23,7 @@ Or use the unified installer directly:
 ```
 
 This will:
-- Sync `humanize`, `humanize-gen-plan`, `humanize-refine-plan`, and `humanize-rlcr` into `${CODEX_HOME:-~/.codex}/skills`
+- Sync `humanize`, `humanize-gen-idea`, `humanize-gen-plan`, `humanize-refine-plan`, and `humanize-rlcr` into `${CODEX_HOME:-~/.codex}/skills`
 - Copy runtime dependencies into `${CODEX_HOME:-~/.codex}/skills/humanize`
 - Install/update native Humanize Stop hooks in `${CODEX_HOME:-~/.codex}/hooks.json`
 - Enable the experimental `codex_hooks` feature in `${CODEX_HOME:-~/.codex}/config.toml` when `codex` is available
@@ -41,6 +41,7 @@ ls -la "${CODEX_HOME:-$HOME/.codex}/skills"
 
 Expected directories:
 - `humanize`
+- `humanize-gen-idea`
 - `humanize-gen-plan`
 - `humanize-refine-plan`
 - `humanize-rlcr`
@@ -55,6 +56,7 @@ Runtime dependencies in `humanize/`:
 
 Installed files/directories:
 - `${CODEX_HOME:-~/.codex}/skills/humanize/SKILL.md`
+- `${CODEX_HOME:-~/.codex}/skills/humanize-gen-idea/SKILL.md`
 - `${CODEX_HOME:-~/.codex}/skills/humanize-gen-plan/SKILL.md`
 - `${CODEX_HOME:-~/.codex}/skills/humanize-refine-plan/SKILL.md`
 - `${CODEX_HOME:-~/.codex}/skills/humanize-rlcr/SKILL.md`

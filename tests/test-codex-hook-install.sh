@@ -127,6 +127,20 @@ else
     fail "Codex install keeps humanize-rlcr entrypoint skill" "skills/humanize-rlcr/SKILL.md exists" "missing"
 fi
 
+if [[ -f "$CODEX_HOME_DIR/skills/humanize-gen-idea/SKILL.md" ]]; then
+    pass "Codex install includes humanize-gen-idea entrypoint skill"
+else
+    fail "Codex install includes humanize-gen-idea entrypoint skill" "skills/humanize-gen-idea/SKILL.md exists" "missing"
+fi
+
+if grep -qF "$CODEX_HOME_DIR/skills/humanize/scripts/validate-gen-idea-io.sh" "$CODEX_HOME_DIR/skills/humanize-gen-idea/SKILL.md"; then
+    pass "Codex install hydrates humanize-gen-idea runtime paths"
+else
+    fail "Codex install hydrates humanize-gen-idea runtime paths" \
+        "$CODEX_HOME_DIR/skills/humanize/scripts/validate-gen-idea-io.sh" \
+        "$(sed -n '1,80p' "$CODEX_HOME_DIR/skills/humanize-gen-idea/SKILL.md" 2>/dev/null || echo missing)"
+fi
+
 if [[ -f "$HOOKS_FILE" ]]; then
     pass "Codex install writes hooks.json"
 else
@@ -253,6 +267,7 @@ PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$FEATURE_LOG" XDG_CONFIG_HOME="$X
     --target codex \
     --codex-config-dir "$CODEX_HOME_DIR" \
     --codex-skills-dir "$CODEX_HOME_DIR/skills" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
     > "$TEST_DIR/install-2.log" 2>&1
 
 PY_OUTPUT_2="$(
@@ -308,7 +323,7 @@ EOF
 chmod +x "$UNSUPPORTED_BIN/codex"
 
 set +e
-PATH="$UNSUPPORTED_BIN:$PATH" \
+PATH="$UNSUPPORTED_BIN:$PATH" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" \
     "$INSTALL_SCRIPT" \
     --target codex \
     --codex-config-dir "$UNSUPPORTED_HOME" \
