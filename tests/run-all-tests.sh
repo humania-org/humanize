@@ -165,6 +165,25 @@ MOCK_CODEX
     export PATH="$OUTPUT_DIR/mock-bin:$PATH"
 fi
 
+# Provide a portable `timeout` shim on platforms that lack it (e.g. macOS base install).
+# The shim runs the command in a subprocess, waits the allotted time, and kills if needed.
+if ! command -v timeout &>/dev/null; then
+    mkdir -p "$OUTPUT_DIR/mock-bin"
+    cat > "$OUTPUT_DIR/mock-bin/timeout" << 'TIMEOUT_SHIM'
+#!/usr/bin/env bash
+N="$1"; shift
+( "$@" ) & PID=$!
+( sleep "$N" && kill -TERM "$PID" 2>/dev/null ) & WATCHER=$!
+wait "$PID" 2>/dev/null
+STATUS=$?
+kill "$WATCHER" 2>/dev/null
+wait "$WATCHER" 2>/dev/null
+exit $STATUS
+TIMEOUT_SHIM
+    chmod +x "$OUTPUT_DIR/mock-bin/timeout"
+    export PATH="$OUTPUT_DIR/mock-bin:$PATH"
+fi
+
 # Check if a suite needs zsh
 needs_zsh() {
     local suite="$1"

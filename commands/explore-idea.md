@@ -13,6 +13,7 @@ allowed-tools:
   - "Bash(sha256sum *)"
   - "Bash(date *)"
   - "Bash(jq *)"
+  - "AskUserQuestion"
 ---
 
 # Explore Idea — Bounded Parallel Prototype Workers

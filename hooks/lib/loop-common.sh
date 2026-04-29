@@ -379,7 +379,7 @@ find_active_loop() {
         fi
 
         local stored_session_id
-        stored_session_id=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/'"${FIELD_SESSION_ID}"': *//; p; } }' "$any_state" 2>/dev/null | tr -d ' ')
+        stored_session_id=$(awk -v key="${FIELD_SESSION_ID}" 'BEGIN{f=0} /^---$/{f++; next} f==1 && $0 ~ "^"key":"{sub("^"key":[[:space:]]*",""); print; exit}' "$any_state" 2>/dev/null | tr -d ' ')
 
         # Empty stored session_id matches any session (backward compat).
         if [[ -z "$stored_session_id" ]] || [[ "$stored_session_id" == "$filter_session_id" ]]; then
@@ -809,8 +809,8 @@ extract_round_number() {
     local filename_lower
     filename_lower=$(to_lower "$filename")
 
-    # Use sed for portable regex extraction (works in both bash and zsh)
-    echo "$filename_lower" | sed -n 's/.*round-\([0-9][0-9]*\)-\(summary\|prompt\|todos\|contract\)\.md$/\1/p'
+    # Use ERE (-E) so | alternation works on both GNU and BSD sed (macOS)
+    echo "$filename_lower" | sed -En 's/.*round-([0-9]+)-(summary|prompt|todos|contract)\.md$/\1/p'
 }
 
 # Check if a file is in the allowlist for the active loop
@@ -820,6 +820,11 @@ is_allowlisted_file() {
     local file_path="$1"
     local active_loop_dir="$2"
 
+    # Canonicalize both paths to resolve symlinks (e.g. /var -> /private/var on macOS).
+    local canonical_file canonical_loop
+    canonical_file=$(canonicalize_path "$file_path" 2>/dev/null || echo "$file_path")
+    canonical_loop=$(canonicalize_path "$active_loop_dir" 2>/dev/null || echo "$active_loop_dir")
+
     local allowlist=(
         "round-1-todos.md"
         "round-2-todos.md"
@@ -828,7 +833,7 @@ is_allowlisted_file() {
     )
 
     for allowed in "${allowlist[@]}"; do
-        if [[ "$file_path" == "$active_loop_dir/$allowed" ]]; then
+        if [[ "$canonical_file" == "$canonical_loop/$allowed" ]]; then
             return 0
         fi
     done
@@ -1522,7 +1527,7 @@ Use Write or Edit on: {{CORRECT_PATH}}
 
 Rules:
 - Keep the **IMMUTABLE SECTION** unchanged
-- Do not modify `goal-tracker.md` via Bash
+- Do not modify goal-tracker.md via Bash
 - Do not write to an old loop session's tracker"
 
     load_and_render_safe "$TEMPLATE_DIR" "block/goal-tracker-modification.md" "$fallback" \

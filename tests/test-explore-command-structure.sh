@@ -80,6 +80,20 @@ else
     fail "Read tool in allowed-tools"
 fi
 
+# jq in allowed-tools (Phase 5 coordinator JSON parsing)
+if grep -q '"Bash(jq \*)"\|Bash(jq' "$EXPLORE_CMD"; then
+    pass "jq in allowed-tools"
+else
+    fail "jq in allowed-tools"
+fi
+
+# AskUserQuestion in allowed-tools (Phase 2 confirmation)
+if grep -q '"AskUserQuestion"' "$EXPLORE_CMD"; then
+    pass "AskUserQuestion in allowed-tools"
+else
+    fail "AskUserQuestion in allowed-tools"
+fi
+
 echo ""
 echo "--- Workflow Phases ---"
 echo ""

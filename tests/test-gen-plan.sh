@@ -69,7 +69,7 @@ fi
 echo ""
 echo "PT-2: Command description validation"
 if [[ -f "$GEN_PLAN_CMD" ]]; then
-    DESC=$(sed -n '/^---$/,/^---$/{ /^description:/{ s/^description:[[:space:]]*//p; q; } }' "$GEN_PLAN_CMD")
+    DESC=$(awk 'BEGIN{f=0} /^---$/{f++; next} f==1 && /^description:/{sub(/^description:[[:space:]]*/,""); print; exit}' "$GEN_PLAN_CMD")
     if [[ -n "$DESC" ]]; then
         pass "gen-plan.md has description: ${DESC:0:50}..."
     else
@@ -252,7 +252,7 @@ fi
 echo ""
 echo "PT-6: Agent name validation"
 if [[ -f "$RELEVANCE_AGENT" ]]; then
-    NAME=$(sed -n '/^---$/,/^---$/{ /^name:/{ s/^name:[[:space:]]*//p; q; } }' "$RELEVANCE_AGENT")
+    NAME=$(awk 'BEGIN{f=0} /^---$/{f++; next} f==1 && /^name:/{sub(/^name:[[:space:]]*/,""); print; exit}' "$RELEVANCE_AGENT")
     if [[ "$NAME" == "draft-relevance-checker" ]]; then
         pass "draft-relevance-checker agent has correct name field"
     else
@@ -266,7 +266,7 @@ fi
 echo ""
 echo "PT-7: Agent model specification validation"
 if [[ -f "$RELEVANCE_AGENT" ]]; then
-    MODEL=$(sed -n '/^---$/,/^---$/{ /^model:/{ s/^model:[[:space:]]*//p; q; } }' "$RELEVANCE_AGENT")
+    MODEL=$(awk 'BEGIN{f=0} /^---$/{f++; next} f==1 && /^model:/{sub(/^model:[[:space:]]*/,""); print; exit}' "$RELEVANCE_AGENT")
     if [[ "$MODEL" == "haiku" ]]; then
         pass "draft-relevance-checker agent uses haiku model"
     else
@@ -521,7 +521,7 @@ fi
 
 # Verify agent has valid model
 if [[ -f "$RELEVANCE_AGENT" ]]; then
-    MODEL=$(sed -n '/^---$/,/^---$/{ /^model:/{ s/^model:[[:space:]]*//p; q; } }' "$RELEVANCE_AGENT")
+    MODEL=$(awk 'BEGIN{f=0} /^---$/{f++; next} f==1 && /^model:/{sub(/^model:[[:space:]]*/,""); print; exit}' "$RELEVANCE_AGENT")
     if [[ -n "$MODEL" ]]; then
         if validate_model_name "$MODEL"; then
             pass "NT-6c: draft-relevance-checker has valid model: $MODEL"

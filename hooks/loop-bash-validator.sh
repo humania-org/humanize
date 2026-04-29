@@ -559,9 +559,11 @@ fi
 # ========================================
 
 if command_modifies_file "$COMMAND_LOWER" "round-[0-9]+-todos\.md"; then
-    # Require full path to active loop dir to prevent same-basename bypass from different roots
+    # Require full path to active loop dir to prevent same-basename bypass from different roots.
+    # Strip leading /private prefix so canonical paths (/private/var) match user paths (/var) on macOS.
     ACTIVE_LOOP_DIR_LOWER=$(to_lower "$ACTIVE_LOOP_DIR")
-    ACTIVE_LOOP_DIR_ESCAPED=$(echo "$ACTIVE_LOOP_DIR_LOWER" | sed 's/[\\.*^$[(){}+?|]/\\&/g')
+    ACTIVE_LOOP_DIR_LOWER_NORM="${ACTIVE_LOOP_DIR_LOWER#/private}"
+    ACTIVE_LOOP_DIR_ESCAPED=$(echo "$ACTIVE_LOOP_DIR_LOWER_NORM" | sed 's/[\\.*^$[(){}+?|]/\\&/g')
     if ! echo "$COMMAND_LOWER" | grep -qE "${ACTIVE_LOOP_DIR_ESCAPED}/round-[12]-todos\.md"; then
         todos_blocked_message "Bash" >&2
         exit 2

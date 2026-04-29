@@ -191,15 +191,20 @@ run_selector() {
 
     if [[ "$provider" == "codex" ]]; then
         local codex_exec_args=()
+        # Capture help output first to avoid pipefail+SIGPIPE interaction when
+        # grep exits early (after finding a match) before codex finishes writing.
+        local codex_help_output codex_exec_help_output
+        codex_help_output=$(codex --help 2>&1) || true
+        codex_exec_help_output=$(codex exec --help 2>&1) || true
         # Probe whether the installed Codex CLI supports --disable flag
-        if codex --help 2>&1 | grep -q -- '--disable'; then
+        if grep -q -- '--disable' <<< "$codex_help_output"; then
             codex_exec_args+=("--disable" "hooks")
         fi
         # Probe for --skip-git-repo-check and --ephemeral support
-        if codex exec --help 2>&1 | grep -q -- '--skip-git-repo-check'; then
+        if grep -q -- '--skip-git-repo-check' <<< "$codex_exec_help_output"; then
             codex_exec_args+=("--skip-git-repo-check")
         fi
-        if codex exec --help 2>&1 | grep -q -- '--ephemeral'; then
+        if grep -q -- '--ephemeral' <<< "$codex_exec_help_output"; then
             codex_exec_args+=("--ephemeral")
         fi
         codex_exec_args+=(

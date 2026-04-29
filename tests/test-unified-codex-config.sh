@@ -16,6 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/test-helpers.sh"
+source "$PROJECT_ROOT/scripts/portable-timeout.sh"
 
 # Helper: assert_eq DESCRIPTION EXPECTED ACTUAL
 # Calls pass/fail based on string equality
@@ -584,7 +585,7 @@ PLAN_EOF
 
     # Run setup-rlcr-loop.sh with --codex-model override
     setup_exit=0
-    output=$(cd "$EXEC_PROJECT" && CLAUDE_PROJECT_DIR="$EXEC_PROJECT" timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || setup_exit=$?
+    output=$(cd "$EXEC_PROJECT" && CLAUDE_PROJECT_DIR="$EXEC_PROJECT" run_with_timeout 30 bash "$SETUP_SCRIPT" --codex-model gpt-5.3:xhigh --base-branch master --track-plan-file plan.md 2>&1) || setup_exit=$?
 
     assert_eq "setup execution: setup-rlcr-loop.sh exited successfully" \
         "0" "$setup_exit"
@@ -735,7 +736,7 @@ MOCK_EOF
         CLAUDE_PROJECT_DIR="$ASK_CFG_PROJECT" \
         XDG_CONFIG_HOME="$TEST_DIR/no-user-config" \
         PATH="$MOCK_BIN:$PATH" \
-        timeout 30 bash "$ASK_CODEX" "test question" 2>&1 >/dev/null) || true
+        run_with_timeout 30 bash "$ASK_CODEX" "test question" 2>&1 >/dev/null) || true
 
     # Stderr should report config-backed model and effort
     if echo "$ask_stderr" | grep -q 'model=o3-mini'; then
@@ -755,7 +756,7 @@ MOCK_EOF
         CLAUDE_PROJECT_DIR="$ASK_CFG_PROJECT" \
         XDG_CONFIG_HOME="$TEST_DIR/no-user-config" \
         PATH="$MOCK_BIN:$PATH" \
-        timeout 30 bash "$ASK_CODEX" --codex-model override-model:xhigh "test question" 2>&1 >/dev/null) || true
+        run_with_timeout 30 bash "$ASK_CODEX" --codex-model override-model:xhigh "test question" 2>&1 >/dev/null) || true
 
     if echo "$override_stderr" | grep -q 'model=override-model'; then
         pass "ask-codex runtime: --codex-model override reported in stderr (override-model)"
