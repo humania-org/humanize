@@ -290,6 +290,14 @@ else
         fi
         RESOLVED_IDS+=("$RESOLVED")
     done
+
+    # Check for duplicates after resolution (catches mixed selector forms like "1,dir-01-slug")
+    RESOLVED_DEDUPED=$(printf '%s\n' "${RESOLVED_IDS[@]}" | sort | uniq | wc -l | tr -d ' ')
+    if (( RESOLVED_DEDUPED != ${#RESOLVED_IDS[@]} )); then
+        echo "ERROR: --directions resolves to duplicate direction_ids: $DIRECTIONS_FLAG" >&2
+        exit 6
+    fi
+
     SELECTED_IDS="${RESOLVED_IDS[*]}"
 fi
 

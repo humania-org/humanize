@@ -194,5 +194,33 @@ run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing .metadata key: exits non-zero" \
     || fail "missing .metadata key: exits non-zero" "non-zero" "$EXIT_CODE"
 
+# NT-20: Missing direction_id (per-direction required field)
+F=$(make_fixture "missing-direction-id" '.directions[0] |= del(.direction_id)')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "missing direction_id: exits non-zero" \
+    || fail "missing direction_id: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-21: source_index is a string (not integer)
+F=$(make_fixture "source-index-string" '.directions[0].source_index = "0"')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "string source_index: exits non-zero" \
+    || fail "string source_index: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-22: title is not a string (numeric type)
+F=$(make_fixture "title-numeric" '.title = 123')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "numeric title: exits non-zero" \
+    || fail "numeric title: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-23: objective_evidence items are not strings (numeric array)
+F=$(make_fixture "evidence-items-numeric" '.directions[0].objective_evidence = [1, 2]')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "numeric objective_evidence items: exits non-zero" \
+    || fail "numeric objective_evidence items: exits non-zero" "non-zero" "$EXIT_CODE"
+
 echo ""
 print_test_summary "validate-directions-json.sh Test Summary"

@@ -152,6 +152,15 @@ else
     fail "exit 6 for unknown direction selector" "exit 6" "exit=$EXIT_CODE"
 fi
 
+# Exit 6: mixed selector forms that resolve to the same direction_id (regression for post-resolution dedup)
+EXIT_CODE=0
+run_validate "$MOCK_REPO/valid.directions.json" --directions "1,dir-01-event-sourcing" 2>/dev/null || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 6 ]]; then
+    pass "exit 6 for mixed-form selectors resolving to same direction_id"
+else
+    fail "exit 6 for mixed-form duplicate resolved direction_ids" "exit 6" "exit=$EXIT_CODE"
+fi
+
 # Exit 6: unknown option
 EXIT_CODE=0
 run_validate "$MOCK_REPO/valid.directions.json" --bad-option 2>/dev/null || EXIT_CODE=$?

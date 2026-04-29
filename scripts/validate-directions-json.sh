@@ -41,10 +41,10 @@ if jq -e '
   # schema_version must be 1
   .schema_version == 1
 
-  # required top-level keys
-  and has("title")
-  and has("original_idea")
-  and has("synthesis_notes")
+  # required top-level keys must be present and be strings
+  and ((.title | type) == "string")
+  and ((.original_idea | type) == "string")
+  and ((.synthesis_notes | type) == "string")
   and has("metadata")
   and has("directions")
 
@@ -56,20 +56,21 @@ if jq -e '
   # exactly one primary direction
   and ((.directions | map(select(.is_primary == true)) | length) == 1)
 
-  # unique direction_id values
+  # direction_id: present, is a string, and unique across all entries
+  and (.directions | map(has("direction_id") and ((.direction_id | type) == "string")) | all)
   and ((.directions | map(.direction_id) | unique | length) == (.directions | length))
 
-  # unique dir_slug values
+  # dir_slug: present, is a string, unique, and branch/path safe (lowercase alphanumeric + hyphens)
+  and (.directions | map(has("dir_slug") and ((.dir_slug | type) == "string")) | all)
   and ((.directions | map(.dir_slug) | unique | length) == (.directions | length))
-
-  # dir_slug values must be lowercase alphanumeric + hyphens (branch/path safe)
   and (.directions | map(.dir_slug) | all(. != null and test("^[a-z0-9-]+$")))
 
-  # unique source_index values
+  # source_index: present and must be an integer (not a string)
+  and (.directions | map(has("source_index") and ((.source_index | type) == "number") and (.source_index == (.source_index | floor))) | all)
   and ((.directions | map(.source_index) | unique | length) == (.directions | length))
 
   # display_order values must be integers (number type and equal to floor)
-  and (.directions | map(.display_order) | all(. != null and (type == "number") and (. == floor)))
+  and (.directions | map(has("display_order") and ((.display_order | type) == "number") and (.display_order == (.display_order | floor))) | all)
 
   # metadata.n_returned must equal directions.length
   and (.metadata.n_returned == (.directions | length))
@@ -77,14 +78,17 @@ if jq -e '
   # confidence must be high, medium, or low for each direction
   and (.directions | map(.confidence) | all(. == "high" or . == "medium" or . == "low"))
 
-  # each direction must have all required fields and correct types
+  # each direction must have all required string fields
   and (.directions | map(
-        has("name")
-        and has("rationale")
-        and has("raw_phase3_response")
-        and has("approach_summary")
+        ((.name | type) == "string")
+        and ((.rationale | type) == "string")
+        and ((.raw_phase3_response | type) == "string")
+        and ((.approach_summary | type) == "string")
         and ((.objective_evidence | type) == "array")
         and ((.known_risks | type) == "array")
+        # array items must be strings
+        and (.objective_evidence | map(type == "string") | all)
+        and (.known_risks | map(type == "string") | all)
       ) | all)
 ' "$INPUT_FILE" > /dev/null 2>&1; then
     echo "VALIDATION_SUCCESS"

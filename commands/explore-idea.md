@@ -12,6 +12,7 @@ allowed-tools:
   - "Bash(shasum *)"
   - "Bash(sha256sum *)"
   - "Bash(date *)"
+  - "Bash(jq *)"
 ---
 
 # Explore Idea — Bounded Parallel Prototype Workers

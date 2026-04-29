@@ -194,28 +194,28 @@ format_ms() {
     echo "${s}.${frac}s"
 }
 
+# Portable millisecond timestamp (date +%s%3N is GNU-only, not on macOS bash 3.2)
+ms_now() {
+    python3 -c "import time; print(int(time.time()*1000))" 2>/dev/null \
+        || echo "$(date +%s)000"
+}
+
 run_suite_capture() {
     local suite="$1"
     local out_file="$2"
     local exit_file="$3"
     local time_file="$4"
     local suite_path="$SCRIPT_DIR/$suite"
+    local t_start
 
+    t_start=$(ms_now)
     if needs_zsh "$suite"; then
-        (
-            t_start=$(date +%s%3N)
-            zsh "$suite_path" >"$out_file" 2>&1
-            echo $? >"$exit_file"
-            echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        )
+        zsh "$suite_path" >"$out_file" 2>&1
     else
-        (
-            t_start=$(date +%s%3N)
-            "$suite_path" >"$out_file" 2>&1
-            echo $? >"$exit_file"
-            echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        )
+        "$suite_path" >"$out_file" 2>&1
     fi
+    echo $? >"$exit_file"
+    echo $(( $(ms_now) - t_start )) >"$time_file"
 }
 
 collect_suite_result() {
@@ -262,9 +262,8 @@ collect_suite_result() {
 }
 
 # Launch all test suites in parallel, except signal-heavy runtime tests which
-# run serially after the parallel batch finishes.
-declare -A PIDS          # suite -> PID
-declare -A SKIPPED       # suite -> reason
+# run serially after the parallel batch finishes. PIDs and skip reasons are
+# stored under OUTPUT_DIR instead of associative arrays so bash 3.2 works.
 ACTIVE_PIDS=()
 SERIAL_SUITES=()
 
@@ -276,18 +275,19 @@ for suite in "${TEST_SUITES[@]}"; do
     time_file="$OUTPUT_DIR/${safe_name}.time"
 
     if [[ ! -f "$suite_path" ]]; then
-        SKIPPED["$suite"]="not found"
+        echo "not found" > "$OUTPUT_DIR/${safe_name}.skip"
         continue
     fi
 
     if needs_serial "$suite"; then
         SERIAL_SUITES+=("$suite")
+        echo "serial" > "$OUTPUT_DIR/${safe_name}.serial"
         continue
     fi
 
     if needs_zsh "$suite"; then
         if ! command -v zsh &>/dev/null; then
-            SKIPPED["$suite"]="zsh not available"
+            echo "zsh not available" > "$OUTPUT_DIR/${safe_name}.skip"
             continue
         fi
     fi
@@ -295,8 +295,8 @@ for suite in "${TEST_SUITES[@]}"; do
     (
         run_suite_capture "$suite" "$out_file" "$exit_file" "$time_file"
     ) &
-    PIDS["$suite"]=$!
-    ACTIVE_PIDS+=("${PIDS[$suite]}")
+    echo $! > "$OUTPUT_DIR/${safe_name}.pid"
+    ACTIVE_PIDS+=($!)
 
     # Throttle background jobs
     while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_JOBS" ]]; do
@@ -309,7 +309,7 @@ for suite in "${TEST_SUITES[@]}"; do
                     still_running+=("$pid")
                 fi
             done
-            ACTIVE_PIDS=("${still_running[@]}")
+            ACTIVE_PIDS=(${still_running[@]+"${still_running[@]}"})
         else
             # Fallback: wait for the oldest PID (less efficient but portable in older bash)
             wait "${ACTIVE_PIDS[0]}" 2>/dev/null || true
@@ -328,13 +328,13 @@ SORT_FILE="$OUTPUT_DIR/sortable.txt"
 
 esc=$'\033'
 for suite in "${TEST_SUITES[@]}"; do
-    [[ -n "${SKIPPED[$suite]+x}" ]] && continue
-    [[ " ${SERIAL_SUITES[*]} " == *" $suite "* ]] && continue
-
-    pid="${PIDS[$suite]}"
-    wait "$pid" 2>/dev/null
-
     safe_name="$(echo "$suite" | tr '/' '_')"
+    [[ -f "$OUTPUT_DIR/${safe_name}.skip" ]] && continue
+    [[ -f "$OUTPUT_DIR/${safe_name}.serial" ]] && continue
+
+    pid=$(cat "$OUTPUT_DIR/${safe_name}.pid" 2>/dev/null || echo "")
+    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null
+
     out_file="$OUTPUT_DIR/${safe_name}.out"
     exit_file="$OUTPUT_DIR/${safe_name}.exit"
     time_file="$OUTPUT_DIR/${safe_name}.time"
@@ -354,8 +354,11 @@ done
 
 # Print skipped suites first
 for suite in "${TEST_SUITES[@]}"; do
-    if [[ -n "${SKIPPED[$suite]+x}" ]]; then
-        echo -e "${YELLOW}SKIP${NC}: $suite (${SKIPPED[$suite]})"
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    skip_file="$OUTPUT_DIR/${safe_name}.skip"
+    if [[ -f "$skip_file" ]]; then
+        skip_reason=$(cat "$skip_file" 2>/dev/null || echo "unknown")
+        echo -e "${YELLOW}SKIP${NC}: $suite ($skip_reason)"
     fi
 done
 

@@ -143,8 +143,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Join question parts into a single string
-QUESTION="${QUESTION_PARTS[*]}"
+# Join question parts into a single string (use ${arr[*]+...} to avoid set -u crash on bash 3.2)
+QUESTION="${QUESTION_PARTS[*]+"${QUESTION_PARTS[*]}"}"
 
 # ========================================
 # Validate Prerequisites
