@@ -342,6 +342,12 @@ fi
 # ========================================
 # Base branch and commit
 # ========================================
+#
+# Worker base-anchor contract (enforced by worker-prompt.md):
+# Each worker MUST: (1) git checkout BASE_BRANCH in its worktree,
+# (2) assert HEAD == BASE_COMMIT, and (3) only then create the explore branch.
+# A HEAD mismatch is a fatal worker error (worker emits failure result immediately).
+# Workers MUST run only targeted tests for the files they touched, not the full test suite.
 
 BASE_BRANCH="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
 BASE_COMMIT="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"

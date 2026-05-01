@@ -166,19 +166,22 @@ MOCK_CODEX
 fi
 
 # Provide a portable `timeout` shim on platforms that lack it (e.g. macOS base install).
-# The shim runs the command in a subprocess, waits the allotted time, and kills if needed.
+# Uses python3 subprocess so stdin is preserved and exit code 124 is returned on timeout.
 if ! command -v timeout &>/dev/null; then
     mkdir -p "$OUTPUT_DIR/mock-bin"
     cat > "$OUTPUT_DIR/mock-bin/timeout" << 'TIMEOUT_SHIM'
-#!/usr/bin/env bash
-N="$1"; shift
-( "$@" ) & PID=$!
-( sleep "$N" && kill -TERM "$PID" 2>/dev/null ) & WATCHER=$!
-wait "$PID" 2>/dev/null
-STATUS=$?
-kill "$WATCHER" 2>/dev/null
-wait "$WATCHER" 2>/dev/null
-exit $STATUS
+#!/usr/bin/env python3
+import subprocess, sys
+timeout_secs = float(sys.argv[1])
+cmd = sys.argv[2:]
+try:
+    result = subprocess.run(cmd, timeout=timeout_secs)
+    sys.exit(result.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+except Exception as e:
+    print(f"timeout shim error: {e}", file=sys.stderr)
+    sys.exit(1)
 TIMEOUT_SHIM
     chmod +x "$OUTPUT_DIR/mock-bin/timeout"
     export PATH="$OUTPUT_DIR/mock-bin:$PATH"

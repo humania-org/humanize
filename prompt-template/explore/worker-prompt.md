@@ -48,10 +48,17 @@ Your job is to implement a scoped prototype for one idea direction, review it wi
 ### Setup
 
 1. Verify you are in your worktree. Check that `git rev-parse --show-toplevel` returns a path that matches your assigned worktree (not the coordinator checkout).
-2. Create and check out branch `explore/<RUN_ID>/<DIR_SLUG>`:
+2. Anchor to the validated base commit before creating the explore branch:
    ```bash
+   git checkout "<BASE_BRANCH>"
+   ACTUAL_COMMIT=$(git rev-parse HEAD)
+   if [[ "$ACTUAL_COMMIT" != "<BASE_COMMIT>" ]]; then
+     echo "HEAD mismatch: expected <BASE_COMMIT>, got $ACTUAL_COMMIT" >&2
+     # emit failure result immediately — do not proceed
+   fi
    git checkout -b "explore/<RUN_ID>/<DIR_SLUG>"
    ```
+   If HEAD does not match `<BASE_COMMIT>`, emit a failure result with `error: "base commit mismatch"` and stop.
 3. Set the Codex project root to this worktree:
    ```bash
    export CLAUDE_PROJECT_DIR="$PWD"
@@ -64,11 +71,12 @@ For each iteration (up to `<MAX_WORKER_ITERATIONS>`):
 
 1. **Explore** — read the relevant files for this direction. Understand the existing patterns.
 2. **Implement** — make scoped prototype changes targeting this direction's approach. Keep changes minimal and focused.
-3. **Test** — run targeted tests for the areas you touched:
-   ```bash
-   bash tests/run-all-tests.sh
-   ```
-   Record `tests_passed` and `tests_failed` counts from the output.
+3. **Test** — run targeted tests for the files you touched. Do NOT run the full test suite. Examples:
+   - New script in `scripts/lib/`: run any existing tests for that module (e.g., `bash tests/test-<module>.sh`), or write and run a focused test for the new file.
+   - New test file in `tests/`: run that specific test file (`bash tests/<your-test>.sh`).
+   - Modified command in `commands/`: run the corresponding structure test if one exists.
+   If no targeted test exists for the area you touched, write a minimal test and run it.
+   Record `tests_passed` and `tests_failed` counts from the targeted test run(s).
 4. **Review with Codex**:
    ```bash
    export CLAUDE_PROJECT_DIR="$PWD"
