@@ -4,6 +4,7 @@ argument-hint: "<idea-text-or-path> [--n <int>] [--output <path>]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-idea-io.sh:*)"
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-directions-json.sh:*)"
+  - "Bash(rm:*)"
   - "Read"
   - "Glob"
   - "Grep"
@@ -17,7 +18,7 @@ Read and execute below with ultrathink.
 
 ## Hard Constraint: Draft-Only Output
 
-This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the output draft file and its companion `directions.json` artifact produced in Phase 4; prerequisite directory creation for the default `.humanize/ideas/` path by the validation script is permitted. All exploration subagents run read-only.
+This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the output draft file and its companion `directions.json` artifact produced in Phase 4; prerequisite directory creation for the default `.humanize/ideas/` path by the validation script is permitted. `rm` is permitted solely to delete those two just-written files when companion JSON validation fails (no-partial-output cleanup). All exploration subagents run read-only.
 
 This command transforms a loose idea into a repo-grounded draft suitable as input to `/humanize:gen-plan`. It applies directed-diversity exploration: a lead picks N orthogonal directions, N parallel `Explore` subagents develop each, the lead synthesizes a draft with one primary direction plus N-1 alternatives. Each direction carries objective evidence from the repo.
 

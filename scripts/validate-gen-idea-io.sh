@@ -90,13 +90,13 @@ SLUG=""
 # Detect whether IDEA_INPUT is meant as a file path. The `-f` test below is
 # the primary gate; this heuristic only matters when that test fails and we
 # must decide whether to emit INPUT_NOT_FOUND (user meant a path) or treat
-# the text as inline. Any whitespace disqualifies the input from path mode,
-# so inline ideas that happen to mention a filename like "rename README.md"
-# or that contain "/" fall through to inline. Limitation: a real path that
-# contains whitespace and does not exist is silently treated as inline.
+# the text as inline. Only whitespace-free inputs ending in ".md" trigger
+# path mode: slashes alone are not reliable indicators (ideas like "undo/redo"
+# or "CI/CD" are valid inline text). Limitation: a real path that contains
+# whitespace and does not exist is silently treated as inline.
 looks_like_path=false
 if [[ "$IDEA_INPUT" != *[[:space:]]* ]]; then
-    if [[ "$IDEA_INPUT" == *.md || "$IDEA_INPUT" == */* ]]; then
+    if [[ "$IDEA_INPUT" == *.md ]]; then
         looks_like_path=true
     fi
 fi

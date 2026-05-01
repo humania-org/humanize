@@ -134,5 +134,29 @@ else
     fail "missing idea: exits 1" "exit 1" "exit=$EXIT_CODE"
 fi
 
+# NT-6: Slash-containing idea treated as inline, not a missing file path
+# Regression for: whitespace-free input containing "/" was misclassified as a
+# file path and failed with INPUT_NOT_FOUND (exit 2).
+EXIT_CODE=0
+OUTPUT_DIR="$TEST_DIR/out5"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT=$(run_validate "undo/redo" --output "$OUTPUT_DIR/undo-redo.md" 2>&1) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q "VALIDATION_SUCCESS"; then
+    pass "slash idea (undo/redo): treated as inline text, exits 0"
+else
+    fail "slash idea (undo/redo): treated as inline text" "exit 0 + VALIDATION_SUCCESS" "exit=$EXIT_CODE"
+fi
+
+# NT-7: Another slash idea — CI/CD
+EXIT_CODE=0
+OUTPUT_DIR="$TEST_DIR/out6"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT=$(run_validate "CI/CD" --output "$OUTPUT_DIR/cicd.md" 2>&1) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q "VALIDATION_SUCCESS"; then
+    pass "slash idea (CI/CD): treated as inline text, exits 0"
+else
+    fail "slash idea (CI/CD): treated as inline text" "exit 0 + VALIDATION_SUCCESS" "exit=$EXIT_CODE"
+fi
+
 echo ""
 print_test_summary "validate-gen-idea-io.sh Test Summary"
