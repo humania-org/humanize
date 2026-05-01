@@ -50,7 +50,10 @@ Your job is to implement a scoped prototype for one idea direction, review it wi
 1. Verify you are in your worktree. Check that `git rev-parse --show-toplevel` returns a path that matches your assigned worktree (not the coordinator checkout).
 2. Anchor to the validated base commit before creating the explore branch:
    ```bash
-   git checkout "<BASE_BRANCH>"
+   # Do NOT run `git checkout <BASE_BRANCH>`: the coordinator worktree already
+   # has that branch checked out, and Git forbids two worktrees from checking
+   # out the same branch simultaneously. The worktree was created at BASE_COMMIT
+   # in detached HEAD state, so HEAD is already at the correct commit.
    ACTUAL_COMMIT=$(git rev-parse HEAD)
    if [[ "$ACTUAL_COMMIT" != "<BASE_COMMIT>" ]]; then
      echo "HEAD mismatch: expected <BASE_COMMIT>, got $ACTUAL_COMMIT" >&2

@@ -27,7 +27,7 @@ Read and execute below with ultrathink.
 - MUST write `manifest.json` to the run directory BEFORE dispatching any worker.
 - MUST NOT invoke nested Skills or slash commands inside worker prompts.
 - MUST NOT use `--effort max` (not supported by `ask-codex.sh`).
-- Worker branches follow the format `explore/<RUN_ID>/<dir_slug>` exactly, and MUST be created from `<BASE_BRANCH>` after asserting `HEAD == <BASE_COMMIT>`; a HEAD mismatch is a fatal worker error.
+- Worker branches follow the format `explore/<RUN_ID>/<dir_slug>` exactly, and MUST be created by running `git checkout -b` from the current HEAD after asserting `HEAD == <BASE_COMMIT>`; workers MUST NOT run `git checkout <BASE_BRANCH>` (that branch is already checked out in the coordinator worktree, and Git forbids two worktrees from checking out the same branch simultaneously); a HEAD mismatch is a fatal worker error.
 - Workers MUST run only targeted tests for the files they touched, not the full test suite.
 - Worker Codex calls must be scoped to the worker worktree root via `CLAUDE_PROJECT_DIR="$PWD"`.
 - All worker results must be recorded in `worker-results.jsonl`; no result may be silently dropped.

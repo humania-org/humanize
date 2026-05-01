@@ -41,6 +41,14 @@ cat > "$FAKE_BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "--help" ]]; then
+    cat <<'HELP'
+Usage: codex [OPTIONS] [PROMPT]
+  --disable <feature>    Disable a named feature for this invocation
+HELP
+    exit 0
+fi
+
 if [[ "${1:-}" == "features" && "${2:-}" == "list" ]]; then
     cat <<'LIST'
 hooks                            stable             false
@@ -411,6 +419,63 @@ else
     fail "Unsupported Codex failure explains missing hooks feature" \
         "error mentioning native hooks feature and Upgrade Codex" \
         "$(cat "$TEST_DIR/install-unsupported.log")"
+fi
+
+# --- Codex with hooks but without --disable must be rejected ---
+# Regression: a Codex build that exposes hooks but lacks --disable cannot
+# be safely installed because the stop hook's recursive-invocation guard relies on
+# `--disable hooks`. The installer must catch this configuration before
+# writing any files.
+
+NO_DISABLE_BIN="$TEST_DIR/bin-no-disable"
+NO_DISABLE_HOME="$TEST_DIR/codex-home-no-disable"
+NO_DISABLE_XDG="$TEST_DIR/xdg-no-disable"
+mkdir -p "$NO_DISABLE_BIN" "$NO_DISABLE_HOME"
+
+cat > "$NO_DISABLE_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+    echo "Usage: codex [OPTIONS] [PROMPT]"
+    exit 0
+fi
+
+if [[ "${1:-}" == "features" && "${2:-}" == "list" ]]; then
+    cat <<'LIST'
+hooks                            stable             false
+LIST
+    exit 0
+fi
+
+echo "unexpected fake codex invocation: $*" >&2
+exit 1
+EOF
+chmod +x "$NO_DISABLE_BIN/codex"
+
+set +e
+PATH="$NO_DISABLE_BIN:$PATH" XDG_CONFIG_HOME="$NO_DISABLE_XDG" \
+    "$INSTALL_SCRIPT" \
+    --target codex \
+    --codex-config-dir "$NO_DISABLE_HOME" \
+    --codex-skills-dir "$NO_DISABLE_HOME/skills" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
+    > "$TEST_DIR/install-no-disable.log" 2>&1
+NO_DISABLE_EXIT=$?
+set -e
+
+if [[ "$NO_DISABLE_EXIT" -ne 0 ]]; then
+    pass "Codex install rejects builds with hooks but without --disable"
+else
+    fail "Codex install rejects builds with hooks but without --disable" "non-zero exit" "exit 0"
+fi
+
+if grep -q "\-\-disable" "$TEST_DIR/install-no-disable.log"; then
+    pass "No-disable Codex failure mentions --disable flag requirement"
+else
+    fail "No-disable Codex failure mentions --disable flag requirement" \
+        "error mentioning --disable" \
+        "$(cat "$TEST_DIR/install-no-disable.log")"
 fi
 
 # --- Kimi RLCR skill gate test ---

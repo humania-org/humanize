@@ -92,12 +92,19 @@ require_native_hooks_support() {
 
     local features
     local line
+    local codex_help
     features="$(CODEX_HOME="$CODEX_CONFIG_DIR" codex features list 2>/dev/null)" || {
         die "failed to inspect Codex features. Humanize Codex install requires the native 'hooks' feature."
     }
 
     line="$(printf '%s\n' "$features" | awk '$1 == "hooks" { print; exit }')"
     if [[ -n "$line" ]]; then
+        codex_help="$(codex --help 2>&1)" || {
+            die "failed to inspect Codex help output. Humanize Codex install requires the --disable flag."
+        }
+        if ! grep -q -- '--disable' <<< "$codex_help"; then
+            die "Installed Codex CLI exposes the native 'hooks' feature but lacks the --disable flag. Humanize's stop hook uses --disable hooks to prevent recursive hook invocation. Upgrade Codex."
+        fi
         HOOK_FEATURE_ENABLED="$(awk '{ print $NF }' <<<"$line")"
         return 0
     fi
