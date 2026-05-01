@@ -57,11 +57,13 @@ export MOCK_CODEX_EXIT_CODE=""
 export MOCK_CODEX_STDOUT=""
 export MOCK_CODEX_STDERR=""
 
-# Reset mock state between tests
+# Reset mock state between tests; also clears the skill dir so that
+# find...sort|tail -1 always picks the single dir from the next invocation.
 reset_mock() {
     export MOCK_CODEX_EXIT_CODE="0"
     export MOCK_CODEX_STDOUT=""
     export MOCK_CODEX_STDERR=""
+    rm -rf "$MOCK_PROJECT/.humanize/skill" 2>/dev/null || true
 }
 
 # Helper: run ask-codex with mock codex in PATH, inside mock project
