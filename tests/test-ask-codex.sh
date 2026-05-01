@@ -66,6 +66,20 @@ reset_mock() {
     rm -rf "$MOCK_PROJECT/.humanize/skill" 2>/dev/null || true
 }
 
+# Helper: run ask-codex, capture stderr, derive the exact skill dir for that invocation.
+# Sets RUN_EXIT_CODE (int) and RUN_SKILL_DIR (path).
+# The unique id is extracted from the "ask-codex: cache=.../skill-<id>" stderr line
+# and mapped to $MOCK_PROJECT/.humanize/skill/<id>.
+run_ask_codex_capturing_dir() {
+    local run_stderr cache_path skill_basename unique_id
+    RUN_EXIT_CODE=0
+    run_stderr=$(run_ask_codex "$@" 2>&1 >/dev/null) || RUN_EXIT_CODE=$?
+    cache_path=$(printf '%s\n' "$run_stderr" | grep "ask-codex: cache=" | sed 's/ask-codex: cache=//')
+    skill_basename=$(basename "$cache_path")
+    unique_id="${skill_basename#skill-}"
+    RUN_SKILL_DIR="$MOCK_PROJECT/.humanize/skill/$unique_id"
+}
+
 # Helper: run ask-codex with mock codex in PATH, inside mock project
 run_ask_codex() {
     (
@@ -332,9 +346,10 @@ echo ""
 # Test: --codex-model MODEL:EFFORT sets both model and effort
 reset_mock
 export MOCK_CODEX_STDOUT="model-test"
-run_ask_codex --codex-model "custom-model:high" "model test" > /dev/null 2>&1
-LATEST_DIR=$(find "$MOCK_PROJECT/.humanize/skill" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
-if [[ -n "$LATEST_DIR" ]] && grep -q "Model: custom-model" "$LATEST_DIR/input.md" && grep -q "Effort: high" "$LATEST_DIR/input.md"; then
+run_ask_codex_capturing_dir --codex-model "custom-model:high" "model test"
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
+        && grep -q "Model: custom-model" "$RUN_SKILL_DIR/input.md" \
+        && grep -q "Effort: high" "$RUN_SKILL_DIR/input.md"; then
     pass "--codex-model MODEL:EFFORT parses model and effort"
 else
     fail "--codex-model MODEL:EFFORT parses model and effort"
@@ -343,9 +358,10 @@ fi
 # Test: --codex-model MODEL (no effort) uses default effort
 reset_mock
 export MOCK_CODEX_STDOUT="effort-default-test"
-run_ask_codex --codex-model "solo-model" "effort default test" > /dev/null 2>&1
-LATEST_DIR=$(find "$MOCK_PROJECT/.humanize/skill" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
-if [[ -n "$LATEST_DIR" ]] && grep -q "Model: solo-model" "$LATEST_DIR/input.md" && grep -q "Effort: high" "$LATEST_DIR/input.md"; then
+run_ask_codex_capturing_dir --codex-model "solo-model" "effort default test"
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
+        && grep -q "Model: solo-model" "$RUN_SKILL_DIR/input.md" \
+        && grep -q "Effort: high" "$RUN_SKILL_DIR/input.md"; then
     pass "--codex-model MODEL without effort uses default high"
 else
     fail "--codex-model MODEL without effort uses default high"
@@ -354,9 +370,9 @@ fi
 # Test: -- separator treats remaining args as question
 reset_mock
 export MOCK_CODEX_STDOUT="separator-test"
-run_ask_codex -- --not-a-flag "is question" > /dev/null 2>&1
-LATEST_DIR=$(find "$MOCK_PROJECT/.humanize/skill" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
-if [[ -n "$LATEST_DIR" ]] && grep -qF -- "--not-a-flag" "$LATEST_DIR/input.md"; then
+run_ask_codex_capturing_dir -- --not-a-flag "is question"
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
+        && grep -qF -- "--not-a-flag" "$RUN_SKILL_DIR/input.md"; then
     pass "-- separator passes remaining args as question text"
 else
     fail "-- separator passes remaining args as question text"
@@ -365,9 +381,9 @@ fi
 # Test: --codex-timeout is recorded in input.md
 reset_mock
 export MOCK_CODEX_STDOUT="timeout-val"
-run_ask_codex --codex-timeout 123 "timeout value test" > /dev/null 2>&1
-LATEST_DIR=$(find "$MOCK_PROJECT/.humanize/skill" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
-if [[ -n "$LATEST_DIR" ]] && grep -q "Timeout: 123s" "$LATEST_DIR/input.md"; then
+run_ask_codex_capturing_dir --codex-timeout 123 "timeout value test"
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
+        && grep -q "Timeout: 123s" "$RUN_SKILL_DIR/input.md"; then
     pass "--codex-timeout value is recorded in input.md"
 else
     fail "--codex-timeout value is recorded in input.md"
