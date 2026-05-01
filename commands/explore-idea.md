@@ -182,13 +182,18 @@ If writing `manifest.json` fails, write `.failed` to `RUN_DIR`, and stop with er
 
 ---
 
-## Phase 4: Worker Dispatch (Parallel)
+## Phase 4: Worker Dispatch
 
-Dispatch all workers in a **single Agent-tool message** — one Agent invocation per selected direction. All workers run in parallel bounded by the effective concurrency.
+Dispatch workers in batches that respect `EFFECTIVE_CONCURRENCY` (from Phase 2 validation stdout). Each batch is a single Agent-tool message; batches are sent sequentially so that at most `EFFECTIVE_CONCURRENCY` workers run at once.
+
+**Batch construction**:
+- Split `SELECTED_DIRECTION_IDS` into consecutive batches, each of size at most `EFFECTIVE_CONCURRENCY`.
+- If `EFFECTIVE_CONCURRENCY >= len(SELECTED_DIRECTION_IDS)`, there is one batch containing all directions (all workers run in parallel).
+- If `EFFECTIVE_CONCURRENCY < len(SELECTED_DIRECTION_IDS)`, dispatch batch 1, wait for all agents in batch 1 to complete, then dispatch batch 2, and so on until all directions have been dispatched.
 
 ### 4.1: Per-Worker Agent Invocation
 
-For each direction in `SELECTED_DIRECTION_IDS`, launch one `Agent` subagent with:
+For each direction in the current batch, launch one `Agent` subagent with:
 - **isolation: "worktree"** — each worker runs in an isolated git worktree
 - **model: "sonnet"** — use the current capable model
 - **prompt**: the contents of `<RUN_DIR>/dispatch-prompts/<direction_id>.md`

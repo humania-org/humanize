@@ -3,9 +3,17 @@
 # Deterministic project-root resolver for all humanize hooks and scripts.
 #
 # Resolution priority:
-#   1. CLAUDE_PROJECT_DIR (set by Claude Code, stable across `cd` within a session)
-#   2. git rev-parse --show-toplevel (nearest enclosing repo)
+#   1. git rev-parse --show-toplevel (nearest enclosing repo, correct even in worktrees)
+#   2. CLAUDE_PROJECT_DIR (session-level fallback when no git repo is reachable)
 #   3. Non-zero return.
+#
+# git is tried first so that callers running inside an explore-idea worker
+# worktree (where CLAUDE_PROJECT_DIR still points at the coordinator's repo)
+# resolve to the actual current checkout, not the stale session root.
+#
+# CLAUDE_PROJECT_DIR is kept as a fallback for the case where the working
+# directory is not inside a git repo at all (e.g. test fixtures that call
+# scripts from a temp dir with no .git).
 #
 # pwd is intentionally NOT used as a fallback: it drifts with `cd`
 # invocations during a session and silently causes state.md lookups
@@ -28,7 +36,7 @@ _HUMANIZE_PROJECT_ROOT_SOURCED=1
 # resolve_project_root
 #
 # Prints the resolved project root to stdout. Returns 0 on success,
-# 1 when neither CLAUDE_PROJECT_DIR nor a git toplevel is available.
+# 1 when neither a git toplevel nor CLAUDE_PROJECT_DIR is available.
 #
 # Callers that must have a project root should handle the failure:
 #
@@ -39,9 +47,10 @@ _HUMANIZE_PROJECT_ROOT_SOURCED=1
 #   }
 #
 resolve_project_root() {
-    local root="${CLAUDE_PROJECT_DIR:-}"
+    local root
+    root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -z "$root" ]]; then
-        root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+        root="${CLAUDE_PROJECT_DIR:-}"
     fi
     if [[ -z "$root" ]]; then
         return 1
