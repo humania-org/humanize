@@ -367,7 +367,9 @@ fi
 
 UNSUPPORTED_BIN="$TEST_DIR/bin-unsupported"
 UNSUPPORTED_HOME="$TEST_DIR/codex-home-unsupported"
-mkdir -p "$UNSUPPORTED_BIN" "$UNSUPPORTED_HOME"
+UNSUPPORTED_COMMAND_BIN_DIR="$TEST_DIR/command-bin-unsupported"
+UNSUPPORTED_XDG_CONFIG_HOME_DIR="$TEST_DIR/xdg-config-unsupported"
+mkdir -p "$UNSUPPORTED_BIN" "$UNSUPPORTED_HOME" "$UNSUPPORTED_COMMAND_BIN_DIR" "$UNSUPPORTED_XDG_CONFIG_HOME_DIR"
 
 cat > "$UNSUPPORTED_BIN/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -386,11 +388,12 @@ EOF
 chmod +x "$UNSUPPORTED_BIN/codex"
 
 set +e
-PATH="$UNSUPPORTED_BIN:$PATH" \
+PATH="$UNSUPPORTED_BIN:$PATH" XDG_CONFIG_HOME="$UNSUPPORTED_XDG_CONFIG_HOME_DIR" \
     "$INSTALL_SCRIPT" \
     --target codex \
     --codex-config-dir "$UNSUPPORTED_HOME" \
     --codex-skills-dir "$UNSUPPORTED_HOME/skills" \
+    --command-bin-dir "$UNSUPPORTED_COMMAND_BIN_DIR" \
     > "$TEST_DIR/install-unsupported.log" 2>&1
 UNSUPPORTED_EXIT=$?
 set -e
