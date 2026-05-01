@@ -4,6 +4,7 @@ temp
 # Local Claude client settings
 /.claude/settings.json
 /.claude/scheduled_tasks.lock
+/.claude/worktrees/
 
 # Local Codex CLI marker (empty file occasionally left behind in worktree)
 /.codex
