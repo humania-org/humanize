@@ -477,6 +477,14 @@ if [[ -n "$LEGACY_SKILLS_DIR" ]]; then
     esac
 fi
 
+if [[ "$TARGET" == "both" ]]; then
+    _kimi_real="$(realpath "$KIMI_SKILLS_DIR" 2>/dev/null || echo "$KIMI_SKILLS_DIR")"
+    _codex_real="$(realpath "$CODEX_SKILLS_DIR" 2>/dev/null || echo "$CODEX_SKILLS_DIR")"
+    if [[ "$_kimi_real" == "$_codex_real" ]]; then
+        die "--target both requires distinct kimi and codex skills dirs; both resolved to: $_kimi_real (use --kimi-skills-dir and --codex-skills-dir to set separate paths)"
+    fi
+fi
+
 log "repo root: $REPO_ROOT"
 log "target: $TARGET"
 if [[ "$TARGET" == "kimi" || "$TARGET" == "both" ]]; then

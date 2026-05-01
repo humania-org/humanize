@@ -481,4 +481,42 @@ else
         "codex-only" "$(jq -c '.' "$BOTH_USER_CONFIG" 2>/dev/null || echo MISSING)"
 fi
 
+# --- --target both with shared skills dir must be rejected ---
+# Regression: when KIMI_SKILLS_DIR == CODEX_SKILLS_DIR, install_codex_target
+# overwrites the Kimi-specific humanize-rlcr/SKILL.md. The installer must
+# reject this configuration before any install work happens.
+
+SHARED_DIR="$TEST_DIR/shared-skills"
+mkdir -p "$SHARED_DIR"
+
+SHARED_CODEX_HOME="$TEST_DIR/shared-codex-home"
+SHARED_XDG_CONFIG="$TEST_DIR/shared-xdg-config"
+mkdir -p "$SHARED_CODEX_HOME"
+
+set +e
+PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$TEST_DIR/feature-log-shared.log" \
+    XDG_CONFIG_HOME="$SHARED_XDG_CONFIG" \
+    "$INSTALL_SCRIPT" \
+    --target both \
+    --codex-config-dir "$SHARED_CODEX_HOME" \
+    --codex-skills-dir "$SHARED_DIR" \
+    --kimi-skills-dir "$SHARED_DIR" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
+    > "$TEST_DIR/install-shared.log" 2>&1
+SHARED_EXIT=$?
+set -e
+
+if [[ "$SHARED_EXIT" -ne 0 ]]; then
+    pass "--target both with shared skills dir exits non-zero"
+else
+    fail "--target both with shared skills dir exits non-zero" "non-zero exit" "exit 0"
+fi
+
+if grep -qi "distinct\|same.*dir\|conflict\|identical" "$TEST_DIR/install-shared.log" 2>/dev/null; then
+    pass "--target both shared-dir error explains conflict"
+else
+    fail "--target both shared-dir error explains conflict" \
+        "conflict message" "$(cat "$TEST_DIR/install-shared.log")"
+fi
+
 print_test_summary "Codex Hook Install Tests"
