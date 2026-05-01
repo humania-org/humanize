@@ -253,6 +253,7 @@ PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$FEATURE_LOG" XDG_CONFIG_HOME="$X
     --target codex \
     --codex-config-dir "$CODEX_HOME_DIR" \
     --codex-skills-dir "$CODEX_HOME_DIR/skills" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
     > "$TEST_DIR/install-2.log" 2>&1
 
 PY_OUTPUT_2="$(

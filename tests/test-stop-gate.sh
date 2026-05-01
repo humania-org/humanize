@@ -69,7 +69,7 @@ setup_active_loop_fixture "$T1_DIR/project"
 set +e
 (
     cd "$T1_DIR/project"
-    "$GATE_SCRIPT"
+    CLAUDE_PROJECT_DIR="" "$GATE_SCRIPT"
 ) > "$T1_DIR/out.txt" 2>&1
 EXIT1=$?
 set -e
@@ -125,7 +125,7 @@ git -C "$T3_DIR/project" add -f .humanize/rlcr/2026-03-01_00-00-00/goal-tracker.
 set +e
 (
     cd "$T3_DIR/project"
-    "$GATE_SCRIPT"
+    CLAUDE_PROJECT_DIR="" "$GATE_SCRIPT"
 ) > "$T3_DIR/out.txt" 2>&1
 EXIT3=$?
 set -e
@@ -158,7 +158,7 @@ git -C "$T4_DIR/project" add -f .humanize-backup .humanizeconfig
 set +e
 (
     cd "$T4_DIR/project"
-    "$GATE_SCRIPT"
+    CLAUDE_PROJECT_DIR="" "$GATE_SCRIPT"
 ) > "$T4_DIR/out.txt" 2>&1
 EXIT4=$?
 set -e
@@ -184,7 +184,7 @@ mkdir -p "$T5_DIR/empty-project"
 set +e
 (
     cd "$T5_DIR/empty-project"
-    "$GATE_SCRIPT"
+    CLAUDE_PROJECT_DIR="" "$GATE_SCRIPT"
 ) > "$T5_DIR/out.txt" 2>&1
 EXIT5=$?
 set -e
