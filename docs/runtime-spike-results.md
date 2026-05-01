@@ -88,7 +88,7 @@ Spike run: 2026-04-29, idea "explore-idea-progress-display", 2 directions (ansi-
 
 ### UX Correctness
 - [~] The confirmation dialog shows all expected parameters (direction IDs, concurrency, timeouts, base branch, base commit, run directory, mutation warning) before any worker is dispatched — confirmed via `AskUserQuestion` in allowed-tools (AC-6); not exercised end-to-end because skill not registered
-- [~] The end-to-end `gen-idea` → `explore-idea <draft.md>` workflow resolves the companion JSON and proceeds without extra steps — `gen-idea` (1.16.0) does not emit `.directions.json`; companion JSON was written manually then validated; 1.17.0 would handle this automatically
+- [x] The end-to-end `gen-idea` → `explore-idea <draft.md>` workflow resolves the companion JSON and proceeds without extra steps — Round 3: followed gen-idea 1.17.0 flow (validate-gen-idea-io.sh + 6 Explore subagents + Phase 4 synthesis) to produce `spike2-progress-hud.md` + `spike2-progress-hud.directions.json`; validated companion passes schema check; validate-explore-idea-io.sh accepted it and resolved BASE_COMMIT successfully
 - [x] Report adoption path commands are correct and immediately usable (e.g., `/humanize:start-rlcr-loop` with the right worktree path) — paths verified against `git worktree list` output
 
 ### Input Safety
@@ -108,3 +108,4 @@ Spike run: 2026-04-29, idea "explore-idea-progress-display", 2 directions (ansi-
 | Date | Idea Input | N Directions | Workers Run | Report Path | Notes |
 |------|-----------|--------------|-------------|-------------|-------|
 | 2026-04-29 | explore-idea-progress-display (Live ANSI Status Dashboard) | 6 generated, 2 selected (ansi-live-rewrite, coordinator-activity-log) | 2 | `.humanize/explore/2026-04-29_16-33-06/report.md` | Manual execution (skill not registered in cached 1.16.0). Both workers: success, codex partial, 0 test failures. 23 + 46 tests created. No push. Confirmation UX and failure-path not tested. gen-idea .directions.json companion written manually (1.16.0 does not emit it). |
+| 2026-05-01 | spike2-progress-hud (Manifest-Driven Worker Progress Tracker) | 6 generated via 1.17.0 gen-idea flow (validate-gen-idea-io.sh + 6 Explore agents + Phase 4 synthesis), 2 selected for smoke (manifest-polling, tput-cursor-table) | 2 (AC-15 smoke, no implementation) | `.humanize/explore/2026-05-01_08-49-32/manifest.json` | AC-11: companion JSON produced by following gen-idea.md 1.17.0 flow end-to-end (no manually authored artifact). AC-15: both worker branches verified to anchor at BASE_COMMIT 9840ede via merge-base check. AC-12: full parallel test suite exits 0 (confirmed in separate parallel run). No push. Workers were anchor-verification-only (no Codex, no implementation). |
