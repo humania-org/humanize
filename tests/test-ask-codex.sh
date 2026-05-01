@@ -66,18 +66,46 @@ reset_mock() {
     rm -rf "$MOCK_PROJECT/.humanize/skill" 2>/dev/null || true
 }
 
-# Helper: run ask-codex, capture stderr, derive the exact skill dir for that invocation.
-# Sets RUN_EXIT_CODE (int) and RUN_SKILL_DIR (path).
-# The unique id is extracted from the "ask-codex: cache=.../skill-<id>" stderr line
-# and mapped to $MOCK_PROJECT/.humanize/skill/<id>.
+# Override XDG_CACHE_HOME for run_ask_codex_capturing_dir; set to a non-writable path
+# to exercise the fallback cache branch (CACHE_DIR=$SKILL_DIR/cache).
+RUN_XDG_CACHE_HOME="$TEST_DIR/cache"
+
+# Helper: run ask-codex with a controllable XDG_CACHE_HOME, capture stderr, and
+# derive the exact project-local skill dir for that invocation.
+# Sets RUN_EXIT_CODE (int) and RUN_SKILL_DIR (path, empty on resolution failure).
+#
+# Primary: "ask-codex: response saved to .../output.md" (emitted on success, always
+#   project-local regardless of which cache layout was used).
+# Fallback A: "ask-codex: cache=.../skill-<id>"  -> normal layout
+# Fallback B: "ask-codex: cache=.../.humanize/skill/<id>/cache" -> fallback layout
+# If none of the above match, RUN_SKILL_DIR is set to "" (explicit failure).
 run_ask_codex_capturing_dir() {
-    local run_stderr cache_path skill_basename unique_id
+    local run_stderr output_path cache_path skill_basename
     RUN_EXIT_CODE=0
-    run_stderr=$(run_ask_codex "$@" 2>&1 >/dev/null) || RUN_EXIT_CODE=$?
-    cache_path=$(printf '%s\n' "$run_stderr" | grep "ask-codex: cache=" | sed 's/ask-codex: cache=//')
+    run_stderr=$(
+        cd "$MOCK_PROJECT"
+        export CLAUDE_PROJECT_DIR="$MOCK_PROJECT"
+        export XDG_CACHE_HOME="$RUN_XDG_CACHE_HOME"
+        PATH="$MOCK_BIN_DIR:$PATH" bash "$ASK_CODEX_SCRIPT" "$@" 2>&1 >/dev/null
+    ) || RUN_EXIT_CODE=$?
+    output_path=$(printf '%s\n' "$run_stderr" | grep "^ask-codex: response saved to " | sed 's/^ask-codex: response saved to //')
+    if [[ -n "$output_path" ]]; then
+        RUN_SKILL_DIR=$(dirname "$output_path")
+        return
+    fi
+    cache_path=$(printf '%s\n' "$run_stderr" | grep "^ask-codex: cache=" | sed 's/^ask-codex: cache=//')
     skill_basename=$(basename "$cache_path")
-    unique_id="${skill_basename#skill-}"
-    RUN_SKILL_DIR="$MOCK_PROJECT/.humanize/skill/$unique_id"
+    case "$skill_basename" in
+        skill-*)
+            RUN_SKILL_DIR="$MOCK_PROJECT/.humanize/skill/${skill_basename#skill-}"
+            ;;
+        cache)
+            RUN_SKILL_DIR=$(dirname "$cache_path")
+            ;;
+        *)
+            RUN_SKILL_DIR=""
+            ;;
+    esac
 }
 
 # Helper: run ask-codex with mock codex in PATH, inside mock project
@@ -387,6 +415,26 @@ if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
     pass "--codex-timeout value is recorded in input.md"
 else
     fail "--codex-timeout value is recorded in input.md"
+fi
+
+# Test: run_ask_codex_capturing_dir resolves correct skill dir when home cache is not writable
+# (exercises the ask-codex.sh fallback branch: CACHE_DIR=$SKILL_DIR/cache)
+READONLY_CACHE="$TEST_DIR/readonly-cache"
+mkdir -p "$READONLY_CACHE"
+chmod 444 "$READONLY_CACHE"
+reset_mock
+export MOCK_CODEX_STDOUT="fallback-cache-test"
+RUN_XDG_CACHE_HOME="$READONLY_CACHE"
+run_ask_codex_capturing_dir "fallback cache skill dir test"
+RUN_XDG_CACHE_HOME="$TEST_DIR/cache"
+chmod 755 "$READONLY_CACHE"
+if [[ "$RUN_EXIT_CODE" -eq 0 ]] && [[ -d "$RUN_SKILL_DIR" ]] \
+        && grep -q "fallback cache skill dir test" "$RUN_SKILL_DIR/input.md"; then
+    pass "run_ask_codex_capturing_dir resolves skill dir when home cache is not writable"
+else
+    fail "run_ask_codex_capturing_dir resolves skill dir when home cache is not writable" \
+        "exit 0 + valid skill dir with input.md" \
+        "exit=$RUN_EXIT_CODE skill_dir=$RUN_SKILL_DIR"
 fi
 
 # ========================================
