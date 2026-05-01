@@ -379,13 +379,33 @@ EOF
     log "installed bitlesson-selector shim into: $shim_path"
 }
 
+overwrite_kimi_rlcr_skill() {
+    local target_dir="$1"
+    local kimi_src="$SKILLS_SOURCE_ROOT/humanize-rlcr/SKILL-kimi.md"
+    local skill_file="$target_dir/humanize-rlcr/SKILL.md"
+    local runtime_root="$target_dir/humanize"
+
+    [[ -f "$kimi_src" ]] || die "missing Kimi RLCR skill source: $kimi_src"
+    [[ "$DRY_RUN" == "true" ]] && { log "DRY-RUN overwrite Kimi RLCR skill"; return; }
+
+    local tmp
+    tmp="$(mktemp)"
+    _HYDRATE_RUNTIME_ROOT="$runtime_root" \
+        awk '{gsub(/\{\{HUMANIZE_RUNTIME_ROOT\}\}/, ENVIRON["_HYDRATE_RUNTIME_ROOT"]); print}' \
+        "$kimi_src" > "$tmp" \
+        || { rm -f "$tmp"; die "failed to hydrate Kimi RLCR skill"; }
+    mv "$tmp" "$skill_file"
+    log "installed Kimi-specific humanize-rlcr SKILL.md (gate-based)"
+}
+
 install_kimi_target() {
     sync_target "kimi" "$KIMI_SKILLS_DIR"
+    overwrite_kimi_rlcr_skill "$KIMI_SKILLS_DIR"
 }
 
 install_codex_target() {
     sync_target "codex" "$CODEX_SKILLS_DIR"
-    install_codex_user_config "$CODEX_SKILLS_DIR/humanize" "$TARGET"
+    install_codex_user_config "$CODEX_SKILLS_DIR/humanize" "codex"
     install_codex_native_hooks "$CODEX_SKILLS_DIR"
 }
 

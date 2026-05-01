@@ -413,4 +413,72 @@ else
         "$(cat "$TEST_DIR/install-unsupported.log")"
 fi
 
+# --- Kimi RLCR skill gate test ---
+# Regression: after the native-hook SKILL.md was introduced, Kimi installs
+# received the same "stop or exit normally / native hook" instructions.
+# overwrite_kimi_rlcr_skill() must replace that with the gate-based SKILL.md.
+
+KIMI_HOME_DIR="$TEST_DIR/kimi-home"
+KIMI_SKILLS_DIR="$KIMI_HOME_DIR/skills"
+mkdir -p "$KIMI_HOME_DIR"
+
+PATH="$FAKE_BIN:$PATH" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" \
+    "$INSTALL_SCRIPT" \
+    --target kimi \
+    --kimi-skills-dir "$KIMI_SKILLS_DIR" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
+    > "$TEST_DIR/install-kimi.log" 2>&1
+
+KIMI_RLCR_SKILL="$KIMI_SKILLS_DIR/humanize-rlcr/SKILL.md"
+
+if [[ -f "$KIMI_RLCR_SKILL" ]]; then
+    pass "Kimi install produces humanize-rlcr/SKILL.md"
+else
+    fail "Kimi install produces humanize-rlcr/SKILL.md" "SKILL.md exists" "missing"
+fi
+
+if grep -q "rlcr-stop-gate.sh" "$KIMI_RLCR_SKILL" 2>/dev/null; then
+    pass "Kimi humanize-rlcr/SKILL.md uses explicit rlcr-stop-gate.sh gate"
+else
+    fail "Kimi humanize-rlcr/SKILL.md uses explicit rlcr-stop-gate.sh gate" \
+        "rlcr-stop-gate.sh present" \
+        "$(head -10 "$KIMI_RLCR_SKILL" 2>/dev/null || echo MISSING)"
+fi
+
+if ! grep -q "native.*Stop hook\|Stop hook run automatically\|exit normally" "$KIMI_RLCR_SKILL" 2>/dev/null; then
+    pass "Kimi humanize-rlcr/SKILL.md does not reference native Stop hook"
+else
+    fail "Kimi humanize-rlcr/SKILL.md does not reference native Stop hook" \
+        "native hook text absent" "native hook text present"
+fi
+
+# --- --target both provider_mode test ---
+# Regression: install_codex_target() was passing $TARGET ("both") to
+# install_codex_user_config(), so provider_mode: "codex-only" was never written
+# for mixed Codex+Kimi installs.
+
+BOTH_CODEX_HOME="$TEST_DIR/both-codex-home"
+BOTH_KIMI_SKILLS="$TEST_DIR/both-kimi-skills"
+BOTH_XDG_CONFIG="$TEST_DIR/both-xdg-config"
+BOTH_USER_CONFIG="$BOTH_XDG_CONFIG/humanize/config.json"
+mkdir -p "$BOTH_CODEX_HOME" "$BOTH_KIMI_SKILLS"
+
+PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$TEST_DIR/feature-log-both.log" \
+    XDG_CONFIG_HOME="$BOTH_XDG_CONFIG" \
+    HUMANIZE_USER_CONFIG_DIR="$BOTH_XDG_CONFIG/humanize" \
+    "$INSTALL_SCRIPT" \
+    --target both \
+    --codex-config-dir "$BOTH_CODEX_HOME" \
+    --codex-skills-dir "$BOTH_CODEX_HOME/skills" \
+    --kimi-skills-dir "$BOTH_KIMI_SKILLS" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
+    > "$TEST_DIR/install-both.log" 2>&1
+
+if [[ "$(jq -r '.provider_mode // empty' "$BOTH_USER_CONFIG" 2>/dev/null)" == "codex-only" ]]; then
+    pass "--target both install writes provider_mode: codex-only"
+else
+    fail "--target both install writes provider_mode: codex-only" \
+        "codex-only" "$(jq -c '.' "$BOTH_USER_CONFIG" 2>/dev/null || echo MISSING)"
+fi
+
 print_test_summary "Codex Hook Install Tests"
