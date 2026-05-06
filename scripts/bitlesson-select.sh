@@ -12,18 +12,6 @@ source "$SCRIPT_DIR/lib/model-router.sh"
 source "$SCRIPT_DIR/../hooks/lib/project-root.sh"
 
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(resolve_project_root)" || {
-    echo "Error: Cannot determine project root." >&2
-    echo "  Set CLAUDE_PROJECT_DIR or run inside a git repository." >&2
-    exit 1
-}
-MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$PROJECT_ROOT")"
-BITLESSON_MODEL="$(get_config_value "$MERGED_CONFIG" "bitlesson_model")"
-BITLESSON_MODEL="${BITLESSON_MODEL:-haiku}"
-CODEX_FALLBACK_MODEL="$(get_config_value "$MERGED_CONFIG" "codex_model")"
-CODEX_FALLBACK_MODEL="${CODEX_FALLBACK_MODEL:-$DEFAULT_CODEX_MODEL}"
-PROVIDER_MODE="$(get_config_value "$MERGED_CONFIG" "provider_mode")"
-PROVIDER_MODE="${PROVIDER_MODE:-auto}"
 
 # Source portable timeout wrapper
 source "$SCRIPT_DIR/portable-timeout.sh"
@@ -109,6 +97,28 @@ if ! printf '%s\n' "$BITLESSON_CONTENT" | grep -Eq '^[[:space:]]*##[[:space:]]+L
 fi
 
 # ========================================
+# Detect BitLesson Project Root (for config and -C)
+# ========================================
+
+BITLESSON_DIR="$(cd "$(dirname "$BITLESSON_FILE")" && pwd -P)"
+if git -C "$BITLESSON_DIR" rev-parse --show-toplevel &>/dev/null; then
+    BITLESSON_PROJECT_ROOT="$(git -C "$BITLESSON_DIR" rev-parse --show-toplevel)"
+elif [[ "$(basename "$BITLESSON_DIR")" == ".humanize" ]]; then
+    BITLESSON_PROJECT_ROOT="$(cd "$BITLESSON_DIR/.." && pwd -P)"
+else
+    BITLESSON_PROJECT_ROOT="$BITLESSON_DIR"
+fi
+CODEX_PROJECT_ROOT="$BITLESSON_PROJECT_ROOT"
+
+MERGED_CONFIG="$(load_merged_config "$PLUGIN_ROOT" "$BITLESSON_PROJECT_ROOT")"
+BITLESSON_MODEL="$(get_config_value "$MERGED_CONFIG" "bitlesson_model")"
+BITLESSON_MODEL="${BITLESSON_MODEL:-haiku}"
+CODEX_FALLBACK_MODEL="$(get_config_value "$MERGED_CONFIG" "codex_model")"
+CODEX_FALLBACK_MODEL="${CODEX_FALLBACK_MODEL:-$DEFAULT_CODEX_MODEL}"
+PROVIDER_MODE="$(get_config_value "$MERGED_CONFIG" "provider_mode")"
+PROVIDER_MODE="${PROVIDER_MODE:-auto}"
+
+# ========================================
 # Determine Provider from BITLESSON_MODEL
 # ========================================
 
@@ -128,17 +138,6 @@ if ! check_provider_dependency "$BITLESSON_PROVIDER" 2>/dev/null; then
     BITLESSON_MODEL="$DEFAULT_CODEX_MODEL"
     BITLESSON_PROVIDER="codex"
     check_provider_dependency "$BITLESSON_PROVIDER"
-fi
-
-# ========================================
-# Detect Project Root (for -C)
-# ========================================
-
-BITLESSON_DIR="$(cd "$(dirname "$BITLESSON_FILE")" && pwd -P)"
-if git -C "$BITLESSON_DIR" rev-parse --show-toplevel &>/dev/null; then
-    CODEX_PROJECT_ROOT="$(git -C "$BITLESSON_DIR" rev-parse --show-toplevel)"
-else
-    CODEX_PROJECT_ROOT="$BITLESSON_DIR"
 fi
 
 # ========================================

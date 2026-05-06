@@ -3,17 +3,19 @@
 # Deterministic project-root resolver for all humanize hooks and scripts.
 #
 # Resolution priority:
-#   1. git rev-parse --show-toplevel (nearest enclosing repo, correct even in worktrees)
-#   2. CLAUDE_PROJECT_DIR (session-level fallback when no git repo is reachable)
-#   3. Non-zero return.
+#   1. linked git worktree toplevel when it differs from CLAUDE_PROJECT_DIR
+#   2. CLAUDE_PROJECT_DIR (Claude session root)
+#   3. git rev-parse --show-toplevel (nearest enclosing repo)
+#   4. Non-zero return.
 #
-# git is tried first so that callers running inside an explore-idea worker
-# worktree (where CLAUDE_PROJECT_DIR still points at the coordinator's repo)
-# resolve to the actual current checkout, not the stale session root.
+# CLAUDE_PROJECT_DIR is normally the authoritative session root. Hooks and
+# helper scripts are often executed from the plugin checkout while targeting a
+# different project, so blindly preferring the plugin repo's git toplevel makes
+# active loop state and project config disappear.
 #
-# CLAUDE_PROJECT_DIR is kept as a fallback for the case where the working
-# directory is not inside a git repo at all (e.g. test fixtures that call
-# scripts from a temp dir with no .git).
+# The exception is a linked git worktree: explore-idea workers can inherit the
+# coordinator's CLAUDE_PROJECT_DIR while running inside their own worktree. In
+# that case the current checkout is the safer root.
 #
 # pwd is intentionally NOT used as a fallback: it drifts with `cd`
 # invocations during a session and silently causes state.md lookups
@@ -36,7 +38,7 @@ _HUMANIZE_PROJECT_ROOT_SOURCED=1
 # resolve_project_root
 #
 # Prints the resolved project root to stdout. Returns 0 on success,
-# 1 when neither a git toplevel nor CLAUDE_PROJECT_DIR is available.
+# 1 when neither CLAUDE_PROJECT_DIR nor a git toplevel is available.
 #
 # Callers that must have a project root should handle the failure:
 #
@@ -47,18 +49,30 @@ _HUMANIZE_PROJECT_ROOT_SOURCED=1
 #   }
 #
 resolve_project_root() {
-    local root
-    root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-    if [[ -z "$root" ]]; then
-        root="${CLAUDE_PROJECT_DIR:-}"
+    local env_root="${CLAUDE_PROJECT_DIR:-}"
+    local git_root=""
+    local root=""
+
+    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$git_root" ]]; then
+        git_root="$(canonicalize_path "$git_root")"
+    fi
+    if [[ -n "$env_root" ]]; then
+        env_root="$(canonicalize_path "$env_root")"
+    fi
+
+    if [[ -n "$git_root" && -n "$env_root" && "$git_root" != "$env_root" && -f "$git_root/.git" ]]; then
+        root="$git_root"
+    elif [[ -n "$env_root" ]]; then
+        root="$env_root"
+    else
+        root="$git_root"
     fi
     if [[ -z "$root" ]]; then
         return 1
     fi
 
-    local canonical
-    canonical=$(canonicalize_path "$root")
-    printf '%s\n' "${canonical:-$root}"
+    printf '%s\n' "$root"
 }
 
 # canonicalize_path_prefix
