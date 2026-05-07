@@ -52,6 +52,35 @@ You MUST classify your findings into these lanes:
 - **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
 - **Blocking Side Issues**: bugs or implementation issues that block the current mainline objective from succeeding safely
 - **Queued Side Issues**: valid non-blocking follow-up issues that should be documented but must NOT take over the next round
+- **Out-of-Loop Findings**: findings whose only fix would mutate a session-byte-locked artifact (see Session Invariants below). Tag these `out-of-loop` rather than `must-fix` and recommend the canonical resolution path (cancel/amend/restart) instead of asking the implementer to address them in the next round.
+
+### Session Invariants (Loop-Aware)
+
+The implementer is operating under the following session-wide invariants. **Findings whose only fix would mutate a byte-locked artifact MUST be tagged `out-of-loop` rather than `must-fix`** — re-issuing the same critique each round will not unstick the loop and will trigger the stagnation circuit breaker after a few iterations. Route invariant-locked findings to the canonical resolution path instead of demanding in-round fixes.
+
+{{SESSION_INVARIANTS}}
+
+If your top-priority finding falls into the `out-of-loop` class, say so explicitly in your review and stop demanding the implementer act on it in-loop. The next state-changing action must come from outside the current loop session.
+
+### Implementer's `## Blocked By Methodology Invariant` Block
+
+The implementer's summary may contain an optional `## Blocked By Methodology Invariant` block listing findings the implementer believes cannot be addressed in-loop because of a session invariant. The block has this shape:
+
+```markdown
+## Blocked By Methodology Invariant
+
+- Invariant: <invariant-name>
+- Findings blocked: <list>
+- Canonical resolution: <usually cancel/amend/restart>
+- Why I cannot act in-loop: <one-sentence explanation>
+```
+
+When this block is present:
+1. **Verify the implementer's claim**: confirm the listed findings are genuinely byte-locked behind the named invariant. If the implementer is using the block to defer ordinary follow-up work that they could in fact address in-loop, push back on that — only true invariant-locked findings belong here.
+2. **For verified-blocked findings**: tag them `out-of-loop` in your review rather than `must-fix`, acknowledge the implementer's correct identification of the impasse class, and recommend the canonical resolution. Do NOT re-issue them as round-N+1 mainline gaps.
+3. **For findings the implementer wrongly classified as blocked**: leave them in the appropriate `must-fix` lane and explain why they are in fact addressable in-loop.
+
+This signal exists to break the stagnation pattern where the reviewer keeps demanding edits the implementer is structurally forbidden from making. When the implementer correctly identifies that pattern via this block, your job is to validate it and route to the canonical resolution, not to litigate it for another round.
 
 Also include a one-line verdict:
 ```

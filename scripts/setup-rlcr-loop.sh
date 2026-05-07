@@ -815,10 +815,54 @@ fi
 echo "Base commit SHA captured: $BASE_COMMIT" >&2
 
 # ========================================
+# Detect inherited-delta session
+# ========================================
+# A new session is "inherited-delta" when the most recent prior session in
+# .humanize/rlcr/ was working from a different base_commit than the one
+# captured above — i.e., commits landed between the prior session's start
+# and this session's start (whether by the prior session's own work, by
+# off-loop amendments, or both). Re-acceptance sessions on prior work that
+# hit the stagnation circuit breaker are the canonical example.
+#
+# Persisting this signal at session open lets the round-0 contract +
+# the reviewer prompt route the session correctly without relying on
+# the implementer's narration.
+LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
+
+INHERITED_DELTA="false"
+PRIOR_TIMESTAMP=""
+PRIOR_BASE_COMMIT=""
+PRIOR_EXIT_STATE="unknown"
+
+if [[ -d "$LOOP_BASE_DIR" ]]; then
+    # Get the most recent prior session dir (any name; sorted lexicographically
+    # because session timestamps are zero-padded and sortable as strings).
+    PRIOR_SESSION_DIR=$(find "$LOOP_BASE_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1 || true)
+    if [[ -n "$PRIOR_SESSION_DIR" ]] && [[ -d "$PRIOR_SESSION_DIR" ]]; then
+        PRIOR_TIMESTAMP=$(basename "$PRIOR_SESSION_DIR")
+        # Read base_commit from whichever state file exists (state, finalize, complete, methodology).
+        for state_candidate in state.md finalize-state.md complete-state.md methodology-analysis-state.md; do
+            prior_state="$PRIOR_SESSION_DIR/$state_candidate"
+            if [[ -f "$prior_state" ]]; then
+                PRIOR_BASE_COMMIT=$(awk -F': *' '/^base_commit:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$prior_state" | tr -d '"' | tr -d "'")
+                PRIOR_EXIT_STATE="${state_candidate%.md}"
+                break
+            fi
+        done
+
+        if [[ -n "$PRIOR_BASE_COMMIT" ]] && [[ "$PRIOR_BASE_COMMIT" != "$BASE_COMMIT" ]]; then
+            INHERITED_DELTA="true"
+            echo "Inherited-delta session detected: prior session $PRIOR_TIMESTAMP started at $PRIOR_BASE_COMMIT, this session starts at $BASE_COMMIT" >&2
+        fi
+    fi
+fi
+
+# ========================================
 # Setup State Directory
 # ========================================
 
-LOOP_BASE_DIR="$PROJECT_ROOT/.humanize/rlcr"
+# LOOP_BASE_DIR was already defined above for the inherited-delta detection;
+# reusing here without redefinition.
 
 # Create timestamp for this loop session
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
@@ -902,9 +946,66 @@ bitlesson_allow_empty_none: $BITLESSON_ALLOW_EMPTY_NONE
 mainline_stall_count: 0
 last_mainline_verdict: unknown
 drift_status: normal
+inherited_delta: $INHERITED_DELTA
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 EOF
+
+# Generate session-lineage.md when this session opens with inherited delta
+# from a prior session. The file gives future audits + the round-0 contract
+# a machine-readable record of where the substantive work came from, instead
+# of relying on the implementer's narrative across artifacts.
+if [[ "$INHERITED_DELTA" == "true" ]]; then
+    INHERITED_COMMIT_LOG=""
+    if commit_range_log=$(run_with_timeout "$GIT_TIMEOUT" git -C "$PROJECT_ROOT" log --oneline "${PRIOR_BASE_COMMIT}..${BASE_COMMIT}" 2>/dev/null); then
+        INHERITED_COMMIT_LOG="$commit_range_log"
+    fi
+    if [[ -z "$INHERITED_COMMIT_LOG" ]]; then
+        INHERITED_COMMIT_LOG="(no commit subjects available — base commits are not in a single ancestry chain on this branch, or git log timed out)"
+    fi
+
+    cat > "$LOOP_DIR/session-lineage.md" << LINEAGE_EOF
+# Session Lineage — inherited-delta session
+
+This session opened with substantive work already at HEAD, inherited from a prior RLCR session
+plus any off-loop commits that landed between sessions. The methodology classifies this as an
+\`inherited-delta\` session: the round-0 contract should declare which prior-session changes are
+being re-presented and which off-loop edits occurred, rather than re-running an
+implementation-grade round shape over a thin re-acceptance task.
+
+## Prior session
+
+- Timestamp: \`$PRIOR_TIMESTAMP\`
+- Base commit at prior start: \`$PRIOR_BASE_COMMIT\`
+- Exit state file: \`$PRIOR_EXIT_STATE.md\` (whichever state file was found in the prior session directory)
+
+## This session
+
+- Base commit at start: \`$BASE_COMMIT\`
+- Started at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## Inherited commits
+
+Commit range \`${PRIOR_BASE_COMMIT}..${BASE_COMMIT}\` (between prior session base and this session base):
+
+\`\`\`
+$INHERITED_COMMIT_LOG
+\`\`\`
+
+## Why a new session is needed (please fill in)
+
+[Stub — the implementer should record why this is a new session rather than a continuation of
+the prior session. Common reasons:
+- Prior session hit the stagnation circuit breaker (cancel/amend/restart canonical resolution).
+- Off-loop plan amendment (commit between sessions edited a byte-locked artifact).
+- New acceptance criteria; the prior session closed cleanly but new scope landed.
+- Prior session ended via max-iteration cap.
+
+Replace this block with one paragraph describing the actual reason. Keep it brief — the audit
+trail benefits from concise prose.]
+LINEAGE_EOF
+    echo "session-lineage.md generated for inherited-delta session" >&2
+fi
 
 # Create signal file for PostToolUse hook to record session_id
 # The hook will read the session_id from its JSON input and patch state.md

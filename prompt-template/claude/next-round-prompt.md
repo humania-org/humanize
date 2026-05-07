@@ -73,3 +73,27 @@ If you cannot safely reconcile the tracker yourself, include an optional "Goal T
   - blocking side issues
   - queued side issues
 - Only mainline gaps and blocking side issues should drive the next code changes
+
+## Optional: Blocked By Methodology Invariant Block
+
+If a Codex finding's only fix would mutate a session-byte-locked artifact (e.g., a plan file under `--track-plan-file`, a sealed witness lattice, a frozen wire-protocol), you cannot address it from inside the loop. Re-running the round shape over and over will not unstick it; the methodology will eventually trigger the stagnation circuit breaker.
+
+When you recognise this class of impasse, include the following block in your round summary so the reviewer treats it as a high-confidence signal rather than re-issuing the same critique:
+
+```markdown
+## Blocked By Methodology Invariant
+
+- Invariant: <invariant-name> (e.g., "plan-file-byte-lock", "witness-lattice-seven-impl-seal", "bus-v1-byte-freeze")
+- Findings blocked:
+  - <one-line description of finding 1>
+  - <one-line description of finding 2>
+- Canonical resolution: <e.g., "cancel/amend/restart with the locked artifact amended off-loop">
+- Why I cannot act in-loop: <one-sentence explanation citing the relevant byte-lock or seal>
+```
+
+When this block is present, the reviewer is asked to:
+1. Acknowledge the block instead of re-issuing the listed findings as `must-fix`.
+2. Tag the listed findings as `out-of-loop` rather than `must-fix`.
+3. Recommend the canonical resolution path.
+
+Use this block conservatively. It is the implementer's escape hatch when the methodology's invariants prevent in-round action — it is NOT a way to defer ordinary follow-up work. Each finding in the block must be one that cannot be addressed without amending a byte-locked artifact.
