@@ -1063,6 +1063,25 @@ COMMIT_HISTORY_SECTION=$(load_and_render_safe "$TEMPLATE_DIR" "codex/commit-hist
     "COMMIT_HISTORY=$COMMIT_HISTORY" \
     "RECENT_ROUND_FILES=$RECENT_ROUND_FILES")
 
+# ========================================
+# Build the Session Invariants block
+# ========================================
+# Enumerates the loop's session-wide byte-locks and immutables so the
+# reviewer prompt can route findings whose only fix mutates a locked
+# artifact through the canonical cancel/amend/restart path rather than
+# re-issuing the same critique each round. This addresses the
+# stagnation-class methodology gap where a reviewer kept demanding
+# edits to a plan file the loop forbids in-place edits to.
+SESSION_INVARIANTS=""
+if [[ "$PLAN_TRACKED" == "true" ]]; then
+    SESSION_INVARIANTS+="- **Plan file byte-lock**: \`${PLAN_FILE}\` is byte-locked for the entire session via \`--track-plan-file\`. The stop hook enforces byte-identity against the snapshot taken at session open. Any finding whose only fix is to edit this file's prose CANNOT be addressed in-loop and MUST be tagged \`out-of-loop\` rather than \`must-fix\`.
+"
+fi
+SESSION_INVARIANTS+="- **Working branch fixed**: the working branch \`${START_BRANCH}\` is constant across all rounds. Findings whose only fix requires a branch switch CANNOT be addressed in-loop.
+- **Witness lattice / approved-path discipline**: methodology-level constants and seals declared in the project's CLAUDE.md / AGENTS.md (e.g., sealed traits, approved-path factories, schema freezes) are session invariants. Findings whose only fix mutates one of these constants CANNOT be addressed in-loop without an explicit successor ADR or plan amendment.
+
+**Canonical resolution for invariant-locked findings**: \`/humanize:cancel-rlcr-loop\`, then amend the locked artifact in a fresh commit, then \`/humanize:start-rlcr-loop --track-plan-file <plan>\` to restart. The implementer cannot do this from inside the loop."
+
 # Build the review prompt
 FULL_ALIGNMENT_FALLBACK="# Full Alignment Review (Round {{CURRENT_ROUND}})
 
@@ -1100,6 +1119,7 @@ if [[ "$FULL_ALIGNMENT_CHECK" == "true" ]]; then
         "DOCS_PATH=$DOCS_PATH" \
         "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
         "COMMIT_HISTORY_SECTION=$COMMIT_HISTORY_SECTION" \
+        "SESSION_INVARIANTS=$SESSION_INVARIANTS" \
         "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \
@@ -1117,6 +1137,7 @@ else
         "DOCS_PATH=$DOCS_PATH" \
         "GOAL_TRACKER_UPDATE_SECTION=$GOAL_TRACKER_UPDATE_SECTION" \
         "COMMIT_HISTORY_SECTION=$COMMIT_HISTORY_SECTION" \
+        "SESSION_INVARIANTS=$SESSION_INVARIANTS" \
         "COMPLETED_ITERATIONS=$COMPLETED_ITERATIONS" \
         "LOOP_TIMESTAMP=$LOOP_TIMESTAMP" \
         "PREV_ROUND=$PREV_ROUND" \

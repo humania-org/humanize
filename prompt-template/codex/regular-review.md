@@ -52,6 +52,15 @@ You MUST classify your findings into these lanes:
 - **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
 - **Blocking Side Issues**: bugs or implementation issues that block the current mainline objective from succeeding safely
 - **Queued Side Issues**: valid non-blocking follow-up issues that should be documented but must NOT take over the next round
+- **Out-of-Loop Findings**: findings whose only fix would mutate a session-byte-locked artifact (see Session Invariants below). Tag these `out-of-loop` rather than `must-fix` and recommend the canonical resolution path (cancel/amend/restart) instead of asking the implementer to address them in the next round.
+
+### Session Invariants (Loop-Aware)
+
+The implementer is operating under the following session-wide invariants. **Findings whose only fix would mutate a byte-locked artifact MUST be tagged `out-of-loop` rather than `must-fix`** — re-issuing the same critique each round will not unstick the loop and will trigger the stagnation circuit breaker after a few iterations. Route invariant-locked findings to the canonical resolution path instead of demanding in-round fixes.
+
+{{SESSION_INVARIANTS}}
+
+If your top-priority finding falls into the `out-of-loop` class, say so explicitly in your review and stop demanding the implementer act on it in-loop. The next state-changing action must come from outside the current loop session.
 
 Also include a one-line verdict:
 ```

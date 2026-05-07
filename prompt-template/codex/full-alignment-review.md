@@ -65,6 +65,18 @@ Queued Side Issues: N
 
 The `Mainline Progress Verdict` line is mandatory. If you omit it, the Humanize stop hook will block the round and require the review to be rerun.
 
+### Out-of-Loop Findings (Loop-Aware Classification)
+
+If a finding's only fix would mutate a session-byte-locked artifact (see Session Invariants below), tag it `out-of-loop` rather than `must-fix` and recommend the canonical resolution path (cancel/amend/restart) instead of asking the implementer to address it in the next round. Re-issuing the same critique each round will not unstick the loop and will trigger the stagnation circuit breaker after a few iterations.
+
+### Session Invariants
+
+The implementer is operating under the following session-wide invariants:
+
+{{SESSION_INVARIANTS}}
+
+If your top-priority finding falls into the `out-of-loop` class, say so explicitly in your review and stop demanding the implementer act on it in-loop. The next state-changing action must come from outside the current loop session.
+
 ## Part 3: Implementation Review
 
 - Conduct a deep critical review of the implementation
