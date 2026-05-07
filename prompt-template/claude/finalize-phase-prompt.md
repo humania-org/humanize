@@ -50,3 +50,25 @@ Your summary should include:
 - Files modified during the Finalize Phase
 - Confirmation that tests still pass
 - Any notes about the refactoring decisions
+
+## Required: Outcome Classification
+
+The **first content line** of your finalize summary MUST be one of these three classifications, formatted exactly as shown:
+
+```
+Outcome: no-op (already-minimal)
+```
+```
+Outcome: cosmetic (formatting only)
+```
+```
+Outcome: substantive (logic edits)
+```
+
+Pick the one that matches what actually happened:
+
+- **`no-op (already-minimal)`** — the code was already at minimal complexity for its constraints; refactor agent (or you) made no edits. This is a positive signal — it means the prior rounds did not ship over-complex artifacts. Common in re-acceptance sessions where the substantive work landed in a prior session.
+- **`cosmetic (formatting only)`** — only formatting / whitespace / comment-only changes. No logic touched.
+- **`substantive (logic edits)`** — actual logic changes were made (extracted helpers, consolidated branches, removed dead code, etc.). For sessions whose Codex review approved COMPLETE before Finalize, a `substantive` outcome warrants a one-sentence justification of why the prior rounds shipped non-minimal artifacts.
+
+Why this classification matters: it lets future audits and methodology analyses tell at a glance whether the Finalize Phase added real value, was a no-op (the expected outcome in well-shaped rounds), or surfaced complexity the implementation rounds left behind. A `no-op` outcome is **not failure** — it is positive evidence that the prior rounds' exit point was already at local minimum complexity.
