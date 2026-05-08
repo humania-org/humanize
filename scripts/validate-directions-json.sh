@@ -56,8 +56,9 @@ if jq -e '
   # exactly one primary direction
   and ((.directions | map(select(.is_primary == true)) | length) == 1)
 
-  # direction_id: present, is a string, and unique across all entries
+  # direction_id: present, is a string, unique, and safe as a whitespace-delimited token
   and (.directions | map(has("direction_id") and ((.direction_id | type) == "string")) | all)
+  and (.directions | map(.direction_id) | all(test("^dir-[0-9]{2}-[a-z0-9-]+$")))
   and ((.directions | map(.direction_id) | unique | length) == (.directions | length))
 
   # dir_slug: present, is a string, unique, and branch/path safe (lowercase alphanumeric + hyphens)

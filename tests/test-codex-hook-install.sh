@@ -46,6 +46,9 @@ if [[ "${1:-}" == "--help" ]]; then
 Usage: codex [OPTIONS] [PROMPT]
   --disable <feature>    Disable a named feature for this invocation
 HELP
+    for i in $(seq 1 5000); do
+        printf '  --noise-%s\n' "$i"
+    done
     exit 0
 fi
 

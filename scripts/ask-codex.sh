@@ -248,11 +248,14 @@ CODEX_DISABLE_HOOKS_ARGS=()
 _CODEX_DISABLE_HOOKS_CACHE="$SKILL_DIR/.codex-disable-hooks-supported"
 if [[ -f "$_CODEX_DISABLE_HOOKS_CACHE" ]]; then
     [[ "$(cat "$_CODEX_DISABLE_HOOKS_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
-elif codex --help </dev/null 2>&1 | grep -q -- '--disable'; then
-    CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
-    echo "yes" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
 else
-    echo "no" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
+    CODEX_HELP_OUTPUT="$(codex --help </dev/null 2>&1 || true)"
+    if grep -q -- '--disable' <<< "$CODEX_HELP_OUTPUT"; then
+        CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+        echo "yes" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
+    else
+        echo "no" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
+    fi
 fi
 
 # Build codex exec arguments (same pattern as loop-codex-stop-hook.sh)

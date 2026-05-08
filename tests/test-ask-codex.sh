@@ -529,6 +529,9 @@ cat > "$PROBE_BIN_DIR/codex" << 'PROBE_MOCK_SUPPORTS'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--help" ]] || echo "$*" | grep -q -- '--help'; then
     echo "--disable <feature>   Disable a named feature"
+    for i in $(seq 1 5000); do
+        printf -- "--noise-%s\n" "$i"
+    done
     exit 0
 fi
 if [[ -n "${MOCK_CODEX_STDERR:-}" ]]; then echo "$MOCK_CODEX_STDERR" >&2; fi

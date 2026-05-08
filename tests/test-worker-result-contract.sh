@@ -77,6 +77,7 @@ REQUIRED_PLACEHOLDERS=(
     "<MAX_WORKER_ITERATIONS>"
     "<CODEX_TIMEOUT_MIN>"
     "<BASE_BRANCH>"
+    "<BASE_COMMIT>"
     "<ORIGINAL_IDEA>"
 )
 
@@ -113,6 +114,7 @@ REQUIRED_FIELDS=(
     "what_worked"
     "what_didnt"
     "bitlesson_action"
+    "error"
 )
 
 for field in "${REQUIRED_FIELDS[@]}"; do
@@ -141,11 +143,12 @@ else
     fail "template forbids nested skills/slash commands"
 fi
 
-# No git push constraint
-if grep -q "No git push\|git push" "$WORKER_PROMPT"; then
+# No git push constraint: require explicitly prohibitive wording, not a passing
+# incidental mention of the command.
+if grep -q "No git push" "$WORKER_PROMPT" && grep -qi "Do not push .*remote" "$WORKER_PROMPT"; then
     pass "template forbids git push"
 else
-    fail "template forbids git push"
+    fail "template forbids git push" "explicit no-push phrasing" "missing"
 fi
 
 # ask-codex.sh scope constraint

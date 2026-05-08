@@ -318,11 +318,12 @@ EFFECTIVE_CONCURRENCY=$(( CONCURRENCY < SELECTED_COUNT ? CONCURRENCY : SELECTED_
 # ========================================
 
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if git -C "$PROJECT_ROOT" diff --name-only HEAD 2>/dev/null | grep -q .; then
+DIRTY_FILES="$(git -C "$PROJECT_ROOT" diff --name-only HEAD -- 2>/dev/null || true)"
+if [[ -n "$DIRTY_FILES" ]]; then
     echo "ERROR: Main checkout has uncommitted tracked changes." >&2
     echo "  Commit or stash changes before running explore-idea." >&2
     echo "  Dirty files:" >&2
-    git -C "$PROJECT_ROOT" diff --name-only HEAD 2>/dev/null | sed 's/^/    /' >&2
+    printf '%s\n' "$DIRTY_FILES" | sed 's/^/    /' >&2
     exit 7
 fi
 
@@ -344,9 +345,11 @@ fi
 # ========================================
 #
 # Worker base-anchor contract (enforced by worker-prompt.md):
-# Each worker MUST: (1) git checkout BASE_BRANCH in its worktree,
-# (2) assert HEAD == BASE_COMMIT, and (3) only then create the explore branch.
-# A HEAD mismatch is a fatal worker error (worker emits failure result immediately).
+# Workers are created at BASE_COMMIT in detached HEAD state.
+# Do NOT run `git checkout <BASE_BRANCH>` in worker setup because the coordinator
+# checkout may already have that branch checked out. Each worker asserts
+# HEAD == BASE_COMMIT before creating its explore branch.
+# A HEAD mismatch is a fatal worker error.
 # Workers MUST run only targeted tests for the files they touched, not the full test suite.
 
 BASE_BRANCH="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"

@@ -96,126 +96,147 @@ run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "duplicate direction_id: exits non-zero" \
     || fail "duplicate direction_id: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-6: Duplicate dir_slug
+# NT-6: Empty direction_id
+F=$(make_fixture "empty-direction-id" '.directions[0].direction_id = ""')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "empty direction_id: exits non-zero" \
+    || fail "empty direction_id: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-7: Whitespace-only direction_id
+F=$(make_fixture "whitespace-direction-id" '.directions[0].direction_id = "   "')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "whitespace-only direction_id: exits non-zero" \
+    || fail "whitespace-only direction_id: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-8: direction_id contains spaces
+F=$(make_fixture "spaced-direction-id" '.directions[0].direction_id = "dir 00 command history"')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "direction_id with spaces: exits non-zero" \
+    || fail "direction_id with spaces: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-9: Duplicate dir_slug
 F=$(make_fixture "dup-dir-slug" '.directions[1].dir_slug = .directions[0].dir_slug')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "duplicate dir_slug: exits non-zero" \
     || fail "duplicate dir_slug: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-7: Duplicate source_index
+# NT-10: Duplicate source_index
 F=$(make_fixture "dup-source-index" '.directions[1].source_index = .directions[0].source_index')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "duplicate source_index: exits non-zero" \
     || fail "duplicate source_index: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-8: display_order is a string (not integer)
+# NT-11: display_order is a string (not integer)
 F=$(make_fixture "display-order-string" '.directions[0].display_order = "zero"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "display_order string: exits non-zero" \
     || fail "display_order string: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-9: dir_slug contains uppercase
+# NT-12: dir_slug contains uppercase
 F=$(make_fixture "dir-slug-uppercase" '.directions[0].dir_slug = "CommandHistory"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "dir_slug uppercase: exits non-zero" \
     || fail "dir_slug uppercase: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-10: dir_slug contains spaces
+# NT-13: dir_slug contains spaces
 F=$(make_fixture "dir-slug-space" '.directions[0].dir_slug = "command history"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "dir_slug with spaces: exits non-zero" \
     || fail "dir_slug with spaces: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-11: Missing required per-direction field (name)
+# NT-14: Missing required per-direction field (name)
 F=$(make_fixture "missing-name" '.directions[0] |= del(.name)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing direction.name: exits non-zero" \
     || fail "missing direction.name: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-12: objective_evidence is not an array
+# NT-15: objective_evidence is not an array
 F=$(make_fixture "evidence-not-array" '.directions[0].objective_evidence = "single string"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "objective_evidence not array: exits non-zero" \
     || fail "objective_evidence not array: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-13: known_risks is not an array
+# NT-16: known_risks is not an array
 F=$(make_fixture "risks-not-array" '.directions[0].known_risks = "single string"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "known_risks not array: exits non-zero" \
     || fail "known_risks not array: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-14: Invalid confidence value
+# NT-17: Invalid confidence value
 F=$(make_fixture "bad-confidence" '.directions[0].confidence = "maybe"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "invalid confidence: exits non-zero" \
     || fail "invalid confidence: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-15: metadata.n_returned mismatch
+# NT-18: metadata.n_returned mismatch
 F=$(make_fixture "n-returned-mismatch" '.metadata.n_returned = 99')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "n_returned mismatch: exits non-zero" \
     || fail "n_returned mismatch: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-16: Missing required top-level key (directions)
+# NT-19: Missing required top-level key (directions)
 F=$(make_fixture "missing-directions-key" 'del(.directions)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing .directions key: exits non-zero" \
     || fail "missing .directions key: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-17: Missing required top-level key (title)
+# NT-20: Missing required top-level key (title)
 F=$(make_fixture "missing-title-key" 'del(.title)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing .title key: exits non-zero" \
     || fail "missing .title key: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-18: Missing required top-level key (original_idea)
+# NT-21: Missing required top-level key (original_idea)
 F=$(make_fixture "missing-original-idea" 'del(.original_idea)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing .original_idea key: exits non-zero" \
     || fail "missing .original_idea key: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-19: Missing required top-level key (metadata)
+# NT-22: Missing required top-level key (metadata)
 F=$(make_fixture "missing-metadata" 'del(.metadata)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing .metadata key: exits non-zero" \
     || fail "missing .metadata key: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-20: Missing direction_id (per-direction required field)
+# NT-23: Missing direction_id (per-direction required field)
 F=$(make_fixture "missing-direction-id" '.directions[0] |= del(.direction_id)')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "missing direction_id: exits non-zero" \
     || fail "missing direction_id: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-21: source_index is a string (not integer)
+# NT-24: source_index is a string (not integer)
 F=$(make_fixture "source-index-string" '.directions[0].source_index = "0"')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "string source_index: exits non-zero" \
     || fail "string source_index: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-22: title is not a string (numeric type)
+# NT-25: title is not a string (numeric type)
 F=$(make_fixture "title-numeric" '.title = 123')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "numeric title: exits non-zero" \
     || fail "numeric title: exits non-zero" "non-zero" "$EXIT_CODE"
 
-# NT-23: objective_evidence items are not strings (numeric array)
+# NT-26: objective_evidence items are not strings (numeric array)
 F=$(make_fixture "evidence-items-numeric" '.directions[0].objective_evidence = [1, 2]')
 EXIT_CODE=0
 run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?

@@ -186,6 +186,37 @@ else
     fail "exit 7 for dirty checkout" "exit 7" "exit=$EXIT_CODE"
 fi
 
+# Exit 7: dirty checkout with enough files to catch git|grep SIGPIPE regressions
+DIRTY_MANY_REPO="$TEST_DIR/dirty-many-repo"
+init_test_git_repo "$DIRTY_MANY_REPO"
+cp "$VALID_FIXTURE" "$DIRTY_MANY_REPO/valid.directions.json"
+(
+    cd "$DIRTY_MANY_REPO"
+    mkdir -p dirty-files
+    for i in $(seq 1 2000); do
+        printf 'clean\n' > "dirty-files/file-$i.txt"
+    done
+    git add valid.directions.json dirty-files
+    git commit -q -m "add many tracked files"
+    for i in $(seq 1 2000); do
+        printf 'dirty\n' >> "dirty-files/file-$i.txt"
+    done
+)
+EXIT_CODE=0
+DIRTY_OUTPUT=$(
+    cd "$DIRTY_MANY_REPO"
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$VALIDATE_SCRIPT" "$DIRTY_MANY_REPO/valid.directions.json" 2>&1
+) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 7 ]] \
+        && grep -q "Dirty files:" <<<"$DIRTY_OUTPUT" \
+        && grep -q "dirty-files/file-1.txt" <<<"$DIRTY_OUTPUT"; then
+    pass "exit 7 and lists dirty files when many tracked files are modified"
+else
+    fail "exit 7 and lists dirty files when many tracked files are modified" \
+        "exit 7 + dirty file list" \
+        "exit=$EXIT_CODE output=$DIRTY_OUTPUT"
+fi
+
 # Exit 9: missing worker prompt template
 NO_TMPL_PLUGIN="$TEST_DIR/plugin-no-tmpl"
 mkdir -p "$NO_TMPL_PLUGIN/scripts"
@@ -277,6 +308,28 @@ if [[ "$EFFECTIVE" == "1" ]]; then
     pass "EFFECTIVE_CONCURRENCY capped to selected direction count"
 else
     fail "EFFECTIVE_CONCURRENCY capped to direction count" "1" "$EFFECTIVE"
+fi
+
+echo ""
+echo "--- Static Contract Tests ---"
+echo ""
+
+if grep -q 'Do NOT run `git checkout <BASE_BRANCH>`' "$VALIDATE_SCRIPT" \
+        && grep -q "detached HEAD" "$VALIDATE_SCRIPT"; then
+    pass "worker base-anchor contract documents detached HEAD without checking out BASE_BRANCH"
+else
+    fail "worker base-anchor contract documents detached HEAD without checking out BASE_BRANCH" \
+        "detached HEAD + no checkout language" \
+        "missing"
+fi
+
+if grep -q 'diff --name-only HEAD --' "$VALIDATE_SCRIPT" \
+        && ! grep -q 'diff --name-only HEAD .*| grep -q' "$VALIDATE_SCRIPT"; then
+    pass "dirty checkout check captures git diff output without grep -q pipeline"
+else
+    fail "dirty checkout check captures git diff output without grep -q pipeline" \
+        "capture-first dirty check" \
+        "missing"
 fi
 
 echo ""
