@@ -142,19 +142,20 @@ This loop uses a **Goal Tracker** to prevent goal drift across iterations:
 
 ### Structure
 - **IMMUTABLE SECTION**: Ultimate Goal and Acceptance Criteria (set in Round 0, never changed)
-- **MUTABLE SECTION**: Active Tasks, Completed Items, Deferred Items, Plan Evolution Log
+- **MUTABLE SECTION**: Active Tasks, Capability anchors, Completed Items, Deferred Items, Plan Evolution Log
 
 ### Key Features
 1. **Acceptance Criteria**: Each task maps to a specific AC - nothing can be "forgotten"
-2. **Task Tag Routing**: Every task should carry `coding` or `analyze` tag from plan generation
+2. **Capability Anchors**: When the plan has `Feature Map / Capability Map`, each mainline task and round contract records the relevant capability node
+3. **Task Tag Routing**: Every task should carry `coding` or `analyze` tag from plan generation
    - `coding -> Claude`, `analyze -> Codex`
-3. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
-4. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
-5. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
+4. **Plan Evolution Log**: If you discover the plan needs changes, document the change with justification
+5. **Explicit Deferrals**: Deferred tasks require strong justification and impact analysis
+6. **Full Alignment Checks**: At configurable intervals (default every 5 rounds: rounds 4, 9, 14, etc.), Codex conducts a comprehensive goal alignment audit. Use `--full-review-round N` to customize (min: 2)
 
 ### How to Use
 1. **Round 0**: Initialize the Goal Tracker with Ultimate Goal and Acceptance Criteria
-2. **Each Round**: Update task status, log plan changes, note discovered issues
+2. **Each Round**: Update task status, capability anchors, log plan changes, note discovered issues
 3. **Before Exit**: Ensure goal-tracker.md reflects current state accurately
 
 ## Important Rules

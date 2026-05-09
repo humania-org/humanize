@@ -4,8 +4,9 @@
 #
 # Validates:
 # - round-0 prompt includes coding/analyze routing instructions
-# - goal-tracker Active Tasks table includes Tag/Owner columns
-# - stop hook keeps task-tag routing reminder in follow-up prompts
+# - round-0 prompt includes capability anchor instructions
+# - goal-tracker Active Tasks table includes Tag/Owner/Capability columns
+# - stop hook keeps task-tag routing and capability anchor reminders in follow-up prompts
 #
 
 set -euo pipefail
@@ -82,6 +83,12 @@ Implement and validate feature behavior.
 - AC-1: Endpoint works
 - AC-2: Analysis notes captured
 
+## Feature Map / Capability Map
+| Capability ID | Capability / Feature | Target ACs | Depends On | Context Summary | Implementation Surface |
+|---------------|----------------------|------------|------------|-----------------|------------------------|
+| cap1 | Endpoint capability | AC-1 | - | Business: expose feature behavior; Design: endpoint returns expected output; Implementation: route and handler stay aligned | app routes |
+| cap2 | Rollout analysis capability | AC-2 | cap1 | Business: understand rollout risk; Design: risk notes reference implemented endpoint; Implementation: analysis depends on cap1 behavior | planning notes |
+
 ## Task Breakdown
 | Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
 |---------|-------------|-----------|----------------------------|------------|
@@ -108,10 +115,16 @@ else
     fail "round-0 prompt includes ask-codex routing for analyze tasks" "ask-codex instruction" "missing"
 fi
 
-if [[ -n "$GOAL_TRACKER_FILE" ]] && grep -q "^| Task | Target AC | Status | Tag | Owner | Notes |" "$GOAL_TRACKER_FILE"; then
-    pass "goal tracker Active Tasks table includes Tag/Owner columns"
+if [[ -n "$PROMPT_FILE" ]] && grep -q "## Capability Anchor (MUST FOLLOW)" "$PROMPT_FILE"; then
+    pass "round-0 prompt includes capability anchor section"
 else
-    fail "goal tracker Active Tasks table includes Tag/Owner columns" "table header with Tag/Owner" "missing"
+    fail "round-0 prompt includes capability anchor section" "capability anchor section" "missing"
+fi
+
+if [[ -n "$GOAL_TRACKER_FILE" ]] && grep -q "^| Task | Target AC | Status | Tag | Owner | Capability | Notes |" "$GOAL_TRACKER_FILE"; then
+    pass "goal tracker Active Tasks table includes Tag/Owner/Capability columns"
+else
+    fail "goal tracker Active Tasks table includes Tag/Owner/Capability columns" "table header with Tag/Owner/Capability" "missing"
 fi
 
 # ========================================
@@ -131,6 +144,11 @@ Ensure task routing remains consistent.
 
 ## Acceptance Criteria
 - AC-1: Routing reminder is present
+
+## Feature Map / Capability Map
+| Capability ID | Capability / Feature | Target ACs | Depends On | Context Summary | Implementation Surface |
+|---------------|----------------------|------------|------------|-----------------|------------------------|
+| cap1 | Routing capability | AC-1 | - | Business: keep routing stable; Design: prompts preserve route ownership; Implementation: task metadata is carried forward | RLCR prompts |
 
 ## Task Breakdown
 | Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
@@ -184,9 +202,9 @@ Keep routing behavior stable.
 ---
 ## MUTABLE SECTION
 #### Active Tasks
-| Task | Target AC | Status | Tag | Owner | Notes |
-|------|-----------|--------|-----|-------|-------|
-| Keep routing note | AC-1 | in_progress | analyze | codex | -
+| Task | Target AC | Status | Tag | Owner | Capability | Notes |
+|------|-----------|--------|-----|-------|------------|-------|
+| Keep routing note | AC-1 | in_progress | analyze | codex | cap1 | -
 EOF
     cat > "$loop_dir/round-0-contract.md" << 'EOF'
 # Round 0 Contract
@@ -234,6 +252,19 @@ if [[ -f "$NEXT_PROMPT" ]] && grep -q "/humanize:ask-codex" "$NEXT_PROMPT"; then
     pass "stop hook follow-up prompt includes ask-codex instruction for analyze tasks"
 else
     fail "stop hook follow-up prompt includes ask-codex instruction for analyze tasks" "ask-codex instruction in round-1 prompt" "missing"
+fi
+
+if [[ -f "$NEXT_PROMPT" ]] && grep -q "## Capability Anchor Reminder" "$NEXT_PROMPT"; then
+    pass "stop hook follow-up prompt includes capability anchor reminder"
+else
+    fail "stop hook follow-up prompt includes capability anchor reminder" "capability anchor reminder section" "missing"
+fi
+
+if grep -q "Capability Map Alignment Check" "$PROJECT_ROOT/prompt-template/codex/regular-review.md" && \
+   grep -q "Capability Map Alignment Check" "$PROJECT_ROOT/prompt-template/codex/full-alignment-review.md"; then
+    pass "codex review templates include capability map alignment check"
+else
+    fail "codex review templates include capability map alignment check" "Capability Map Alignment Check in regular and full reviews" "missing"
 fi
 
 print_test_summary "Task Tag Routing Tests"

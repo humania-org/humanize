@@ -977,9 +977,9 @@ $PLAN_AC_CONTENT
 | 0 | Skip implementation mode initialized around explicit plan anchor | Loop started with \`--skip-impl\` and retained @$PLAN_FILE as scope anchor | Review stays aligned with original plan |
 
 #### Active Tasks
-| Task | Target AC | Status | Notes |
-|------|-----------|--------|-------|
-| [mainline] Preserve original plan alignment while resolving blocking review findings | Plan ACs in scope | pending | Review-only mode with explicit plan anchor |
+| Task | Target AC | Status | Tag | Owner | Capability | Notes |
+|------|-----------|--------|-----|-------|------------|-------|
+| [mainline] Preserve original plan alignment while resolving blocking review findings | Plan ACs in scope | pending | coding | claude | plan-anchor | Review-only mode with explicit plan anchor |
 
 ### Blocking Side Issues
 | Issue | Discovered Round | Blocking AC | Resolution Path |
@@ -1033,9 +1033,9 @@ Pass code review for the current branch without regressing existing behavior.
 | 0 | Skip implementation mode initialized | Loop started with `--skip-impl` | Focus on review-only objective |
 
 #### Active Tasks
-| Task | Target AC | Status | Notes |
-|------|-----------|--------|-------|
-| [mainline] Pass code review for current branch | AC-1 | pending | Review-only mode |
+| Task | Target AC | Status | Tag | Owner | Capability | Notes |
+|------|-----------|--------|-----|-------|------------|-------|
+| [mainline] Pass code review for current branch | AC-1 | pending | coding | claude | review-only | Review-only mode |
 
 ### Blocking Side Issues
 | Issue | Discovered Round | Blocking AC | Resolution Path |
@@ -1126,10 +1126,10 @@ cat >> "$GOAL_TRACKER_FILE" << 'GOAL_TRACKER_EOF'
 | 0 | Initial plan | - | - |
 
 #### Active Tasks
-<!-- Mainline tasks only: each task must directly advance the current round objective and carry routing metadata -->
-| Task | Target AC | Status | Tag | Owner | Notes |
-|------|-----------|--------|-----|-------|-------|
-| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | mainline task only |
+<!-- Mainline tasks only: each task must directly advance the current round objective and carry routing + capability metadata -->
+| Task | Target AC | Status | Tag | Owner | Capability | Notes |
+|------|-----------|--------|-----|-------|------------|-------|
+| [To be populated by Claude based on plan] | - | pending | coding or analyze | claude or codex | cap ID or map section | mainline task only |
 
 ### Blocking Side Issues
 <!-- Only issues that directly block current mainline progress belong here -->
@@ -1206,6 +1206,7 @@ if [[ "$SKIP_IMPL" == "true" ]]; then
 
 - Mainline Objective: Keep the current branch aligned with @$PLAN_FILE while resolving only review findings that block clean acceptance.
 - Target ACs: The original plan acceptance criteria affected by the current branch changes.
+- Capability Anchor: Original plan capability map nodes affected by the current branch, or plan-anchor if the plan has no capability map.
 - Blocking Side Issues In Scope: Any \`[P0-9]\` findings or regressions that block review acceptance or violate the original plan scope.
 - Queued Side Issues Out of Scope: Non-blocking cleanup, follow-up refactors, or future improvements that do not block review acceptance or plan alignment.
 - Success Criteria: Code review passes and the current branch still matches the original plan's intended scope.
@@ -1216,6 +1217,7 @@ EOF
 
 - Mainline Objective: Run code review for the current branch and resolve only findings that block clean acceptance.
 - Target ACs: AC-1, AC-2
+- Capability Anchor: review-only
 - Blocking Side Issues In Scope: Any `[P0-9]` findings from the active review cycle.
 - Queued Side Issues Out of Scope: Non-blocking cleanup, follow-up refactors, or future improvements that do not block review acceptance.
 - Success Criteria: Code review passes with no blocking findings, and any remaining non-blocking follow-up is explicitly queued.
@@ -1297,7 +1299,7 @@ Before starting implementation, you MUST initialize the Goal Tracker:
 1. Read @$GOAL_TRACKER_FILE
 2. If the "Ultimate Goal" section says "[To be extracted...]", extract a clear goal statement from the plan
 3. If the "Acceptance Criteria" section says "[To be defined...]", define 3-7 specific, testable criteria
-4. Populate the "Active Tasks" table with MAINLINE tasks from the plan, mapping each to an AC and filling Tag/Owner
+4. Populate the "Active Tasks" table with MAINLINE tasks from the plan, mapping each to an AC and filling Tag/Owner/Capability
 5. Record any already-known side issues in either "Blocking Side Issues" or "Queued Side Issues"
 6. Write the updated goal-tracker.md
 
@@ -1307,9 +1309,10 @@ Before starting implementation, create @$ROUND_CONTRACT_PATH with:
 
 1. **One mainline objective** for this round
 2. **Target ACs** (1-2 ACs only)
-3. **Blocking side issues in scope** for this round
-4. **Queued side issues out of scope** for this round
-5. **Round success criteria**
+3. **Capability Anchor**: the `Feature Map / Capability Map` node(s) or map section this round advances
+4. **Blocking side issues in scope** for this round
+5. **Queued side issues out of scope** for this round
+6. **Round success criteria**
 
 Use this contract to keep the round focused. Do NOT let non-blocking bugs or cleanup work replace the mainline objective.
 
@@ -1340,6 +1343,14 @@ Each task must have one routing tag from the plan: \`coding\` or \`analyze\`.
 - Tag \`analyze\`: Claude must execute via \`/humanize:ask-codex\`, then integrate Codex output.
 - Keep Goal Tracker "Active Tasks" columns **Tag** and **Owner** aligned with execution (\`coding -> claude\`, \`analyze -> codex\`).
 - If a task has no explicit tag, default to \`coding\` (Claude executes directly).
+
+## Capability Anchor (MUST FOLLOW)
+
+If the plan contains \`## Feature Map / Capability Map\`, every mainline task and round contract MUST stay anchored to it:
+- Add the relevant Capability ID(s) or capability/feature name(s) to the round contract's **Capability Anchor** field.
+- Fill the Goal Tracker Active Tasks \`Capability\` column for each mainline task.
+- Before coding or analysis, restate how the task fits the selected capability's business, design, and implementation context.
+- Do not let a task drift into another capability or future-scope node unless you record a Plan Evolution entry.
 
 EOF
 
@@ -1402,6 +1413,7 @@ Throughout your work, you MUST maintain the Goal Tracker:
 1. **Before starting a round**: Re-anchor on the original plan and current round contract
 2. **Before starting a task**: Mark the relevant mainline task as "in_progress" in Active Tasks
    - Confirm Tag/Owner routing is correct before execution
+   - Confirm the task's Capability matches the round contract's Capability Anchor
 3. **Active Tasks** are MAINLINE tasks only - side issues do not belong there
 4. **Blocking Side Issues** are reserved for issues that truly stop mainline progress
 5. **Queued Side Issues** are non-blocking and must not take over the round

@@ -1415,6 +1415,14 @@ Follow the plan's per-task routing tags strictly:
 - `coding` task -> Claude executes directly
 - `analyze` task -> execute via `/humanize:ask-codex`, then integrate the result
 - Keep Goal Tracker Active Tasks columns `Tag` and `Owner` aligned with execution
+
+## Capability Anchor Reminder
+
+If the plan contains `## Feature Map / Capability Map`:
+- The round contract must name the relevant Capability ID(s) or capability/feature name(s)
+- Goal Tracker Active Tasks must keep their `Capability` column aligned with the round contract
+- Mainline work must preserve the selected capability's business, design, and implementation context
+- Do not let queued or future-scope capability work take over the current round
 ROUTING_EOF
 }
 
@@ -1542,11 +1550,12 @@ You are in the **Review Phase** of the RLCR loop. Codex has performed a code rev
 ## Instructions
 
 1. Re-anchor on the original plan and current goal tracker before changing code
-2. Refresh the round contract at {{ROUND_CONTRACT_FILE}}
+2. Refresh the round contract at {{ROUND_CONTRACT_FILE}}, including its Capability Anchor when the plan has a capability map
 3. Address only the issues that are truly blocking the current mainline objective or code-review acceptance
-4. Record non-blocking follow-up items as queued, not as the main goal
-5. Commit your changes after fixing the issues
-6. Write your summary to: {{SUMMARY_FILE}}"
+4. Keep fixes inside the current Capability Anchor unless review proves it was wrong
+5. Record non-blocking follow-up items as queued, not as the main goal
+6. Commit your changes after fixing the issues
+7. Write your summary to: {{SUMMARY_FILE}}"
 
     load_and_render_safe "$TEMPLATE_DIR" "claude/review-phase-prompt.md" "$fallback" \
         "REVIEW_CONTENT=$review_content" \
@@ -2030,6 +2039,7 @@ Before executing tasks in this round:
 1. Read @{{BITLESSON_FILE}}
 2. Run \`bitlesson-selector\` for each task/sub-task
 3. Follow selected lesson IDs (or \`NONE\`)
+4. Preserve the Capability Anchor from @{{ROUND_CONTRACT_FILE}} when the plan has a capability map
 
 ## Codex Review
 {{REVIEW_CONTENT}}
@@ -2045,7 +2055,7 @@ Before writing code:
 - Re-read @{{PLAN_FILE}}
 - Re-read @{{GOAL_TRACKER_FILE}}
 - Re-read the recent round summaries and review results
-- Rewrite @{{ROUND_CONTRACT_FILE}} with a recovery-focused mainline objective
+- Rewrite @{{ROUND_CONTRACT_FILE}} with a recovery-focused mainline objective and Capability Anchor
 
 Do not spend this round clearing queued work. Recover mainline progress first.
 

@@ -46,7 +46,21 @@ Include a brief Goal Alignment Summary in your review:
 ACs: X/Y addressed | Forgotten items: N | Unjustified deferrals: N
 ```
 
-## Part 3: Required Finding Classification
+## Part 3: Capability Map Alignment Check (MANDATORY when present)
+
+If the original plan contains `## Feature Map / Capability Map`, verify:
+
+1. **Capability Anchor**: Did Claude's round contract and Active Tasks identify the relevant capability node(s)?
+2. **Context Preservation**: Did the implementation preserve the anchored capability's business, design, and implementation context?
+3. **Dependency Respect**: Did Claude respect capability dependencies instead of skipping prerequisite nodes?
+4. **Scope Control**: Did Claude avoid drifting into unrelated or future-scope capability nodes?
+
+Include a brief Capability Alignment Summary:
+```
+Capability anchor: cap-id/name or N/A | Dependency gaps: N | Scope drift: yes/no
+```
+
+## Part 4: Required Finding Classification
 
 You MUST classify your findings into these lanes:
 - **Mainline Gaps**: plan-derived work or AC progress that is missing, incomplete, or regressing
@@ -62,9 +76,9 @@ This verdict line is mandatory. If you omit it, the Humanize stop hook will bloc
 
 If Claude mostly worked on queued side issues and failed to advance the mainline, say so explicitly.
 
-## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 5: {{GOAL_TRACKER_UPDATE_SECTION}}
 
-## Part 5: Output Requirements
+## Part 6: Output Requirements
 
 - In short, your review comments can include: problems/findings/blockers; claims that don't match reality; implementation plans for deferred work (to be implemented now); implementation plans for unfinished work; goal alignment issues.
 - Your output should be structured so Claude can tell which items are mainline gaps, blocking side issues, and queued side issues.

@@ -55,6 +55,7 @@ The native Stop-hook path enforces:
 - branch consistency checks
 - plan-file integrity checks (when applicable)
 - incomplete Task/Todo blocking
+- capability anchor reminders when the plan contains `Feature Map / Capability Map`
 - git-clean requirement before exit
 - `--push-every-round` unpushed-commit blocking
 - summary presence checks
