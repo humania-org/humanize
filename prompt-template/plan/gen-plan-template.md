@@ -66,6 +66,15 @@ Example: "The implementation includes core feature X with basic validation"
 
 <Describe relative dependencies between components, not time estimates>
 
+## Feature Map / Capability Map
+
+Use this section to map feature- or capability-level dependencies and context. It supplements `## Task Breakdown` by showing how related tasks carry business, design, and implementation context across the plan; it is not a replacement for executable tasks.
+
+| Capability ID | Capability / Feature | Target ACs | Depends On | Context Summary | Implementation Surface |
+|---------------|----------------------|------------|------------|-----------------|------------------------|
+| cap1 | <User-facing or internal capability> | AC-1, AC-2 | - | Business: <why this matters>; Design: <expected behavior/UX/API>; Implementation: <state, data, or integration context to preserve> | <files/modules/components likely involved> |
+| cap2 | <Dependent capability> | AC-3 | cap1 | Business: <dependency rationale>; Design: <constraints inherited from cap1>; Implementation: <interfaces or decisions reused from cap1> | <files/modules/components likely involved> |
+
 ## Task Breakdown
 
 Each task must include exactly one routing tag:

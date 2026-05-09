@@ -762,6 +762,7 @@ assert_file_contains "$REFINE_PLAN_CMD" "- `## Task Breakdown`" "refine-plan.md 
 assert_file_contains "$REFINE_PLAN_CMD" "- `## Claude-Codex Deliberation`" "refine-plan.md preserves Claude-Codex Deliberation section"
 assert_file_contains "$REFINE_PLAN_CMD" "- `## Pending User Decisions`" "refine-plan.md preserves Pending User Decisions section"
 assert_file_contains "$REFINE_PLAN_CMD" "- `## Implementation Notes`" "refine-plan.md preserves Implementation Notes section"
+assert_file_contains "$REFINE_PLAN_CMD" '- `## Feature Map / Capability Map`' "refine-plan.md preserves Feature Map / Capability Map when present"
 
 echo ""
 echo "PT-8: Alternative language and filename rules"

@@ -145,6 +145,9 @@ Minimum viable implementation
    - Phase A: ...
    - Phase B: ...
 
+## Feature Map / Capability Map
+Capability-level dependency and context map that supplements the executable task list.
+
 ## Implementation Notes
 - Code should NOT contain plan terminology like "AC-", "Milestone", "Step"
 ```

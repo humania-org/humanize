@@ -33,7 +33,7 @@ flowchart TD
     HAS_ISSUES -->|No| CHECK_METRICS{Has quantitative<br/>metrics?}
     CHECK_METRICS -->|Yes| CONFIRM_METRICS[Confirm metrics with user:<br/>Hard requirement or trend?]
     CONFIRM_METRICS --> GEN_PLAN
-    CHECK_METRICS -->|No| GEN_PLAN[Generate structured plan:<br/>- Goal Description<br/>- Acceptance Criteria with TDD tests<br/>- Path Boundaries<br/>- Feasibility Hints<br/>- Dependencies & Milestones]
+    CHECK_METRICS -->|No| GEN_PLAN[Generate structured plan:<br/>- Goal Description<br/>- Acceptance Criteria with TDD tests<br/>- Path Boundaries<br/>- Feasibility Hints<br/>- Dependencies & Milestones<br/>- Feature/Capability Map]
     GEN_PLAN --> WRITE[Write plan to output file<br/>using Edit tool to preserve draft]
     WRITE --> REVIEW[Review complete plan<br/>Check for inconsistencies]
     REVIEW --> INCONSISTENT{Inconsistencies?}
@@ -88,6 +88,9 @@ Minimum viable implementation
 1. Milestone 1: Description
    - Phase A: ...
    - Phase B: ...
+
+## Feature Map / Capability Map
+Capability-level dependency and context map that supplements the executable task list.
 
 ## Implementation Notes
 - Code should NOT contain plan terminology

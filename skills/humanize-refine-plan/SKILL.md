@@ -80,7 +80,7 @@ The refinement flow must:
   - `## Claude-Codex Deliberation`
   - `## Pending User Decisions`
   - `## Implementation Notes`
-- Preserve optional sections when present, including the original design draft appendix
+- Preserve optional sections when present, including `## Feature Map / Capability Map` and the original design draft appendix
 - Keep task routing tags restricted to `coding` or `analyze`
 - Generate a QA ledger from the shipped QA template
 - Write the refined plan, QA file, and any language variants atomically

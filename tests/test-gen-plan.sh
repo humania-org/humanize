@@ -216,6 +216,24 @@ else
     fail "plan template includes convergence status subsection" "Convergence Status subsection" "missing"
 fi
 
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Feature Map / Capability Map" "$PLAN_TEMPLATE"; then
+    pass "plan template includes feature map / capability map section"
+else
+    fail "plan template includes feature map / capability map section" "Feature Map / Capability Map section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "Capability ID" "$PLAN_TEMPLATE" && grep -q "Context Summary" "$PLAN_TEMPLATE"; then
+    pass "plan template includes capability map context columns"
+else
+    fail "plan template includes capability map context columns" "Capability ID and Context Summary columns" "missing one or both"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Feature Map Requirement" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines mandatory feature map requirement"
+else
+    fail "gen-plan command defines mandatory feature map requirement" "Feature Map Requirement rule" "missing"
+fi
+
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "## Task Breakdown" "$GEN_PLAN_CMD"; then
     pass "gen-plan command requires task breakdown section"
 else
