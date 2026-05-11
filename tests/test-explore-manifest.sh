@@ -34,6 +34,13 @@ for f in "$EXPLORE_CMD" "$WORKER_PROMPT" "$REPORT_TEMPLATE"; do
     fi
 done
 
+FINAL_IDEA_TEMPLATE="$PROJECT_ROOT/prompt-template/explore/final-idea-template.md"
+if [[ -f "$FINAL_IDEA_TEMPLATE" ]]; then
+    pass "file exists: final-idea-template.md"
+else
+    fail "file exists: final-idea-template.md" "file found" "not found"
+fi
+
 echo ""
 echo "--- Manifest JSON Schema (from explore-idea.md) ---"
 echo ""
@@ -51,6 +58,10 @@ MANIFEST_FIELDS=(
     "max_worker_iterations"
     "worker_timeout_min"
     "codex_timeout_min"
+    "codex_review_model"
+    "codex_review_effort"
+    "report_path"
+    "final_idea_path"
     "expected_worker_count"
     "runtime_spike_status"
     "workers"
@@ -110,11 +121,18 @@ else
     fail "worker-results.jsonl file documented"
 fi
 
-# report.md
-if grep -q "report.md" "$EXPLORE_CMD"; then
-    pass "report.md file documented"
+# explore-report.md
+if grep -q "explore-report.md" "$EXPLORE_CMD"; then
+    pass "explore-report.md file documented"
 else
-    fail "report.md file documented"
+    fail "explore-report.md file documented"
+fi
+
+# final-idea.md
+if grep -q "final-idea.md" "$EXPLORE_CMD"; then
+    pass "final-idea.md file documented"
+else
+    fail "final-idea.md file documented"
 fi
 
 # .failed sentinel
@@ -167,6 +185,31 @@ if grep -q "Tier 1" "$REPORT_TEMPLATE" && grep -q "Tier 2" "$REPORT_TEMPLATE"; t
     pass "report template contains two-tier ranking sections"
 else
     fail "report template contains Tier 1 and Tier 2 sections"
+fi
+
+FINAL_IDEA_SECTIONS=(
+    "Final Recommendation"
+    "Rationale"
+    "Approach Summary"
+    "Objective Evidence"
+    "Explore Outcomes"
+    "Constraints"
+    "Known Risks"
+    "Cross-Direction Learnings"
+)
+
+if [[ -f "$FINAL_IDEA_TEMPLATE" ]]; then
+    ALL_FINAL_SECTIONS_PRESENT=true
+    for section in "${FINAL_IDEA_SECTIONS[@]}"; do
+        if ! grep -q "$section" "$FINAL_IDEA_TEMPLATE"; then
+            ALL_FINAL_SECTIONS_PRESENT=false
+            fail "final-idea template contains section: $section"
+            break
+        fi
+    done
+    if [[ "$ALL_FINAL_SECTIONS_PRESENT" == "true" ]]; then
+        pass "final-idea template contains plan-ready synthesis sections"
+    fi
 fi
 
 echo ""

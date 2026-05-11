@@ -20,6 +20,7 @@ source "$SCRIPT_DIR/test-helpers.sh"
 EXPLORE_CMD="$PROJECT_ROOT/commands/explore-idea.md"
 VALIDATE_IO_SCRIPT="$PROJECT_ROOT/scripts/validate-explore-idea-io.sh"
 REPORT_TEMPLATE="$PROJECT_ROOT/prompt-template/explore/report-template.md"
+FINAL_IDEA_TEMPLATE="$PROJECT_ROOT/prompt-template/explore/final-idea-template.md"
 
 echo "=========================================="
 echo "explore-idea Command Structure Tests"
@@ -214,8 +215,22 @@ REPORT_PLACEHOLDERS=(
     "<BASE_BRANCH>"
     "<BASE_COMMIT>"
     "<CREATED_AT>"
+    "<REPORT_PATH>"
+    "<FINAL_IDEA_PATH>"
     "<SUMMARY_PARAGRAPH>"
+    "<PRODUCT_DIRECTION_RANKING_ROWS>"
+    "<PRODUCT_DIRECTION_RATIONALE>"
+    "<IMPLEMENTATION_RANKING_ROWS>"
+    "<IMPLEMENTATION_RANKING_RATIONALE>"
     "<WORKER_RESULT_ENTRIES>"
+    "<WINNER_WORKTREE_PATH>"
+    "<WINNER_BRANCH_NAME>"
+    "<WINNER_COMMIT_SHA>"
+    "<COMMIT_SHA>"
+    "<CLEANUP_COMMANDS>"
+    "<ALL_WORKER_DETAILS>"
+    "<ALL_WORKTREE_REMOVE_COMMANDS>"
+    "<ALL_BRANCH_DELETE_COMMANDS>"
 )
 for placeholder in "${REPORT_PLACEHOLDERS[@]}"; do
     if grep -q "$placeholder" "$REPORT_TEMPLATE"; then
@@ -224,6 +239,72 @@ for placeholder in "${REPORT_PLACEHOLDERS[@]}"; do
         fail "report template contains $placeholder" "$placeholder" "not found"
     fi
 done
+
+if [[ -f "$FINAL_IDEA_TEMPLATE" ]]; then
+    pass "final-idea-template.md exists"
+else
+    fail "final-idea-template.md exists" "file found" "not found"
+fi
+
+if [[ -f "$FINAL_IDEA_TEMPLATE" ]] \
+        && grep -q "Final Recommendation" "$FINAL_IDEA_TEMPLATE" \
+        && grep -q "Explore Outcomes" "$FINAL_IDEA_TEMPLATE" \
+        && grep -q "Suggested Gen-Plan Command" "$FINAL_IDEA_TEMPLATE"; then
+    pass "final-idea template provides gen-plan-ready synthesis"
+else
+    fail "final-idea template provides gen-plan-ready synthesis" \
+        "Final Recommendation + Explore Outcomes + Suggested Gen-Plan Command" \
+        "missing"
+fi
+
+FINAL_IDEA_PLACEHOLDERS=(
+    "<TITLE>"
+    "<RUN_ID>"
+    "<DIRECTIONS_JSON_FILE>"
+    "<REPORT_PATH>"
+    "<FINAL_IDEA_PATH>"
+    "<FINAL_RECOMMENDATION>"
+    "<RATIONALE>"
+    "<APPROACH_SUMMARY>"
+    "<OBJECTIVE_EVIDENCE>"
+    "<EXPLORE_OUTCOMES>"
+    "<CONSTRAINTS>"
+    "<KNOWN_RISKS>"
+    "<CROSS_DIRECTION_LEARNINGS>"
+)
+
+ALL_FINAL_PLACEHOLDERS_DOCUMENTED=true
+for placeholder in "${FINAL_IDEA_PLACEHOLDERS[@]}"; do
+    if ! grep -q "$placeholder" "$FINAL_IDEA_TEMPLATE"; then
+        ALL_FINAL_PLACEHOLDERS_DOCUMENTED=false
+        fail "final-idea template contains placeholder $placeholder"
+        break
+    fi
+    if ! grep -q "$placeholder" "$EXPLORE_CMD"; then
+        ALL_FINAL_PLACEHOLDERS_DOCUMENTED=false
+        fail "explore command documents final-idea placeholder $placeholder"
+        break
+    fi
+done
+if [[ "$ALL_FINAL_PLACEHOLDERS_DOCUMENTED" == "true" ]]; then
+    pass "final-idea placeholders are present in template and documented in command"
+fi
+
+if grep -q "/humanize:gen-plan --input <FINAL_IDEA_PATH>" "$REPORT_TEMPLATE"; then
+    pass "report template points gen-plan at final-idea.md"
+else
+    fail "report template points gen-plan at final-idea.md" \
+        "/humanize:gen-plan --input <FINAL_IDEA_PATH>" \
+        "missing"
+fi
+
+if grep -q 'first literal `": "`' "$EXPLORE_CMD"; then
+    pass "explore command documents first-colon KEY: value parsing"
+else
+    fail "explore command documents first-colon KEY: value parsing" \
+        'first literal ": "' \
+        "missing"
+fi
 
 echo ""
 echo "--- Validate-explore-idea-io.sh Script Structure ---"

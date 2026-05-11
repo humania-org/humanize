@@ -76,6 +76,7 @@ REQUIRED_PLACEHOLDERS=(
     "<CONFIDENCE>"
     "<MAX_WORKER_ITERATIONS>"
     "<CODEX_TIMEOUT_MIN>"
+    "<CODEX_REVIEW_MODEL_SPEC>"
     "<BASE_BRANCH>"
     "<BASE_COMMIT>"
     "<ORIGINAL_IDEA>"
@@ -100,6 +101,9 @@ REQUIRED_FIELDS=(
     "direction_id"
     "dir_slug"
     "task_status"
+    "codex_review_model"
+    "codex_review_effort"
+    "codex_review_metadata_path"
     "codex_final_verdict"
     "rounds_used"
     "tests_passed"
@@ -156,6 +160,15 @@ if grep -q "CLAUDE_PROJECT_DIR" "$WORKER_PROMPT"; then
     pass "template requires CLAUDE_PROJECT_DIR scoping for Codex calls"
 else
     fail "template requires CLAUDE_PROJECT_DIR scoping"
+fi
+
+# Explicit review model placeholder, without pinning the exact model in tests.
+if grep -q -- '--codex-model "<CODEX_REVIEW_MODEL_SPEC>"' "$WORKER_PROMPT"; then
+    pass "template uses explicit CODEX_REVIEW_MODEL_SPEC placeholder for Codex review"
+else
+    fail "template uses explicit CODEX_REVIEW_MODEL_SPEC placeholder" \
+        '--codex-model "<CODEX_REVIEW_MODEL_SPEC>"' \
+        "missing"
 fi
 
 # Branch naming format

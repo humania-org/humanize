@@ -91,7 +91,7 @@ Generates a repo-grounded idea draft using directed-diversity exploration. A lea
 /humanize:explore-idea <draft.md | draft.directions.json> [--directions ids] [--concurrency N] [--max-worker-iterations N] [--worker-timeout-min N] [--codex-timeout-min N]
 ```
 
-Launches bounded parallel prototype workers — one per selected direction — each running in an isolated git worktree. After all workers complete, synthesizes a two-tier ranking report:
+Launches bounded parallel prototype workers — one per selected direction — each running in an isolated git worktree. After all workers complete, synthesizes an explore report plus a plan-ready final idea:
 - **Tier 1**: Best product direction (ranked by user value, evidence, strategic fit)
 - **Tier 2**: Most implementation-ready prototype (ranked by outcome: task status, Codex verdict, tests, commits)
 
@@ -106,7 +106,8 @@ Launches bounded parallel prototype workers — one per selected direction — e
 - `manifest.json` — coordinator state and per-worker metadata
 - `dispatch-prompts/` — exact prompts sent to each worker
 - `worker-results.jsonl` — machine-readable result rows
-- `report.md` — synthesis report with two-tier rankings and adoption paths
+- `explore-report.md` — audit report with two-tier rankings, adoption paths, and cleanup guidance
+- `final-idea.md` — plan-ready synthesis artifact for `/humanize:gen-plan`
 
 ### start-rlcr-loop
 

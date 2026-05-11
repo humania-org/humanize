@@ -50,6 +50,7 @@ mkdir -p "$PLUGIN_ROOT/prompt-template/explore"
 cp "$PROJECT_ROOT/scripts/validate-directions-json.sh" "$PLUGIN_ROOT/scripts/"
 touch "$PLUGIN_ROOT/prompt-template/explore/worker-prompt.md"
 touch "$PLUGIN_ROOT/prompt-template/explore/report-template.md"
+touch "$PLUGIN_ROOT/prompt-template/explore/final-idea-template.md"
 
 # Helper: run validation inside the mock repo (clean state)
 run_validate() {
@@ -231,6 +232,21 @@ else
     fail "exit 9 when templates missing" "exit 9" "exit=$EXIT_CODE"
 fi
 
+# Exit 9: missing final idea template
+NO_FINAL_TMPL_PLUGIN="$TEST_DIR/plugin-no-final-tmpl"
+mkdir -p "$NO_FINAL_TMPL_PLUGIN/scripts"
+mkdir -p "$NO_FINAL_TMPL_PLUGIN/prompt-template/explore"
+cp "$PROJECT_ROOT/scripts/validate-directions-json.sh" "$NO_FINAL_TMPL_PLUGIN/scripts/"
+touch "$NO_FINAL_TMPL_PLUGIN/prompt-template/explore/worker-prompt.md"
+touch "$NO_FINAL_TMPL_PLUGIN/prompt-template/explore/report-template.md"
+EXIT_CODE=0
+(cd "$MOCK_REPO" && CLAUDE_PLUGIN_ROOT="$NO_FINAL_TMPL_PLUGIN" bash "$VALIDATE_SCRIPT" "$MOCK_REPO/valid.directions.json" 2>/dev/null) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 9 ]]; then
+    pass "exit 9 when final idea template missing"
+else
+    fail "exit 9 when final idea template missing" "exit 9" "exit=$EXIT_CODE"
+fi
+
 # ----------------------------------------
 # Positive Tests: success output
 # ----------------------------------------
@@ -251,8 +267,10 @@ fi
 # Success: all required keys present in output
 REQUIRED_KEYS=(
     "DIRECTIONS_JSON_FILE:"
+    "DRAFT_PATH:"
     "RUN_ID:"
     "RUN_DIR:"
+    "RUN_SLUG:"
     "BASE_BRANCH:"
     "BASE_COMMIT:"
     "SELECTED_DIRECTION_IDS:"
@@ -260,8 +278,14 @@ REQUIRED_KEYS=(
     "MAX_WORKER_ITERATIONS:"
     "WORKER_TIMEOUT_MIN:"
     "CODEX_TIMEOUT_MIN:"
+    "CODEX_REVIEW_MODEL:"
+    "CODEX_REVIEW_EFFORT:"
+    "CODEX_REVIEW_MODEL_SPEC:"
+    "REPORT_PATH:"
+    "FINAL_IDEA_PATH:"
     "WORKER_PROMPT_TEMPLATE:"
     "REPORT_TEMPLATE:"
+    "FINAL_IDEA_TEMPLATE:"
 )
 ALL_KEYS_PRESENT=true
 for key in "${REQUIRED_KEYS[@]}"; do
@@ -308,6 +332,43 @@ if [[ "$EFFECTIVE" == "1" ]]; then
     pass "EFFECTIVE_CONCURRENCY capped to selected direction count"
 else
     fail "EFFECTIVE_CONCURRENCY capped to direction count" "1" "$EFFECTIVE"
+fi
+
+# Run ID should be explanatory and collision-safe: <slug>-<timestamp>Z-<6hex>
+RUN_ID_VALUE=$(echo "$OUTPUT" | grep "^RUN_ID:" | sed 's/RUN_ID: //')
+RUN_SLUG_VALUE=$(echo "$OUTPUT" | grep "^RUN_SLUG:" | sed 's/RUN_SLUG: //')
+RUN_DIR_VALUE=$(echo "$OUTPUT" | grep "^RUN_DIR:" | sed 's/RUN_DIR: //')
+if [[ "$RUN_ID_VALUE" =~ ^undo-redo-20260429-120000-[0-9]{8}-[0-9]{6}Z-[a-f0-9]{6}$ ]] \
+        && [[ "$RUN_SLUG_VALUE" == "undo-redo-20260429-120000" ]] \
+        && [[ "$RUN_DIR_VALUE" == */.humanize/explore/"$RUN_ID_VALUE" ]]; then
+    pass "RUN_ID uses metadata draft slug for direct .directions.json input"
+else
+    fail "RUN_ID uses metadata draft slug for direct .directions.json input" \
+        "undo-redo-20260429-120000-YYYYMMDD-HHMMSSZ-6hex under .humanize/explore" \
+        "RUN_ID=$RUN_ID_VALUE RUN_SLUG=$RUN_SLUG_VALUE RUN_DIR=$RUN_DIR_VALUE"
+fi
+
+# Draft input should derive the run slug from the draft basename.
+DRAFT_RUN_ID=$(echo "$OUTPUT_MD" | grep "^RUN_ID:" | sed 's/RUN_ID: //')
+DRAFT_RUN_SLUG=$(echo "$OUTPUT_MD" | grep "^RUN_SLUG:" | sed 's/RUN_SLUG: //')
+if [[ "$DRAFT_RUN_ID" =~ ^draft-[0-9]{8}-[0-9]{6}Z-[a-f0-9]{6}$ ]] \
+        && [[ "$DRAFT_RUN_SLUG" == "draft" ]]; then
+    pass "RUN_ID derives slug from draft basename for .md input"
+else
+    fail "RUN_ID derives slug from draft basename" \
+        "draft-YYYYMMDD-HHMMSSZ-6hex" \
+        "RUN_ID=$DRAFT_RUN_ID RUN_SLUG=$DRAFT_RUN_SLUG"
+fi
+
+REPORT_PATH_VALUE=$(echo "$OUTPUT" | grep "^REPORT_PATH:" | sed 's/REPORT_PATH: //')
+FINAL_IDEA_PATH_VALUE=$(echo "$OUTPUT" | grep "^FINAL_IDEA_PATH:" | sed 's/FINAL_IDEA_PATH: //')
+if [[ "$REPORT_PATH_VALUE" == "$RUN_DIR_VALUE/explore-report.md" ]] \
+        && [[ "$FINAL_IDEA_PATH_VALUE" == "$RUN_DIR_VALUE/final-idea.md" ]]; then
+    pass "validation emits canonical explore-report.md and final-idea.md paths"
+else
+    fail "validation emits canonical artifact paths" \
+        "$RUN_DIR_VALUE/explore-report.md and $RUN_DIR_VALUE/final-idea.md" \
+        "REPORT_PATH=$REPORT_PATH_VALUE FINAL_IDEA_PATH=$FINAL_IDEA_PATH_VALUE"
 fi
 
 echo ""

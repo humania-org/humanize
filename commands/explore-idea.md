@@ -1,5 +1,5 @@
 ---
-description: "Launch bounded parallel prototype workers for idea directions and synthesize a two-tier report"
+description: "Launch bounded parallel prototype workers for idea directions and synthesize canonical explore artifacts"
 argument-hint: "<draft-or-directions-json> [--directions ids] [--concurrency N] [--max-worker-iterations N] [--worker-timeout-min N] [--codex-timeout-min N]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-explore-idea-io.sh:*)"
@@ -25,11 +25,13 @@ Read and execute below with ultrathink.
 - MUST NOT run workers until the user explicitly confirms the dispatch.
 - MUST NOT push any branch to any remote at any point.
 - MUST write `manifest.json` to the run directory BEFORE dispatching any worker.
+- MUST write canonical artifacts to `explore-report.md` and `final-idea.md`; do not create any legacy compatibility alias.
 - MUST NOT invoke nested Skills or slash commands inside worker prompts.
 - MUST NOT use `--effort max` (not supported by `ask-codex.sh`).
 - Worker branches follow the format `explore/<RUN_ID>/<dir_slug>` exactly, and MUST be created by running `git checkout -b` from the current HEAD after asserting `HEAD == <BASE_COMMIT>`; workers MUST NOT run `git checkout <BASE_BRANCH>` (that branch is already checked out in the coordinator worktree, and Git forbids two worktrees from checking out the same branch simultaneously); a HEAD mismatch is a fatal worker error.
 - Workers MUST run only targeted tests for the files they touched, not the full test suite.
 - Worker Codex calls must be scoped to the worker worktree root via `CLAUDE_PROJECT_DIR="$PWD"`.
+- Worker Codex review calls must use the validation-provided `CODEX_REVIEW_MODEL_SPEC` exactly. The generated value is expected to be `gpt-5.5:xhigh`.
 - All worker results must be recorded in `worker-results.jsonl`; no result may be silently dropped.
 
 ## Worker Constraint Sync
@@ -57,9 +59,12 @@ Run:
 Handle exit codes:
 - `0`: Parse stdout to extract all `KEY: value` pairs:
   `DIRECTIONS_JSON_FILE`, `DRAFT_PATH`, `RUN_ID`, `RUN_DIR`, `BASE_BRANCH`, `BASE_COMMIT`,
+  `RUN_SLUG`, `CODEX_REVIEW_MODEL`, `CODEX_REVIEW_EFFORT`, `CODEX_REVIEW_MODEL_SPEC`,
+  `REPORT_PATH`, `FINAL_IDEA_PATH`, `FINAL_IDEA_TEMPLATE`,
   `SELECTED_DIRECTION_IDS`, `EFFECTIVE_CONCURRENCY`, `MAX_WORKER_ITERATIONS`,
   `WORKER_TIMEOUT_MIN`, `CODEX_TIMEOUT_MIN`, `WORKER_PROMPT_TEMPLATE`, `REPORT_TEMPLATE`.
   Continue to Phase 2.
+  Parse values by splitting each line on the first literal `": "` only. Values can contain additional colons, for example `CODEX_REVIEW_MODEL_SPEC: gpt-5.5:xhigh`.
 - `1`: Report "No input path provided" and stop.
 - `2`: Report "Input file not found" and stop.
 - `3`: Report "Companion .directions.json missing — regenerate the idea draft with `/humanize:gen-idea`" and stop.
@@ -67,7 +72,7 @@ Handle exit codes:
 - `5`: Report "Directions JSON failed schema validation" and stop.
 - `6`: Report the specific cap or argument error from stderr and stop.
 - `7`: Report "Main checkout has uncommitted tracked changes — commit or stash before exploring" and stop.
-- `8`: Report "Run directory collision — wait one second and retry" and stop.
+- `8`: Report "Run directory collision — retry to generate a fresh run id" and stop.
 - `9`: Report "Template file missing — plugin configuration error" and stop.
 
 Load the directions JSON:
@@ -87,8 +92,11 @@ Display a pre-dispatch summary to the user and require explicit confirmation bef
 Input:           <DIRECTIONS_JSON_FILE>
 Draft:           <DRAFT_PATH or "(direct .directions.json input)">
 Run directory:   <RUN_DIR>
+Run slug:        <RUN_SLUG>
 Base branch:     <BASE_BRANCH>
 Base commit:     <BASE_COMMIT>
+Explore report:  <REPORT_PATH>
+Final idea:      <FINAL_IDEA_PATH>
 
 Selected directions (<N> of <total>):
   [1] <direction_id>: <name>
@@ -99,6 +107,9 @@ Effective concurrency:   <EFFECTIVE_CONCURRENCY>
 Worker iteration cap:    <MAX_WORKER_ITERATIONS>
 Worker timeout:          <WORKER_TIMEOUT_MIN> min
 Codex timeout:           <CODEX_TIMEOUT_MIN> min
+Codex review model:      <CODEX_REVIEW_MODEL>
+Codex review effort:     <CODEX_REVIEW_EFFORT>
+Codex review model spec: <CODEX_REVIEW_MODEL_SPEC>
 
 WARNING: Workers will create local git worktrees, branches, and commits.
          Workers will run targeted tests and invoke Codex.
@@ -140,6 +151,7 @@ For each selected direction (in `SELECTED_DIRECTION_IDS`):
    - `<CONFIDENCE>` → `confidence`
    - `<MAX_WORKER_ITERATIONS>` → `MAX_WORKER_ITERATIONS`
    - `<CODEX_TIMEOUT_MIN>` → `CODEX_TIMEOUT_MIN`
+   - `<CODEX_REVIEW_MODEL_SPEC>` → `CODEX_REVIEW_MODEL_SPEC` from validation stdout (expected rendered value: `gpt-5.5:xhigh`)
    - `<BASE_BRANCH>` → `BASE_BRANCH`
    - `<BASE_COMMIT>` → `BASE_COMMIT`
    - `<ORIGINAL_IDEA>` → `original_idea` from the directions JSON
@@ -163,6 +175,10 @@ Write `<RUN_DIR>/manifest.json` with all coordinator fields:
   "max_worker_iterations": <MAX_WORKER_ITERATIONS>,
   "worker_timeout_min": <WORKER_TIMEOUT_MIN>,
   "codex_timeout_min": <CODEX_TIMEOUT_MIN>,
+  "codex_review_model": "<CODEX_REVIEW_MODEL>",
+  "codex_review_effort": "<CODEX_REVIEW_EFFORT>",
+  "report_path": "<REPORT_PATH>",
+  "final_idea_path": "<FINAL_IDEA_PATH>",
   "expected_worker_count": <selected count>,
   "runtime_spike_status": "not_validated",
   "workers": [
@@ -204,7 +220,7 @@ The agent must create a branch named `explore/<RUN_ID>/<dir_slug>` in its worktr
 
 If any agent fails to start, record a coordinator-generated failure row in `worker-results.jsonl`:
 ```json
-{"schema_version": 1, "run_id": "<RUN_ID>", "direction_id": "<id>", "dir_slug": "<slug>", "task_status": "failed", "error": "worker failed to start", "codex_final_verdict": "unavailable", "rounds_used": 0, "tests_passed": 0, "tests_failed": 0, "worktree_path": "", "branch_name": "explore/<RUN_ID>/<slug>", "commit_sha": "", "commit_count": 0, "dirty_state": "unknown", "commit_status": "none", "summary_markdown": "", "what_worked": [], "what_didnt": [], "bitlesson_action": "none"}
+{"schema_version": 1, "run_id": "<RUN_ID>", "direction_id": "<id>", "dir_slug": "<slug>", "task_status": "failed", "error": "worker failed to start", "expected_codex_review_model": "<CODEX_REVIEW_MODEL>", "expected_codex_review_effort": "<CODEX_REVIEW_EFFORT>", "codex_review_model": "", "codex_review_effort": "", "codex_review_metadata_path": "", "codex_final_verdict": "unavailable", "rounds_used": 0, "tests_passed": 0, "tests_failed": 0, "worktree_path": "", "branch_name": "explore/<RUN_ID>/<slug>", "commit_sha": "", "commit_count": 0, "dirty_state": "unknown", "commit_status": "none", "summary_markdown": "", "what_worked": [], "what_didnt": [], "bitlesson_action": "none"}
 ```
 
 ---
@@ -226,7 +242,7 @@ For each worker agent result:
 3. If parsing succeeds, append the JSON object as one line to `<RUN_DIR>/worker-results.jsonl`.
 4. If JSON parsing fails or sentinels are absent, append a coordinator-generated `no_summary` row:
    ```json
-   {"schema_version": 1, "run_id": "<RUN_ID>", "direction_id": "<id>", "dir_slug": "<slug>", "task_status": "no_summary", "error": "worker did not emit valid JSON result", "codex_final_verdict": "unavailable", "rounds_used": 0, "tests_passed": 0, "tests_failed": 0, "worktree_path": "", "branch_name": "explore/<RUN_ID>/<slug>", "commit_sha": "", "commit_count": 0, "dirty_state": "unknown", "commit_status": "none", "summary_markdown": "", "what_worked": [], "what_didnt": [], "bitlesson_action": "none"}
+   {"schema_version": 1, "run_id": "<RUN_ID>", "direction_id": "<id>", "dir_slug": "<slug>", "task_status": "no_summary", "error": "worker did not emit valid JSON result", "expected_codex_review_model": "<CODEX_REVIEW_MODEL>", "expected_codex_review_effort": "<CODEX_REVIEW_EFFORT>", "codex_review_model": "", "codex_review_effort": "", "codex_review_metadata_path": "", "codex_final_verdict": "unavailable", "rounds_used": 0, "tests_passed": 0, "tests_failed": 0, "worktree_path": "", "branch_name": "explore/<RUN_ID>/<slug>", "commit_sha": "", "commit_count": 0, "dirty_state": "unknown", "commit_status": "none", "summary_markdown": "", "what_worked": [], "what_didnt": [], "bitlesson_action": "none"}
    ```
 
 ### 5.2: Coordinator Error Handling
@@ -246,18 +262,23 @@ After collecting all results, update the `workers` array in `manifest.json` to s
 
 ---
 
-## Phase 6: Report Synthesis
+## Phase 6: Artifact Synthesis
 
-Generate `<RUN_DIR>/report.md` by reading `REPORT_TEMPLATE` and synthesizing results.
+Generate the canonical run artifacts:
+- `<REPORT_PATH>` (`explore-report.md`) by reading `REPORT_TEMPLATE` and synthesizing results.
+- `<FINAL_IDEA_PATH>` (`final-idea.md`) by reading `FINAL_IDEA_TEMPLATE` and producing a plan-ready synthesis for `/humanize:gen-plan`.
+
+Do not create any legacy compatibility alias for the report.
 
 ### 6.1: Load Results
 
 Read `<RUN_DIR>/worker-results.jsonl` (one JSON object per line).
 Read the full directions JSON from `DIRECTIONS_JSON_FILE`.
+Read `REPORT_TEMPLATE` and `FINAL_IDEA_TEMPLATE`.
 
 ### 6.2: Two-Tier Ranking
 
-The report contains two ranking sections:
+The explore report contains two ranking sections:
 
 **Tier 1: Best Product Direction**
 Rank all directions (even failed workers) on:
@@ -277,6 +298,28 @@ Rank only workers that produced a result on:
 - `dirty_state` (clean > dirty > unknown)
 - `rounds_used` (fewer is better, given same quality)
 
+Template substitutions for `REPORT_TEMPLATE` include:
+- `<RUN_ID>` → `RUN_ID`
+- `<BASE_BRANCH>` → `BASE_BRANCH`
+- `<BASE_COMMIT>` → `BASE_COMMIT`
+- `<CREATED_AT>` → the report creation timestamp
+- `<REPORT_PATH>` → `REPORT_PATH`
+- `<FINAL_IDEA_PATH>` → `FINAL_IDEA_PATH`
+- `<SUMMARY_PARAGRAPH>` → run summary
+- `<PRODUCT_DIRECTION_RANKING_ROWS>` → Tier 1 rows
+- `<PRODUCT_DIRECTION_RATIONALE>` → Tier 1 rationale
+- `<IMPLEMENTATION_RANKING_ROWS>` → Tier 2 rows
+- `<IMPLEMENTATION_RANKING_RATIONALE>` → Tier 2 rationale
+- `<WORKER_RESULT_ENTRIES>` → summarized worker results
+- `<WINNER_WORKTREE_PATH>` → winning worker worktree path
+- `<WINNER_BRANCH_NAME>` → winning worker branch name
+- `<WINNER_COMMIT_SHA>` → winning worker commit SHA
+- `<COMMIT_SHA>` → prototype commit SHA for cherry-pick examples
+- `<CLEANUP_COMMANDS>` → cleanup commands for non-adopted prototypes
+- `<ALL_WORKER_DETAILS>` → complete worker details
+- `<ALL_WORKTREE_REMOVE_COMMANDS>` → worktree removal commands
+- `<ALL_BRANCH_DELETE_COMMANDS>` → branch deletion commands
+
 ### 6.3: Adoption Paths
 
 For each worker result, include an adoption path section with:
@@ -285,7 +328,31 @@ For each worker result, include an adoption path section with:
 - Commit SHA: `commit_sha`
 - Suggested next command (e.g., `cd <worktree_path> && /humanize:start-rlcr-loop`)
 
-### 6.4: Cleanup Guidance
+### 6.4: Final Idea Synthesis
+
+Write `<FINAL_IDEA_PATH>` from `FINAL_IDEA_TEMPLATE`. It must be a plan-ready synthesis, not another audit report:
+- Select the final recommended direction, or explicitly state that no direction is ready if evidence does not support adoption.
+- Carry forward the winning direction's rationale, approach summary, objective evidence, constraints, and known risks.
+- Summarize explore outcomes from `worker-results.jsonl`: worker status, Codex verdict, tests, commits, dirty state, and relevant implementation findings.
+- Include cross-direction learnings that affect the final implementation plan.
+- Include the command `/humanize:gen-plan --input <FINAL_IDEA_PATH> --output <plan-path>`.
+
+Template substitutions for `FINAL_IDEA_TEMPLATE` include:
+- `<TITLE>` → a concise title for the synthesized final approach
+- `<RUN_ID>` → `RUN_ID`
+- `<DIRECTIONS_JSON_FILE>` → `DIRECTIONS_JSON_FILE`
+- `<REPORT_PATH>` → `REPORT_PATH`
+- `<FINAL_IDEA_PATH>` → `FINAL_IDEA_PATH`
+- `<FINAL_RECOMMENDATION>` → the chosen plan-ready recommendation
+- `<RATIONALE>` → synthesis rationale
+- `<APPROACH_SUMMARY>` → final approach summary
+- `<OBJECTIVE_EVIDENCE>` → evidence list
+- `<EXPLORE_OUTCOMES>` → worker-derived outcomes
+- `<CONSTRAINTS>` → implementation constraints
+- `<KNOWN_RISKS>` → risk list
+- `<CROSS_DIRECTION_LEARNINGS>` → learnings from non-adopted directions
+
+### 6.5: Cleanup Guidance
 
 Include shell commands to remove non-adopted worktrees and branches:
 ```bash
@@ -294,12 +361,14 @@ git worktree remove --force <worktree_path>
 git branch -D <branch_name>
 ```
 
-### 6.5: Failure Report
+### 6.6: Failure Artifacts
 
-If all workers failed (`.failed` exists), still write `report.md` with:
+If all workers failed (`.failed` exists), still write `<REPORT_PATH>` with:
 - Failure summary table (direction_id, dir_slug, task_status, error)
 - Cleanup guidance for any partially created worktrees
 - No ranking sections
+
+Also write `<FINAL_IDEA_PATH>` with a clear "no adoption recommended" final recommendation and the evidence needed before retrying or planning.
 
 ---
 
@@ -311,5 +380,5 @@ If all workers failed (`.failed` exists), still write `report.md` with:
 | User denies confirmation | Stop. No manifest, no worktrees. |
 | `manifest.json` write fails | Write `.failed`. Stop. |
 | One worker fails | Record failure row. Continue remaining workers. |
-| All workers fail | Write `.failed`. Update manifest. Write failure report. |
+| All workers fail | Write `.failed`. Update manifest. Write failure artifacts. |
 | Result collection error for one worker | Record error row. Continue. |

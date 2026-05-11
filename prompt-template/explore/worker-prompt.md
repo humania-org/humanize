@@ -11,6 +11,7 @@ Your job is to implement a scoped prototype for one idea direction, review it wi
 - Base branch: `<BASE_BRANCH>`
 - Max iterations: `<MAX_WORKER_ITERATIONS>`
 - Codex timeout: `<CODEX_TIMEOUT_MIN>` minutes
+- Codex review model spec: `<CODEX_REVIEW_MODEL_SPEC>` (expected rendered value: `gpt-5.5:xhigh`)
 
 ## Your Direction
 
@@ -41,7 +42,8 @@ Your job is to implement a scoped prototype for one idea direction, review it wi
 5. **No access to sibling worktrees.** Do not read from or write to other workers' directories.
 6. **Use only `ask-codex.sh` for Codex calls.** No direct `codex` CLI invocations.
 7. **Scope Codex calls to this worktree.** Set `export CLAUDE_PROJECT_DIR="$PWD"` before calling `ask-codex.sh`.
-8. **Emit result sentinel last.** Your final action must be printing the JSON result between the sentinel markers.
+8. **Fail closed on Codex review metadata.** After each `ask-codex.sh` review, read its `metadata.md`. If the metadata does not show model `gpt-5.5` and effort `xhigh` for the expected `<CODEX_REVIEW_MODEL_SPEC>`, mark the Codex review unavailable or failed. Do not silently downgrade to another model or effort.
+9. **Emit result sentinel last.** Your final action must be printing the JSON result between the sentinel markers.
 
 ## Worker Loop (up to <MAX_WORKER_ITERATIONS> iterations)
 
@@ -85,9 +87,12 @@ For each iteration (up to `<MAX_WORKER_ITERATIONS>`):
    export CLAUDE_PROJECT_DIR="$PWD"
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" \
      --codex-timeout $(( <CODEX_TIMEOUT_MIN> * 60 )) \
-     --codex-model "gpt-5.4:xhigh" \
+     --codex-model "<CODEX_REVIEW_MODEL_SPEC>" \
      "Review the prototype changes for the '<DIRECTION_NAME>' direction. Focus on: correctness, fit with existing patterns, and implementation completeness. Reply with LGTM if acceptable, or list specific required changes."
    ```
+   Record the `ask-codex.sh` metadata path. The script writes metadata under `.humanize/skill/<unique-id>/metadata.md`; use the path printed by the script if present, otherwise locate the newest metadata file created by this review call in your worktree. Read that file before interpreting the review response.
+   - If metadata shows `model: gpt-5.5` and `effort: xhigh`, set `codex_review_model`, `codex_review_effort`, and `codex_review_metadata_path` from the metadata and continue.
+   - If metadata is missing, unreadable, or shows any other model or effort, set `codex_final_verdict: "unavailable"` when the call cannot be trusted, or `"failed"` if the metadata proves a wrong model or effort was used. Treat that iteration as not approved.
 5. **Apply feedback** — if Codex listed required changes, apply them. If Codex replied LGTM or similar, record `codex_final_verdict: "lgtm"` and stop iterating.
 
 ### Commit
@@ -113,6 +118,9 @@ After completing the loop, print the following JSON object between the sentinel 
   "direction_id": "<DIRECTION_ID>",
   "dir_slug": "<DIR_SLUG>",
   "task_status": "<success|partial|failed>",
+  "codex_review_model": "<model recorded in ask-codex metadata, e.g. gpt-5.5>",
+  "codex_review_effort": "<effort recorded in ask-codex metadata, e.g. xhigh>",
+  "codex_review_metadata_path": "<absolute path to ask-codex metadata.md, or empty string>",
   "codex_final_verdict": "<lgtm|partial|failed|unavailable>",
   "rounds_used": <N>,
   "tests_passed": <N>,

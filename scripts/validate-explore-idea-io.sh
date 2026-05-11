@@ -31,8 +31,11 @@
 # On success, emits key-value pairs on stdout followed by VALIDATION_SUCCESS:
 #   DIRECTIONS_JSON_FILE: <abs-path>
 #   DRAFT_PATH: <abs-path or empty>
-#   RUN_ID: YYYY-MM-DD_HH-MM-SS
+#   RUN_ID: <idea-slug>-<YYYYMMDD-HHMMSSZ>-<6hex>
+#   RUN_SLUG: <idea-slug>
 #   RUN_DIR: <abs-path>
+#   REPORT_PATH: <abs-path>
+#   FINAL_IDEA_PATH: <abs-path>
 #   BASE_BRANCH: <branch>
 #   BASE_COMMIT: <sha>
 #   SELECTED_DIRECTION_IDS: <space-separated list>
@@ -40,8 +43,12 @@
 #   MAX_WORKER_ITERATIONS: <N>
 #   WORKER_TIMEOUT_MIN: <N>
 #   CODEX_TIMEOUT_MIN: <N>
+#   CODEX_REVIEW_MODEL: gpt-5.5
+#   CODEX_REVIEW_EFFORT: xhigh
+#   CODEX_REVIEW_MODEL_SPEC: gpt-5.5:xhigh
 #   WORKER_PROMPT_TEMPLATE: <abs-path>
 #   REPORT_TEMPLATE: <abs-path>
+#   FINAL_IDEA_TEMPLATE: <abs-path>
 #   VALIDATION_SUCCESS
 
 set -euo pipefail
@@ -90,6 +97,48 @@ CONCURRENCY="$DEFAULT_CONCURRENCY"
 MAX_WORKER_ITERATIONS="$DEFAULT_MAX_WORKER_ITERATIONS"
 WORKER_TIMEOUT_MIN="$DEFAULT_WORKER_TIMEOUT_MIN"
 CODEX_TIMEOUT_MIN="$DEFAULT_CODEX_TIMEOUT_MIN"
+
+slugify() {
+    local raw="$1"
+    local slug
+
+    slug="$(
+        printf '%s' "$raw" \
+            | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+            | LC_ALL=C tr -c 'a-z0-9' '-' \
+            | sed -e 's/-\{1,\}/-/g' -e 's/^-//' -e 's/-$//'
+    )"
+    slug="$(printf '%s' "$slug" | cut -c1-48 | sed -e 's/^-//' -e 's/-$//')"
+
+    if [[ -z "$slug" ]]; then
+        echo "idea"
+    else
+        echo "$slug"
+    fi
+}
+
+random_hex6() {
+    local nonce=""
+
+    if [[ -n "${HUMANIZE_EXPLORE_RUN_NONCE:-}" ]]; then
+        nonce="$(
+            printf '%s' "$HUMANIZE_EXPLORE_RUN_NONCE" \
+                | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+                | LC_ALL=C tr -cd 'a-f0-9' \
+                | cut -c1-6
+        )"
+    fi
+
+    if [[ ${#nonce} -ne 6 && -r /dev/urandom ]] && command -v od >/dev/null 2>&1; then
+        nonce="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n' | cut -c1-6)"
+    fi
+
+    if [[ ${#nonce} -ne 6 ]]; then
+        nonce="$(printf '%s' "$$:$RANDOM:$(date -u +%s)" | cksum | awk '{ printf "%06x", $1 % 16777216 }')"
+    fi
+
+    echo "$nonce"
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -199,6 +248,7 @@ fi
 SCHEMA_VALIDATOR="$PLUGIN_ROOT/scripts/validate-directions-json.sh"
 WORKER_PROMPT_TEMPLATE="$PLUGIN_ROOT/prompt-template/explore/worker-prompt.md"
 REPORT_TEMPLATE="$PLUGIN_ROOT/prompt-template/explore/report-template.md"
+FINAL_IDEA_TEMPLATE="$PLUGIN_ROOT/prompt-template/explore/final-idea-template.md"
 
 if [[ ! -f "$WORKER_PROMPT_TEMPLATE" ]]; then
     echo "ERROR: Worker prompt template missing: $WORKER_PROMPT_TEMPLATE" >&2
@@ -327,18 +377,53 @@ if [[ -n "$DIRTY_FILES" ]]; then
     exit 7
 fi
 
+if [[ ! -f "$FINAL_IDEA_TEMPLATE" ]]; then
+    echo "ERROR: Final idea template missing: $FINAL_IDEA_TEMPLATE" >&2
+    exit 9
+fi
+
 # ========================================
 # Generate RUN_ID and check collision
 # ========================================
 
-RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)"
+RUN_SLUG_SOURCE=""
+if [[ -n "$DRAFT_PATH" ]]; then
+    RUN_SLUG_SOURCE="$(basename "$DRAFT_PATH" .md)"
+fi
+if [[ -z "$RUN_SLUG_SOURCE" ]]; then
+    METADATA_DRAFT_PATH="$(jq -r 'if (.metadata.draft_path? | type) == "string" then .metadata.draft_path else "" end' "$DIRECTIONS_JSON_FILE")"
+    if [[ -n "$METADATA_DRAFT_PATH" ]]; then
+        RUN_SLUG_SOURCE="$(basename "$METADATA_DRAFT_PATH" .md)"
+    fi
+fi
+if [[ -z "$RUN_SLUG_SOURCE" ]]; then
+    DIRECTIONS_BASENAME="$(basename "$DIRECTIONS_JSON_FILE")"
+    RUN_SLUG_SOURCE="${DIRECTIONS_BASENAME%.directions.json}"
+fi
+if [[ -z "$RUN_SLUG_SOURCE" ]]; then
+    RUN_SLUG_SOURCE="$(jq -r 'if (.title | type) == "string" and (.title | length) > 0 then .title else "" end' "$DIRECTIONS_JSON_FILE")"
+fi
+if [[ -z "$RUN_SLUG_SOURCE" ]]; then
+    RUN_SLUG_SOURCE="idea"
+fi
+
+RUN_SLUG="$(slugify "$RUN_SLUG_SOURCE")"
+RUN_TIMESTAMP="${HUMANIZE_EXPLORE_RUN_TIMESTAMP:-$(date -u +%Y%m%d-%H%M%SZ)}"
+RUN_NONCE="$(random_hex6)"
+RUN_ID="$RUN_SLUG-$RUN_TIMESTAMP-$RUN_NONCE"
 RUN_DIR="$PROJECT_ROOT/.humanize/explore/$RUN_ID"
+REPORT_PATH="$RUN_DIR/explore-report.md"
+FINAL_IDEA_PATH="$RUN_DIR/final-idea.md"
 
 if [[ -e "$RUN_DIR" ]]; then
-    echo "ERROR: Run directory already exists (same-second collision): $RUN_DIR" >&2
-    echo "  Please wait one second and retry." >&2
+    echo "ERROR: Run directory already exists (run id collision): $RUN_DIR" >&2
+    echo "  Please retry to generate a fresh random suffix." >&2
     exit 8
 fi
+
+CODEX_REVIEW_MODEL="gpt-5.5"
+CODEX_REVIEW_EFFORT="xhigh"
+CODEX_REVIEW_MODEL_SPEC="$CODEX_REVIEW_MODEL:$CODEX_REVIEW_EFFORT"
 
 # ========================================
 # Base branch and commit
@@ -362,7 +447,10 @@ BASE_COMMIT="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo "unknow
 echo "DIRECTIONS_JSON_FILE: $DIRECTIONS_JSON_FILE"
 echo "DRAFT_PATH: $DRAFT_PATH"
 echo "RUN_ID: $RUN_ID"
+echo "RUN_SLUG: $RUN_SLUG"
 echo "RUN_DIR: $RUN_DIR"
+echo "REPORT_PATH: $REPORT_PATH"
+echo "FINAL_IDEA_PATH: $FINAL_IDEA_PATH"
 echo "BASE_BRANCH: $BASE_BRANCH"
 echo "BASE_COMMIT: $BASE_COMMIT"
 echo "SELECTED_DIRECTION_IDS: $SELECTED_IDS"
@@ -370,7 +458,11 @@ echo "EFFECTIVE_CONCURRENCY: $EFFECTIVE_CONCURRENCY"
 echo "MAX_WORKER_ITERATIONS: $MAX_WORKER_ITERATIONS"
 echo "WORKER_TIMEOUT_MIN: $WORKER_TIMEOUT_MIN"
 echo "CODEX_TIMEOUT_MIN: $CODEX_TIMEOUT_MIN"
+echo "CODEX_REVIEW_MODEL: $CODEX_REVIEW_MODEL"
+echo "CODEX_REVIEW_EFFORT: $CODEX_REVIEW_EFFORT"
+echo "CODEX_REVIEW_MODEL_SPEC: $CODEX_REVIEW_MODEL_SPEC"
 echo "WORKER_PROMPT_TEMPLATE: $WORKER_PROMPT_TEMPLATE"
 echo "REPORT_TEMPLATE: $REPORT_TEMPLATE"
+echo "FINAL_IDEA_TEMPLATE: $FINAL_IDEA_TEMPLATE"
 echo "VALIDATION_SUCCESS"
 exit 0

@@ -1,9 +1,11 @@
-# explore-idea Run Report
+# explore-idea Explore Report
 
 **Run ID:** <RUN_ID>
 **Base Branch:** <BASE_BRANCH>
 **Base Commit:** <BASE_COMMIT>
 **Created At:** <CREATED_AT>
+**Explore Report:** <REPORT_PATH>
+**Final Idea:** <FINAL_IDEA_PATH>
 
 ---
 
@@ -64,12 +66,12 @@ cd <WINNER_WORKTREE_PATH>
 /humanize:start-rlcr-loop --skip-impl
 ```
 
-### Restart From Plan
+### Generate Plan From Final Idea
 
-Use the winning direction's approach summary as input to `/humanize:gen-plan`:
+Use the plan-ready final idea synthesis as input to `/humanize:gen-plan`:
 
 ```bash
-/humanize:gen-plan --input <DRAFT_PATH> --output <plan-path>
+/humanize:gen-plan --input <FINAL_IDEA_PATH> --output <plan-path>
 ```
 
 ### Cherry-Pick Prototype
@@ -106,7 +108,8 @@ All explore run artifacts are stored in:
   manifest.json           — coordinator state and per-worker metadata
   dispatch-prompts/       — exact prompts sent to each worker
   worker-results.jsonl    — machine-readable result rows
-  report.md               — this report
+  explore-report.md       — audit, ranking, adoption, and cleanup report
+  final-idea.md           — plan-ready synthesis artifact for gen-plan
 ```
 
 To remove all local explore artifacts for this run:

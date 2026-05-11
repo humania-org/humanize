@@ -51,11 +51,11 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    ```bash
    /humanize:explore-idea .humanize/ideas/<slug>-<timestamp>.directions.json
    ```
-   Dispatches bounded parallel prototype workers (one per direction), each running in an isolated git worktree. After all workers complete, synthesizes a two-tier report ranking the best product direction and the most implementation-ready prototype.
+   Dispatches bounded parallel prototype workers (one per direction), each running in an isolated git worktree. After all workers complete, writes `.humanize/explore/<run-id>/explore-report.md` for audit/ranking details and `.humanize/explore/<run-id>/final-idea.md` as the plan-ready synthesis.
 
-3. **Generate a plan** from your draft:
+3. **Generate a plan** from your draft or explored final idea:
    ```bash
-   /humanize:gen-plan --input draft.md --output docs/plan.md
+   /humanize:gen-plan --input .humanize/explore/<run-id>/final-idea.md --output docs/plan.md
    ```
 
 4. **Refine an annotated plan** before implementation when reviewers add comments (`CMT:` ... `ENDCMT`, `<cmt>` ... `</cmt>`, or `<comment>` ... `</comment>`):
