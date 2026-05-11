@@ -70,7 +70,7 @@ render_template() {
     # Scans for {{VAR}} patterns and replaces them with values from environment
     # Replaced content goes directly to output without re-scanning
     local awk_exit=0
-    content=$(env "${env_vars[@]}" awk '
+    content=$(env ${env_vars[@]+"${env_vars[@]}"} awk '
     BEGIN {
         # Build lookup table from environment variables with TMPL_VAR_ prefix
         for (name in ENVIRON) {
