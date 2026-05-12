@@ -43,15 +43,15 @@ set -euo pipefail
 
 if [[ "${1:-}" == "features" && "${2:-}" == "list" ]]; then
     cat <<'LIST'
-codex_hooks                      under development  false
+hooks                            stable             false
 LIST
     exit 0
 fi
 
-if [[ "${1:-}" == "features" && "${2:-}" == "enable" && "${3:-}" == "codex_hooks" ]]; then
+if [[ "${1:-}" == "features" && "${2:-}" == "enable" && "${3:-}" == "hooks" ]]; then
     printf 'CODEX_HOME=%s\n' "${CODEX_HOME:-}" >> "${TEST_CODEX_FEATURE_LOG:?}"
     mkdir -p "${CODEX_HOME:?}"
-    : > "${CODEX_HOME}/.codex-hooks-enabled"
+    : > "${CODEX_HOME}/.hooks-enabled"
     exit 0
 fi
 
@@ -133,10 +133,10 @@ else
     fail "Codex install writes hooks.json" "$HOOKS_FILE exists" "missing"
 fi
 
-if [[ -f "$CODEX_HOME_DIR/.codex-hooks-enabled" ]]; then
-    pass "Codex install enables codex_hooks feature"
+if [[ -f "$CODEX_HOME_DIR/.hooks-enabled" ]]; then
+    pass "Codex install enables hooks feature"
 else
-    fail "Codex install enables codex_hooks feature" ".codex-hooks-enabled marker exists" "missing"
+    fail "Codex install enables hooks feature" ".hooks-enabled marker exists" "missing"
 fi
 
 if [[ -f "$HUMANIZE_USER_CONFIG" ]]; then
@@ -287,6 +287,83 @@ else
     fail "Codex feature enable runs on each Codex install/update" "2 log entries" "$(cat "$FEATURE_LOG")"
 fi
 
+LEGACY_CONFIG_HOME="$TEST_DIR/codex-home-legacy-config"
+mkdir -p "$LEGACY_CONFIG_HOME"
+cat > "$LEGACY_CONFIG_HOME/config.toml" <<'EOF'
+[features]
+codex_hooks = true
+EOF
+
+set +e
+PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$FEATURE_LOG" \
+    "$INSTALL_SCRIPT" \
+    --target codex \
+    --codex-config-dir "$LEGACY_CONFIG_HOME" \
+    --codex-skills-dir "$LEGACY_CONFIG_HOME/skills" \
+    > "$TEST_DIR/install-legacy-config.log" 2>&1
+LEGACY_CONFIG_EXIT=$?
+set -e
+
+if [[ "$LEGACY_CONFIG_EXIT" -ne 0 ]]; then
+    pass "Codex install rejects legacy codex_hooks config"
+else
+    fail "Codex install rejects legacy codex_hooks config" "non-zero exit" "exit 0"
+fi
+
+if grep -q "legacy feature key 'codex_hooks'" "$TEST_DIR/install-legacy-config.log" \
+    && grep -q "hooks = true" "$TEST_DIR/install-legacy-config.log"; then
+    pass "Legacy codex_hooks config failure explains hooks rename"
+else
+    fail "Legacy codex_hooks config failure explains hooks rename" \
+        "error mentioning legacy codex_hooks and hooks = true" \
+        "$(cat "$TEST_DIR/install-legacy-config.log")"
+fi
+
+LEGACY_ONLY_BIN="$TEST_DIR/bin-legacy-only"
+LEGACY_ONLY_HOME="$TEST_DIR/codex-home-legacy-only"
+mkdir -p "$LEGACY_ONLY_BIN" "$LEGACY_ONLY_HOME"
+
+cat > "$LEGACY_ONLY_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "features" && "${2:-}" == "list" ]]; then
+    cat <<'LIST'
+codex_hooks                      under development  false
+LIST
+    exit 0
+fi
+
+echo "unexpected fake codex invocation: $*" >&2
+exit 1
+EOF
+chmod +x "$LEGACY_ONLY_BIN/codex"
+
+set +e
+PATH="$LEGACY_ONLY_BIN:$PATH" \
+    "$INSTALL_SCRIPT" \
+    --target codex \
+    --codex-config-dir "$LEGACY_ONLY_HOME" \
+    --codex-skills-dir "$LEGACY_ONLY_HOME/skills" \
+    > "$TEST_DIR/install-legacy-only.log" 2>&1
+LEGACY_ONLY_EXIT=$?
+set -e
+
+if [[ "$LEGACY_ONLY_EXIT" -ne 0 ]]; then
+    pass "Codex install rejects Codex builds exposing only legacy codex_hooks"
+else
+    fail "Codex install rejects Codex builds exposing only legacy codex_hooks" "non-zero exit" "exit 0"
+fi
+
+if grep -q "legacy 'codex_hooks' feature" "$TEST_DIR/install-legacy-only.log" \
+    && grep -q "Upgrade Codex" "$TEST_DIR/install-legacy-only.log"; then
+    pass "Legacy-only feature failure asks user to upgrade Codex"
+else
+    fail "Legacy-only feature failure asks user to upgrade Codex" \
+        "error mentioning legacy codex_hooks and Upgrade Codex" \
+        "$(cat "$TEST_DIR/install-legacy-only.log")"
+fi
+
 UNSUPPORTED_BIN="$TEST_DIR/bin-unsupported"
 UNSUPPORTED_HOME="$TEST_DIR/codex-home-unsupported"
 mkdir -p "$UNSUPPORTED_BIN" "$UNSUPPORTED_HOME"
@@ -323,11 +400,12 @@ else
     fail "Codex install rejects builds without native hooks support" "non-zero exit" "exit 0"
 fi
 
-if grep -q "codex_hooks feature" "$TEST_DIR/install-unsupported.log"; then
-    pass "Unsupported Codex failure explains missing codex_hooks feature"
+if grep -q "native 'hooks' feature" "$TEST_DIR/install-unsupported.log" \
+    && grep -q "Upgrade Codex" "$TEST_DIR/install-unsupported.log"; then
+    pass "Unsupported Codex failure explains missing hooks feature"
 else
-    fail "Unsupported Codex failure explains missing codex_hooks feature" \
-        "error mentioning codex_hooks feature" \
+    fail "Unsupported Codex failure explains missing hooks feature" \
+        "error mentioning native hooks feature and Upgrade Codex" \
         "$(cat "$TEST_DIR/install-unsupported.log")"
 fi
 

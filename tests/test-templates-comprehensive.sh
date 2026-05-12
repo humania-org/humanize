@@ -329,7 +329,7 @@ echo ""
 echo "Testing backslashes in values..."
 result=$(render_template "Code: {{CODE}}" "CODE=\$HOME\\npath")
 # Note: backslashes may be interpreted by awk
-if echo "$result" | grep -q "Code:"; then
+if grep -q "Code:" <<<"$result"; then
     pass "Backslashes in values (no crash)"
 else
     fail "Backslashes in values" "Code: ..." "$result"
@@ -338,7 +338,7 @@ fi
 echo ""
 echo "Testing quotes in values..."
 result=$(render_template "Quote: {{MSG}}" "MSG=He said \"hello\" and 'bye'")
-if echo "$result" | grep -q "Quote:"; then
+if grep -q "Quote:" <<<"$result"; then
     pass "Quotes in values"
 else
     fail "Quotes in values" "Quote: ..." "$result"
@@ -350,7 +350,7 @@ result=$(render_template "Message: {{MSG}}" "MSG=Hello World")
 if [[ "$result" == "Message: Hello World" ]]; then
     # CJK in variable value
     result2=$(render_template "CJK: {{CJK}}" "CJK=Chinese Text Here")
-    if echo "$result2" | grep -q "CJK:"; then
+    if grep -q "CJK:" <<<"$result2"; then
         pass "CJK characters handling"
     else
         fail "CJK characters handling" "CJK: ..." "$result2"
@@ -373,7 +373,7 @@ fi
 echo ""
 echo "Testing markdown formatting in values..."
 result=$(render_template "Formatted: {{TEXT}}" "TEXT=**bold** and _italic_ and \`code\`")
-if echo "$result" | grep -q "Formatted:"; then
+if grep -q "Formatted:" <<<"$result"; then
     pass "Markdown formatting in values"
 else
     fail "Markdown formatting in values" "Formatted: ..." "$result"
@@ -395,7 +395,7 @@ multiline_value="Line 1
 Line 2
 Line 3"
 result=$(render_template "Content: {{CONTENT}}" "CONTENT=$multiline_value")
-if echo "$result" | grep -q "Content:"; then
+if grep -q "Content:" <<<"$result"; then
     pass "Multiline values (no crash)"
 else
     fail "Multiline values" "Content: ..." "$result"
@@ -446,7 +446,7 @@ echo ""
 echo "Testing load_and_render_safe with missing template..."
 fallback="Fallback: {{VAR}}"
 result=$(load_and_render_safe "$TEMPLATE_DIR" "non-existing-file.md" "$fallback" "VAR=test")
-if echo "$result" | grep -q "Fallback: test"; then
+if grep -q "Fallback: test" <<<"$result"; then
     pass "Fallback used for missing template"
 else
     fail "Fallback used for missing template" "Fallback: test" "$result"
@@ -456,7 +456,7 @@ echo ""
 echo "Testing load_and_render_safe with existing template..."
 fallback="This should NOT appear"
 result=$(load_and_render_safe "$TEMPLATE_DIR" "block/git-push.md" "$fallback")
-if echo "$result" | grep -q "Git Push Blocked" && ! echo "$result" | grep -q "should NOT appear"; then
+if grep -q "Git Push Blocked" <<<"$result" && ! grep -q "should NOT appear" <<<"$result"; then
     pass "Real template used when available"
 else
     fail "Real template used when available" "Git Push Blocked" "$result"
@@ -503,10 +503,10 @@ result=$(load_and_render "$TEMPLATE_DIR" "block/wrong-round-number.md" \
     "CURRENT_ROUND=5" \
     "CORRECT_PATH=/tmp/round-5-summary.md")
 
-if echo "$result" | grep -q "Wrong Round Number" && \
-   echo "$result" | grep -q "round-3-summary" && \
-   echo "$result" | grep -q "current round is \*\*5\*\*" && \
-   echo "$result" | grep -q "/tmp/round-5-summary.md"; then
+if grep -q "Wrong Round Number" <<<"$result" && \
+   grep -q "round-3-summary" <<<"$result" && \
+   grep -q "current round is \*\*5\*\*" <<<"$result" && \
+   grep -q "/tmp/round-5-summary.md" <<<"$result"; then
     pass "Real template rendering with all variables"
 else
     fail "Real template rendering with all variables"
@@ -519,9 +519,9 @@ result=$(load_and_render "$TEMPLATE_DIR" "block/unpushed-commits.md" \
     "AHEAD_COUNT=3" \
     "CURRENT_BRANCH=feature-branch")
 
-if echo "$result" | grep -q "Unpushed Commits" && \
-   echo "$result" | grep -q "3 unpushed" && \
-   echo "$result" | grep -q "feature-branch"; then
+if grep -q "Unpushed Commits" <<<"$result" && \
+   grep -q "3 unpushed" <<<"$result" && \
+   grep -q "feature-branch" <<<"$result"; then
     pass "Real template: unpushed-commits.md"
 else
     fail "Real template: unpushed-commits.md"
@@ -532,8 +532,8 @@ echo "Testing real template: codex/goal-tracker-update-section.md..."
 result=$(load_and_render "$TEMPLATE_DIR" "codex/goal-tracker-update-section.md" \
     "GOAL_TRACKER_FILE=.humanize/rlcr/20240101/goal-tracker.md")
 
-if echo "$result" | grep -q "Goal Tracker Update Requests" && \
-   echo "$result" | grep -q ".humanize/rlcr/20240101/goal-tracker.md"; then
+if grep -q "Goal Tracker Update Requests" <<<"$result" && \
+   grep -q ".humanize/rlcr/20240101/goal-tracker.md" <<<"$result"; then
     pass "Real template: goal-tracker-update-section.md"
 else
     fail "Real template: goal-tracker-update-section.md"

@@ -193,7 +193,7 @@ run_selector() {
         local codex_exec_args=()
         # Probe whether the installed Codex CLI supports --disable flag
         if codex --help 2>&1 | grep -q -- '--disable'; then
-            codex_exec_args+=("--disable" "codex_hooks")
+            codex_exec_args+=("--disable" "hooks")
         fi
         # Probe for --skip-git-repo-check and --ephemeral support
         if codex exec --help 2>&1 | grep -q -- '--skip-git-repo-check'; then

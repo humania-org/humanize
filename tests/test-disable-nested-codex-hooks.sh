@@ -77,7 +77,7 @@ if [[ "\$1" == "--help" ]]; then
 Usage: codex [OPTIONS] <COMMAND>
 
 Options:
-  --disable <HOOK>         Disable a specific Codex hook (e.g. codex_hooks)
+  --disable <HOOK>         Disable a specific Codex hook (e.g. hooks)
   --skip-git-repo-check    Skip git repo validation
 HELP
     exit 0
@@ -188,22 +188,22 @@ REPO_IMPL="$TEST_DIR/repo-impl"
 setup_repo "$REPO_IMPL"
 run_loop_hook "$REPO_IMPL" "$TEST_DIR/impl.args" "false"
 
-if grep -q -- 'exec --disable codex_hooks' "$TEST_DIR/impl.args"; then
-    pass "implementation-phase stop hook disables codex_hooks for codex exec"
+if grep -q -- 'exec --disable hooks' "$TEST_DIR/impl.args"; then
+    pass "implementation-phase stop hook disables hooks for codex exec"
 else
-    fail "implementation-phase stop hook disables codex_hooks for codex exec" \
-        "exec --disable codex_hooks" "$(cat "$TEST_DIR/impl.args" 2>/dev/null || echo missing)"
+    fail "implementation-phase stop hook disables hooks for codex exec" \
+        "exec --disable hooks" "$(cat "$TEST_DIR/impl.args" 2>/dev/null || echo missing)"
 fi
 
 REPO_REVIEW="$TEST_DIR/repo-review"
 setup_repo "$REPO_REVIEW"
 run_loop_hook "$REPO_REVIEW" "$TEST_DIR/review.args" "true"
 
-if grep -q -- 'review --disable codex_hooks' "$TEST_DIR/review.args"; then
-    pass "review-phase stop hook disables codex_hooks for codex review"
+if grep -q -- 'review --disable hooks' "$TEST_DIR/review.args"; then
+    pass "review-phase stop hook disables hooks for codex review"
 else
-    fail "review-phase stop hook disables codex_hooks for codex review" \
-        "review --disable codex_hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
+    fail "review-phase stop hook disables hooks for codex review" \
+        "review --disable hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
 fi
 
 echo ""

@@ -8,7 +8,8 @@ source "$SCRIPT_DIR/test-helpers.sh"
 BITLESSON_SELECT="$PROJECT_ROOT/scripts/bitlesson-select.sh"
 # Keep PATH isolation strict in missing-binary tests to avoid picking up
 # real codex/claude from user-local directories (e.g. ~/.nvm, ~/.local/bin).
-SAFE_BASE_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+# On NixOS, the shell toolchain itself lives under /run/current-system/sw/bin.
+SAFE_BASE_PATH="/run/current-system/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 echo "=========================================="
 echo "Bitlesson Select Routing Tests"
@@ -481,7 +482,7 @@ captured_args="$(cat "$CAPTURE_ARGS")"
 if [[ $exit_code -eq 0 ]] \
     && echo "$stdout_out" | grep -q "BL-20260315-tracker-drift" \
     && echo "$captured_args" | grep -q -- '--disable' \
-    && echo "$captured_args" | grep -q -- 'codex_hooks' \
+    && echo "$captured_args" | grep -q -- 'hooks' \
     && echo "$captured_args" | grep -q -- '--skip-git-repo-check' \
     && echo "$captured_args" | grep -q -- '--ephemeral' \
     && echo "$captured_args" | grep -q -- 'read-only' \

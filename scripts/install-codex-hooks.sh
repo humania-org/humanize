@@ -12,6 +12,7 @@ RUNTIME_ROOT="$CODEX_CONFIG_DIR/skills/humanize"
 DRY_RUN="false"
 ENABLE_FEATURE="true"
 HOOKS_TEMPLATE="$REPO_ROOT/config/codex-hooks.json"
+HOOK_FEATURE_ENABLED=""
 
 usage() {
     cat <<'EOF'
@@ -23,7 +24,7 @@ Usage:
 Options:
   --codex-config-dir PATH  Codex config dir (default: ${CODEX_HOME:-~/.codex})
   --runtime-root PATH      Installed Humanize runtime root (default: <codex-config-dir>/skills/humanize)
-  --skip-enable-feature    Do not run `codex features enable codex_hooks`
+  --skip-enable-feature    Do not run `codex features enable hooks`
   --dry-run                Print actions without writing
   -h, --help               Show help
 EOF
@@ -72,14 +73,40 @@ done
 
 HOOKS_FILE="$CODEX_CONFIG_DIR/hooks.json"
 
-require_codex_hooks_support() {
+config_uses_legacy_codex_hooks() {
+    local config_file="$CODEX_CONFIG_DIR/config.toml"
+
+    [[ -f "$config_file" ]] || return 1
+
+    grep -Eq '^[[:space:]]*(features\.)?codex_hooks[[:space:]]*=' "$config_file"
+}
+
+require_native_hooks_support() {
     if ! command -v codex >/dev/null 2>&1; then
         die "Codex CLI with native hooks support is required. Install Codex 0.114.0+ first."
     fi
 
-    if ! codex features list 2>/dev/null | grep -qE '^codex_hooks[[:space:]]'; then
-        die "Installed Codex CLI does not expose the codex_hooks feature. Humanize Codex install requires Codex 0.114.0+."
+    if config_uses_legacy_codex_hooks; then
+        die "Codex config uses the legacy feature key 'codex_hooks'. Current Codex uses 'hooks'. Update $CODEX_CONFIG_DIR/config.toml to use 'hooks = true' under [features], or upgrade Codex if 'codex features list' does not show 'hooks'."
     fi
+
+    local features
+    local line
+    features="$(CODEX_HOME="$CODEX_CONFIG_DIR" codex features list 2>/dev/null)" || {
+        die "failed to inspect Codex features. Humanize Codex install requires the native 'hooks' feature."
+    }
+
+    line="$(printf '%s\n' "$features" | awk '$1 == "hooks" { print; exit }')"
+    if [[ -n "$line" ]]; then
+        HOOK_FEATURE_ENABLED="$(awk '{ print $NF }' <<<"$line")"
+        return 0
+    fi
+
+    if printf '%s\n' "$features" | awk '$1 == "codex_hooks" { found = 1 } END { exit found ? 0 : 1 }'; then
+        die "Installed Codex exposes only the legacy 'codex_hooks' feature. Humanize now requires the renamed 'hooks' feature. Upgrade Codex, then rerun the installer."
+    fi
+
+    die "Installed Codex CLI does not expose the native 'hooks' feature. Upgrade Codex, then rerun the installer."
 }
 
 merge_hooks_json() {
@@ -177,10 +204,15 @@ enable_feature() {
 
     [[ "$ENABLE_FEATURE" == "true" ]] || return 0
 
-    if CODEX_HOME="$config_dir" codex features enable codex_hooks >/dev/null 2>&1; then
-        log "enabled codex_hooks feature in $config_dir/config.toml"
+    if [[ "$HOOK_FEATURE_ENABLED" == "true" ]]; then
+        log "native hooks feature already enabled in $config_dir/config.toml"
+        return 0
+    fi
+
+    if CODEX_HOME="$config_dir" codex features enable hooks >/dev/null 2>&1; then
+        log "enabled hooks feature in $config_dir/config.toml"
     else
-        die "failed to enable codex_hooks feature automatically in $config_dir/config.toml"
+        die "failed to enable hooks feature automatically in $config_dir/config.toml"
     fi
 }
 
@@ -188,12 +220,12 @@ log "codex config dir: $CODEX_CONFIG_DIR"
 log "runtime root: $RUNTIME_ROOT"
 log "hooks file: $HOOKS_FILE"
 
-require_codex_hooks_support
+require_native_hooks_support
 
 if [[ "$DRY_RUN" == "true" ]]; then
     log "DRY-RUN merge $HOOKS_TEMPLATE -> $HOOKS_FILE"
     if [[ "$ENABLE_FEATURE" == "true" ]]; then
-        log "DRY-RUN enable codex_hooks feature in $CODEX_CONFIG_DIR/config.toml"
+        log "DRY-RUN enable hooks feature in $CODEX_CONFIG_DIR/config.toml"
     fi
     exit 0
 fi

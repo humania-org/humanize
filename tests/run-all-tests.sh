@@ -133,6 +133,12 @@ ZSH_TESTS=(
     "test-zsh-monitor-safety.sh"
 )
 
+# Signal-heavy runtime tests are more stable when they run after the
+# parallel batch finishes.
+SERIAL_TESTS=(
+    "test-monitor-runtime.sh"
+)
+
 # Temp directory for per-suite output files
 OUTPUT_DIR=$(mktemp -d)
 trap "rm -rf $OUTPUT_DIR" EXIT
@@ -161,6 +167,16 @@ needs_zsh() {
     return 1
 }
 
+needs_serial() {
+    local suite="$1"
+    for serial_test in "${SERIAL_TESTS[@]}"; do
+        if [[ "$suite" == "$serial_test" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Format milliseconds as human-readable duration
 format_ms() {
     local ms="$1"
@@ -169,84 +185,45 @@ format_ms() {
     echo "${s}.${frac}s"
 }
 
-# Launch all test suites in parallel
-declare -A PIDS          # suite -> PID
-declare -A SKIPPED       # suite -> reason
-ACTIVE_PIDS=()
-
-for suite in "${TEST_SUITES[@]}"; do
-    suite_path="$SCRIPT_DIR/$suite"
-    safe_name="$(echo "$suite" | tr '/' '_')"
-    out_file="$OUTPUT_DIR/${safe_name}.out"
-    exit_file="$OUTPUT_DIR/${safe_name}.exit"
-    time_file="$OUTPUT_DIR/${safe_name}.time"
-
-    if [[ ! -f "$suite_path" ]]; then
-        SKIPPED["$suite"]="not found"
-        continue
-    fi
+run_suite_capture() {
+    local suite="$1"
+    local out_file="$2"
+    local exit_file="$3"
+    local time_file="$4"
+    local suite_path="$SCRIPT_DIR/$suite"
 
     if needs_zsh "$suite"; then
-        if ! command -v zsh &>/dev/null; then
-            SKIPPED["$suite"]="zsh not available"
-            continue
-        fi
         (
             t_start=$(date +%s%3N)
             zsh "$suite_path" >"$out_file" 2>&1
             echo $? >"$exit_file"
             echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        ) &
+        )
     else
         (
             t_start=$(date +%s%3N)
             "$suite_path" >"$out_file" 2>&1
             echo $? >"$exit_file"
             echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        ) &
+        )
     fi
-    PIDS["$suite"]=$!
-    ACTIVE_PIDS+=("${PIDS[$suite]}")
+}
 
-    # Throttle background jobs
-    while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_JOBS" ]]; do
-        if supports_wait_n; then
-            wait -n 2>/dev/null || true
-            # Prune finished PIDs from ACTIVE_PIDS
-            still_running=()
-            for pid in "${ACTIVE_PIDS[@]}"; do
-                if kill -0 "$pid" 2>/dev/null; then
-                    still_running+=("$pid")
-                fi
-            done
-            ACTIVE_PIDS=("${still_running[@]}")
-        else
-            # Fallback: wait for the oldest PID (less efficient but portable in older bash)
-            wait "${ACTIVE_PIDS[0]}" 2>/dev/null || true
-            ACTIVE_PIDS=("${ACTIVE_PIDS[@]:1}")
-        fi
-    done
-done
-
-# Wait for all and collect results
-TOTAL_PASSED=0
-TOTAL_FAILED=0
-FAILED_SUITES=()
-# Sortable file: elapsed_ms<TAB>display_line
-SORT_FILE="$OUTPUT_DIR/sortable.txt"
-: > "$SORT_FILE"
-
-esc=$'\033'
-for suite in "${TEST_SUITES[@]}"; do
-    [[ -n "${SKIPPED[$suite]+x}" ]] && continue
-
-    pid="${PIDS[$suite]}"
-    wait "$pid" 2>/dev/null
-
-    safe_name="$(echo "$suite" | tr '/' '_')"
-    out_file="$OUTPUT_DIR/${safe_name}.out"
-    exit_file="$OUTPUT_DIR/${safe_name}.exit"
-    time_file="$OUTPUT_DIR/${safe_name}.time"
+collect_suite_result() {
+    local suite="$1"
+    local safe_name="$2"
+    local out_file="$3"
+    local exit_file="$4"
+    local time_file="$5"
+    local exit_code
+    local output
+    local elapsed_ms
+    local elapsed_display
+    local output_stripped
+    local passed
+    local failed
+    local line
+    local zsh_label
 
     exit_code=$(cat "$exit_file" 2>/dev/null || echo "1")
     output=$(cat "$out_file" 2>/dev/null || echo "")
@@ -273,6 +250,97 @@ for suite in "${TEST_SUITES[@]}"; do
         line=$(echo -e "${GREEN}PASSED${NC}: $suite${zsh_label} ($passed tests, ${elapsed_display})")
         printf '%d\t%s\n' "$elapsed_ms" "$line" >> "$SORT_FILE"
     fi
+}
+
+# Launch all test suites in parallel, except signal-heavy runtime tests which
+# run serially after the parallel batch finishes.
+declare -A PIDS          # suite -> PID
+declare -A SKIPPED       # suite -> reason
+ACTIVE_PIDS=()
+SERIAL_SUITES=()
+
+for suite in "${TEST_SUITES[@]}"; do
+    suite_path="$SCRIPT_DIR/$suite"
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+
+    if [[ ! -f "$suite_path" ]]; then
+        SKIPPED["$suite"]="not found"
+        continue
+    fi
+
+    if needs_serial "$suite"; then
+        SERIAL_SUITES+=("$suite")
+        continue
+    fi
+
+    if needs_zsh "$suite"; then
+        if ! command -v zsh &>/dev/null; then
+            SKIPPED["$suite"]="zsh not available"
+            continue
+        fi
+    fi
+
+    (
+        run_suite_capture "$suite" "$out_file" "$exit_file" "$time_file"
+    ) &
+    PIDS["$suite"]=$!
+    ACTIVE_PIDS+=("${PIDS[$suite]}")
+
+    # Throttle background jobs
+    while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_JOBS" ]]; do
+        if supports_wait_n; then
+            wait -n 2>/dev/null || true
+            # Prune finished PIDs from ACTIVE_PIDS
+            still_running=()
+            for pid in "${ACTIVE_PIDS[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    still_running+=("$pid")
+                fi
+            done
+            ACTIVE_PIDS=("${still_running[@]}")
+        else
+            # Fallback: wait for the oldest PID (less efficient but portable in older bash)
+            wait "${ACTIVE_PIDS[0]}" 2>/dev/null || true
+            ACTIVE_PIDS=("${ACTIVE_PIDS[@]:1}")
+        fi
+    done
+done
+
+# Wait for parallel suites and collect results.
+TOTAL_PASSED=0
+TOTAL_FAILED=0
+FAILED_SUITES=()
+# Sortable file: elapsed_ms<TAB>display_line
+SORT_FILE="$OUTPUT_DIR/sortable.txt"
+: > "$SORT_FILE"
+
+esc=$'\033'
+for suite in "${TEST_SUITES[@]}"; do
+    [[ -n "${SKIPPED[$suite]+x}" ]] && continue
+    [[ " ${SERIAL_SUITES[*]} " == *" $suite "* ]] && continue
+
+    pid="${PIDS[$suite]}"
+    wait "$pid" 2>/dev/null
+
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+    collect_suite_result "$suite" "$safe_name" "$out_file" "$exit_file" "$time_file"
+done
+
+# Run serial suites after the parallel batch finishes.
+for suite in "${SERIAL_SUITES[@]}"; do
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+
+    run_suite_capture "$suite" "$out_file" "$exit_file" "$time_file"
+    collect_suite_result "$suite" "$safe_name" "$out_file" "$exit_file" "$time_file"
 done
 
 # Print skipped suites first

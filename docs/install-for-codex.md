@@ -26,12 +26,12 @@ This will:
 - Sync `humanize`, `humanize-gen-plan`, `humanize-refine-plan`, and `humanize-rlcr` into `${CODEX_HOME:-~/.codex}/skills`
 - Copy runtime dependencies into `${CODEX_HOME:-~/.codex}/skills/humanize`
 - Install/update native Humanize Stop hooks in `${CODEX_HOME:-~/.codex}/hooks.json`
-- Enable the experimental `codex_hooks` feature in `${CODEX_HOME:-~/.codex}/config.toml` when `codex` is available
+- Enable the native `hooks` feature in `${CODEX_HOME:-~/.codex}/config.toml` when `codex` is available
 - Seed `~/.config/humanize/config.json` with a Codex/OpenAI `bitlesson_model` when that key is not already set
 - Mark the install as `provider_mode: "codex-only"` when using `--target codex`
 - Use RLCR defaults: `codex exec` with `gpt-5.5:high`, `codex review` with `gpt-5.5:high`
 
-Requires Codex CLI `0.114.0` or newer for native hooks. Older Codex builds are not supported by the Codex install path.
+Requires Codex CLI `0.114.0` or newer for native hooks. The hooks feature was renamed to `hooks`; older Codex builds that still expose `codex_hooks` are not supported by the Codex install path.
 
 ## Verify
 
@@ -70,12 +70,12 @@ Installed files/directories:
 Verify native hooks:
 
 ```bash
-codex features list | rg codex_hooks
+codex features list | rg '^hooks\s'
 sed -n '1,220p' "${CODEX_HOME:-$HOME/.codex}/hooks.json"
 ```
 
 Expected:
-- `codex_hooks` is `true`
+- `hooks` is present in `codex features list`
 - `hooks.json` contains `loop-codex-stop-hook.sh`
 - `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json` contains `bitlesson_model` set to a Codex/OpenAI model such as `gpt-5.5`
 - for `--target codex`, `${XDG_CONFIG_HOME:-~/.config}/humanize/config.json` also contains `provider_mode: "codex-only"`
@@ -110,6 +110,8 @@ ls -la "${CODEX_HOME:-$HOME/.codex}/skills/humanize/scripts"
 If native exit gating does not trigger:
 
 ```bash
-codex features enable codex_hooks
+codex features enable hooks
 sed -n '1,220p' "${CODEX_HOME:-$HOME/.codex}/hooks.json"
 ```
+
+If the installer reports that your config or installed Codex still uses `codex_hooks`, upgrade Codex first or change `${CODEX_HOME:-~/.codex}/config.toml` to `[features]\nhooks = true`.

@@ -354,8 +354,8 @@ trap '_cleanup' INT TERM
 ) &
 child_pid=$!
 
-# Wait for signal (up to 1 second)
-for i in {1..10}; do
+# Wait for signal (up to 5 seconds); parallel CI runners can be slow.
+for i in {1..50}; do
     sleep 0.1
     if [[ "$cleanup_triggered" == "true" ]]; then
         break
@@ -454,8 +454,8 @@ TRAPINT() {
 ) &
 child_pid=$!
 
-# Wait for signal (up to 1 second)
-for i in {1..10}; do
+# Wait for signal (up to 5 seconds); parallel CI runners can be slow.
+for i in {1..50}; do
     sleep 0.1
     if [[ "$cleanup_triggered" == "true" ]]; then
         break
