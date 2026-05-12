@@ -3,7 +3,7 @@
 # Install/upgrade Humanize skills for Kimi and/or Codex.
 #
 # What this does:
-# 1) Sync skills/{humanize,humanize-gen-plan,humanize-rlcr} to target skills dir(s)
+# 1) Sync target skills to target skills dir(s)
 # 2) Copy runtime dependencies into <skills-dir>/humanize/{scripts,hooks,prompt-template}
 # 3) Hydrate SKILL.md command paths with concrete runtime root paths
 #
@@ -43,6 +43,10 @@ SKILL_NAMES=(
     "humanize-rlcr"
 )
 
+CODEX_ONLY_SKILL_NAMES=(
+    "humanize-gen-idea"
+)
+
 usage() {
     cat <<'EOF'
 Install Humanize skills for Kimi and/or Codex.
@@ -61,6 +65,10 @@ Options:
   --dry-run               Print actions without writing
   -h, --help              Show help
 EOF
+}
+
+target_includes_codex() {
+    [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]
 }
 
 log() {
@@ -82,7 +90,13 @@ validate_repo() {
     [[ -d "$RUNTIME_SOURCE_ROOT/templates" ]] || die "templates directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
     [[ -d "$RUNTIME_SOURCE_ROOT/config" ]] || die "config directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
     [[ -d "$RUNTIME_SOURCE_ROOT/agents" ]] || die "agents directory not found under runtime source root: $RUNTIME_SOURCE_ROOT"
-    for skill in "${SKILL_NAMES[@]}"; do
+    local required_skills=("${SKILL_NAMES[@]}")
+    if target_includes_codex; then
+        required_skills+=("${CODEX_ONLY_SKILL_NAMES[@]}")
+    fi
+
+    local skill
+    for skill in "${required_skills[@]}"; do
         [[ -f "$SKILLS_SOURCE_ROOT/$skill/SKILL.md" ]] || die "missing $SKILLS_SOURCE_ROOT/$skill/SKILL.md"
     done
 }
@@ -105,9 +119,24 @@ resolve_source_layout() {
     #   <skills-dir>/humanize/scripts/install-skill.sh
     #   <skills-dir>/humanize-gen-plan/SKILL.md
     #   <skills-dir>/humanize-rlcr/SKILL.md
+    #   <skills-dir>/humanize-gen-idea/SKILL.md (Codex target only)
     if [[ -d "$runtime_root/scripts" ]] && [[ -d "$runtime_root/hooks" ]] && [[ -d "$runtime_root/prompt-template" ]]; then
         skills_root="$(cd "$runtime_root/.." && pwd)"
-        if [[ -f "$skills_root/humanize/SKILL.md" ]] && [[ -f "$skills_root/humanize-gen-plan/SKILL.md" ]] && [[ -f "$skills_root/humanize-refine-plan/SKILL.md" ]] && [[ -f "$skills_root/humanize-rlcr/SKILL.md" ]]; then
+        local required_skills=("${SKILL_NAMES[@]}")
+        if target_includes_codex; then
+            required_skills+=("${CODEX_ONLY_SKILL_NAMES[@]}")
+        fi
+
+        local layout_ok="true"
+        local skill
+        for skill in "${required_skills[@]}"; do
+            if [[ ! -f "$skills_root/$skill/SKILL.md" ]]; then
+                layout_ok="false"
+                break
+            fi
+        done
+
+        if [[ "$layout_ok" == "true" ]]; then
             SKILLS_SOURCE_ROOT="$skills_root"
             RUNTIME_SOURCE_ROOT="$runtime_root"
             return 0
@@ -166,12 +195,18 @@ install_runtime_bundle() {
 
 hydrate_skill_runtime_root() {
     local target_dir="$1"
+    shift || true
+    local selected_skills=("$@")
     local runtime_root="$target_dir/humanize"
     local skill
     local skill_file
     local tmp
 
-    for skill in "${SKILL_NAMES[@]}"; do
+    if [[ ${#selected_skills[@]} -eq 0 ]]; then
+        selected_skills=("${SKILL_NAMES[@]}")
+    fi
+
+    for skill in "${selected_skills[@]}"; do
         skill_file="$target_dir/$skill/SKILL.md"
         [[ -f "$skill_file" ]] || continue
 
@@ -193,11 +228,17 @@ hydrate_skill_runtime_root() {
 
 strip_claude_specific_frontmatter() {
     local target_dir="$1"
+    shift || true
+    local selected_skills=("$@")
     local skill
     local skill_file
     local tmp
 
-    for skill in "${SKILL_NAMES[@]}"; do
+    if [[ ${#selected_skills[@]} -eq 0 ]]; then
+        selected_skills=("${SKILL_NAMES[@]}")
+    fi
+
+    for skill in "${selected_skills[@]}"; do
         skill_file="$target_dir/$skill/SKILL.md"
         [[ -f "$skill_file" ]] || continue
 
@@ -234,6 +275,10 @@ sync_target() {
     local target_dir="$2"
     local selected_skills=("${SKILL_NAMES[@]}")
 
+    if [[ "$label" == "codex" ]]; then
+        selected_skills+=("${CODEX_ONLY_SKILL_NAMES[@]}")
+    fi
+
     log "target: $label"
     log "skills dir: $target_dir"
 
@@ -246,8 +291,8 @@ sync_target() {
         sync_one_skill "$skill" "$target_dir"
     done
     install_runtime_bundle "$target_dir"
-    hydrate_skill_runtime_root "$target_dir"
-    strip_claude_specific_frontmatter "$target_dir"
+    hydrate_skill_runtime_root "$target_dir" "${selected_skills[@]}"
+    strip_claude_specific_frontmatter "$target_dir" "${selected_skills[@]}"
 }
 
 install_codex_native_hooks() {
