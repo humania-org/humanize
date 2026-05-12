@@ -8,7 +8,8 @@ source "$SCRIPT_DIR/test-helpers.sh"
 BITLESSON_SELECT="$PROJECT_ROOT/scripts/bitlesson-select.sh"
 # Keep PATH isolation strict in missing-binary tests to avoid picking up
 # real codex/claude from user-local directories (e.g. ~/.nvm, ~/.local/bin).
-SAFE_BASE_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+# On NixOS, the shell toolchain itself lives under /run/current-system/sw/bin.
+SAFE_BASE_PATH="/run/current-system/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 echo "=========================================="
 echo "Bitlesson Select Routing Tests"
@@ -393,7 +394,7 @@ echo ""
 setup_test_dir
 create_real_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
-printf '{"bitlesson_model": "haiku", "codex_model": "gpt-5.4", "provider_mode": "codex-only"}' > "$TEST_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "haiku", "codex_model": "gpt-5.5", "provider_mode": "codex-only"}' > "$TEST_DIR/.humanize/config.json"
 FALLBACK_BIN="$TEST_DIR/fallback-bin"
 create_mock_codex "$FALLBACK_BIN"
 
@@ -419,7 +420,7 @@ echo ""
 setup_test_dir
 create_mock_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
-printf '{"bitlesson_model": "gpt-5.4"}' > "$TEST_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "gpt-5.5"}' > "$TEST_DIR/.humanize/config.json"
 
 exit_code=0
 stdout_out=""
@@ -443,7 +444,7 @@ echo ""
 setup_test_dir
 create_real_bitlesson "$TEST_DIR"
 mkdir -p "$TEST_DIR/.humanize"
-printf '{"bitlesson_model": "gpt-5.4"}' > "$TEST_DIR/.humanize/config.json"
+printf '{"bitlesson_model": "gpt-5.5"}' > "$TEST_DIR/.humanize/config.json"
 CAPTURE_BIN="$TEST_DIR/capture-bin"
 mkdir -p "$CAPTURE_BIN"
 cat > "$CAPTURE_BIN/codex" <<'EOF'
@@ -481,7 +482,7 @@ captured_args="$(cat "$CAPTURE_ARGS")"
 if [[ $exit_code -eq 0 ]] \
     && echo "$stdout_out" | grep -q "BL-20260315-tracker-drift" \
     && echo "$captured_args" | grep -q -- '--disable' \
-    && echo "$captured_args" | grep -q -- 'codex_hooks' \
+    && echo "$captured_args" | grep -q -- 'hooks' \
     && echo "$captured_args" | grep -q -- '--skip-git-repo-check' \
     && echo "$captured_args" | grep -q -- '--ephemeral' \
     && echo "$captured_args" | grep -q -- 'read-only' \

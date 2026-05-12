@@ -474,7 +474,7 @@ GI_EOF
 ---
 current_round: $round
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 push_every_round: false

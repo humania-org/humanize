@@ -132,7 +132,7 @@ EOF
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -624,7 +624,7 @@ cat > "$AC11_STATE" <<EOF_AC11
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -680,7 +680,7 @@ cat > "$AC11B_STATE" <<EOF_AC11B
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -754,7 +754,7 @@ cat > "$AC12_BASE/2026-03-02_00-00-00/state.md" <<'EOF_AC12_NEWER'
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 session_id: session_foreign
 ---
@@ -765,7 +765,7 @@ cat > "$AC12_BASE/2026-03-01_00-00-00/state.md" <<'EOF_AC12_OLDER'
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 session_id: session_home
 ---
@@ -804,7 +804,7 @@ cat > "$AC13_STATE" <<EOF_AC13
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -860,7 +860,7 @@ cat > "$AC14_STATE" <<EOF_AC14
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -968,7 +968,7 @@ cat > "$AC17_STATE" <<EOF_AC17
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -1018,7 +1018,7 @@ cat > "$AC17C_STATE" <<EOF_AC17C
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -1062,7 +1062,7 @@ cat > "$AC18_BASE/2026-03-02_00-00-00/state.md" <<'EOF_AC18'
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 session_id: session_foreign
 ---
@@ -1112,7 +1112,7 @@ cat > "$AC19_STATE" <<EOF_AC19
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -1167,7 +1167,7 @@ cat > "$AC20_STATE" <<EOF_AC20
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false
@@ -1365,7 +1365,7 @@ cat > "$AC22B_STATE" <<EOF_AC22B
 ---
 current_round: 0
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 60
 push_every_round: false

@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.16.0**
+**Current Version: 1.17.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -74,7 +74,14 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    humanize monitor skill      # All skill invocations (codex + gemini)
    humanize monitor codex      # Codex invocations only
    humanize monitor gemini     # Gemini invocations only
+   humanize monitor web        # Browser dashboard for the current project
    ```
+
+   The `humanize monitor web` subcommand launches a per-project browser dashboard
+   that layers on top of the same data sources the terminal monitors read. It runs
+   in the foreground by default; pass `--daemon` for the background tmux launcher
+   and `--host` / `--port` / `--auth-token` to configure remote access. See the
+   upgrade note: `/humanize:viz` has been removed in favour of `humanize monitor web`.
 
 ## Monitor Dashboard
 

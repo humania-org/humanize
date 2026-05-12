@@ -315,12 +315,92 @@ Set up the monitoring helper for real-time progress tracking:
 # Add to your .bashrc or .zshrc
 source ~/.claude/plugins/cache/PolyArch/humanize/<LATEST.VERSION>/scripts/humanize.sh
 
-# Monitor RLCR loop progress
-humanize monitor rlcr
+# Terminal monitors (one project per terminal):
+humanize monitor rlcr        # latest RLCR loop log
+humanize monitor skill       # all skill invocations (codex + gemini)
+humanize monitor codex       # ask-codex skill invocations only
+humanize monitor gemini      # ask-gemini skill invocations only
 
+# Browser dashboard (multiple loops at once, foreground default):
+humanize monitor web --project /path/to/project
 ```
 
 Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
+
+### Browser dashboard (`humanize monitor web`)
+
+The web dashboard layers on top of the same `.humanize/rlcr/<session>/`
+metadata and `~/.cache/humanize/<sanitized-project>/<session>/round-*-codex-{run,review}.log`
+cache logs that the terminal monitors read. There is no parallel
+capture pipeline; the dashboard is a reader, not a writer.
+
+Lifecycle (per DEC-1, DEC-3):
+
+- Foreground default (`humanize monitor web --project <path>`). Press
+  Ctrl+C to stop. The server is CLI-fixed to one project at startup;
+  to monitor several projects simultaneously, run multiple instances
+  (one per project) with different `--port` values.
+- `--daemon` runs the same server inside a per-project tmux session
+  (`humanize-viz-<8-hex>`); use `viz-stop.sh --project <path>` or
+  the project's own tmux kill command to stop it.
+
+Per-session inline live log panes appear on the home page for every
+active session, driven by Server-Sent Events from
+`/api/sessions/<session_id>/logs/<basename>`. Multiple loops stream
+in parallel without leaving the home page.
+
+### Remote browser access
+
+The dashboard binds to `127.0.0.1` by default. To expose it over the
+network, supply `--host` and an authentication token. The token is
+required for any non-loopback host; the server refuses to start
+otherwise.
+
+Token-aware endpoints honor `Authorization: Bearer <tok>` for normal
+fetch requests and `?token=<tok>` query parameters for the SSE stream
+(per DEC-4: browsers cannot set arbitrary headers on EventSource).
+WebSocket transport is rejected entirely in remote mode.
+
+#### Pattern 1 (recommended): SSH tunnel
+
+The safest remote pattern keeps the server bound to localhost and
+forwards the port over SSH:
+
+```bash
+# On the server machine:
+humanize monitor web --project /path/to/project --port 18000
+
+# On your laptop:
+ssh -N -L 18000:localhost:18000 user@server.example.com
+# Then open http://localhost:18000 in the local browser.
+```
+
+No token is required because the server still binds to loopback. The
+SSH tunnel provides authentication and encryption.
+
+#### Pattern 2: Direct LAN bind
+
+For trusted-network deployments where SSH tunneling is impractical:
+
+```bash
+# Generate a strong random token (one-time):
+TOKEN="$(openssl rand -hex 32)"
+
+# Start the dashboard:
+humanize monitor web \
+    --project /path/to/project \
+    --host 0.0.0.0 \
+    --port 18000 \
+    --auth-token "$TOKEN"
+
+# Or supply the token via env var instead of CLI:
+HUMANIZE_VIZ_TOKEN="$TOKEN" humanize monitor web \
+    --project /path/to/project --host 0.0.0.0 --port 18000
+```
+
+Open the dashboard with `http://server:18000/?token=<TOKEN>` once;
+the browser caches the token in `sessionStorage` and propagates it
+on subsequent fetches and SSE reconnects.
 
 ## Cancellation
 

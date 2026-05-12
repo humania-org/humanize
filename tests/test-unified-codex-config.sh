@@ -423,7 +423,7 @@ else
 ---
 current_round: 1
 max_iterations: 42
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: high
 codex_timeout: 5400
 push_every_round: false
@@ -461,8 +461,8 @@ STALE_EOF
         echo \"\$STATE_CODEX_MODEL|\$STATE_CODEX_EFFORT\"
     " 2>/dev/null || echo "ERROR")
 
-    assert_eq "stale state: STATE_CODEX_MODEL still parsed (gpt-5.4)" \
-        "gpt-5.4" "$(echo "$result" | cut -d'|' -f1)"
+    assert_eq "stale state: STATE_CODEX_MODEL still parsed (gpt-5.5)" \
+        "gpt-5.5" "$(echo "$result" | cut -d'|' -f1)"
 
     assert_eq "stale state: STATE_CODEX_EFFORT still parsed (high)" \
         "high" "$(echo "$result" | cut -d'|' -f2)"
@@ -492,7 +492,7 @@ else
 ---
 current_round: 1
 max_iterations: 10
-codex_model: gpt-5.4
+codex_model: gpt-5.5
 codex_effort: superhigh
 codex_timeout: 3600
 push_every_round: false
@@ -641,14 +641,14 @@ echo ""
 echo "--- Input validation ---"
 
 # Test invalid model name (has spaces) - test the validation regex directly
-model_with_spaces="gpt 5.4 bad"
+model_with_spaces="gpt 5.5 bad"
 if [[ ! "$model_with_spaces" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     pass "validation: model with spaces is rejected by regex"
 else
     fail "validation: model with spaces is rejected by regex"
 fi
 
-model_with_shell="gpt-5.4;rm-rf"
+model_with_shell="gpt-5.5;rm-rf"
 if [[ ! "$model_with_shell" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     pass "validation: model with shell metacharacters is rejected"
 else
