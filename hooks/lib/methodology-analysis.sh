@@ -78,8 +78,13 @@ Please analyze the development records in $LOOP_DIR and provide methodology impr
 Write your analysis to $LOOP_DIR/methodology-analysis-report.md.
 When done, write a completion note to $LOOP_DIR/methodology-analysis-done.md."
 
+    local methodology_template="claude/methodology-analysis-prompt.md"
+    if [[ "${PROVIDER_MODE:-}" == "codex-only" ]]; then
+        methodology_template="codex/methodology-analysis-prompt.md"
+    fi
+
     local analysis_prompt
-    analysis_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/methodology-analysis-prompt.md" "$fallback" \
+    analysis_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "$methodology_template" "$fallback" \
         "LOOP_DIR=$LOOP_DIR" \
         "EXIT_REASON=$exit_reason" \
         "EXIT_REASON_DESCRIPTION=$exit_reason_description" \
@@ -183,12 +188,17 @@ complete_methodology_analysis() {
 block_methodology_analysis_incomplete() {
     local done_file="$LOOP_DIR/methodology-analysis-done.md"
 
+    local action_item="Spawn an Opus agent to analyze the development records"
+    if [[ "${PROVIDER_MODE:-}" == "codex-only" ]]; then
+        action_item="Run a Codex 5.5 methodology analysis, using a sub-agent if the current runtime supports it"
+    fi
+
     local reason="# Methodology Analysis Incomplete
 
 Please complete the methodology analysis before exiting.
 
 You need to:
-1. Spawn an Opus agent to analyze the development records
+1. $action_item
 2. Review the analysis report
 3. Optionally help the user file a GitHub issue
 4. Write a completion note to: $done_file

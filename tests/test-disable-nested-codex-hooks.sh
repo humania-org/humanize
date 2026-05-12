@@ -206,6 +206,13 @@ else
         "review --disable hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
 fi
 
+if grep -q -- 'review_model=gpt-5.5' "$TEST_DIR/review.args"; then
+    pass "review-phase stop hook uses gpt-5.5 review model by default"
+else
+    fail "review-phase stop hook uses gpt-5.5 review model by default" \
+        "review_model=gpt-5.5" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
+fi
+
 echo ""
 echo "========================================"
 echo "Disable Nested Codex Hooks Tests"

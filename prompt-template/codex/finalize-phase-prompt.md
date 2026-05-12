@@ -1,0 +1,47 @@
+# Finalize Phase
+
+Codex review has passed. The implementation is complete and all acceptance criteria have been met.
+
+You are now in the **Finalize Phase**. This is the opportunity to simplify and refactor the code before final completion.
+
+## Your Task
+
+Use the Codex `code-simplifier:code-simplifier` agent if it is available in the current runtime. If that agent is not available, perform the same simplification pass directly in this session.
+
+## Constraints
+
+These constraints are **non-negotiable**:
+
+1. **Must NOT change existing functionality** - All features must work exactly as before
+2. **Must NOT fail existing tests** - Run tests to verify nothing is broken
+3. **Must NOT introduce new bugs** - Be careful with refactoring
+4. **Only perform functionality-equivalent changes** - Simplification and cleanup only
+
+## Focus Areas
+
+Focus on:
+- Code that was recently added or modified
+- Changes between branch from `{{BASE_BRANCH}}` to `{{START_BRANCH}}`
+- Removing unnecessary complexity
+- Improving readability and maintainability
+- Consolidating duplicate code
+- Simplifying control flow where possible
+- Removing dead code or unused variables
+
+## Reference Files
+
+- Original plan: @{{PLAN_FILE}}
+- Goal tracker: @{{GOAL_TRACKER_FILE}}
+
+## Before Exiting
+
+1. Complete all `[mainline]` and `[blocking]` tasks
+2. `[queued]` tasks may remain only if they are documented as non-blocking follow-up work
+3. Commit your changes with a descriptive message
+4. Write your finalize summary to: **{{FINALIZE_SUMMARY_FILE}}**
+
+Your summary should include:
+- What simplifications were made
+- Files modified during the Finalize Phase
+- Confirmation that tests still pass
+- Any notes about the refactoring decisions

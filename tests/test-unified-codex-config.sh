@@ -119,6 +119,7 @@ else
 
     assert_eq "project override: codex_effort overrides default" \
         "xhigh" "$(get_config_value "$merged" "codex_effort")"
+
 fi
 
 echo ""

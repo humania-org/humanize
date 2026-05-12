@@ -3,7 +3,7 @@
 # Install/upgrade Humanize skills for Kimi and/or Codex.
 #
 # What this does:
-# 1) Sync skills/{humanize,humanize-gen-plan,humanize-rlcr} to target skills dir(s)
+# 1) Sync Humanize entrypoint skills to target skills dir(s)
 # 2) Copy runtime dependencies into <skills-dir>/humanize/{scripts,hooks,prompt-template}
 # 3) Hydrate SKILL.md command paths with concrete runtime root paths
 #
@@ -38,6 +38,7 @@ DRY_RUN="false"
 
 SKILL_NAMES=(
     "humanize"
+    "humanize-gen-idea"
     "humanize-gen-plan"
     "humanize-refine-plan"
     "humanize-rlcr"
@@ -103,11 +104,18 @@ resolve_source_layout() {
 
     # Installed runtime layout:
     #   <skills-dir>/humanize/scripts/install-skill.sh
-    #   <skills-dir>/humanize-gen-plan/SKILL.md
-    #   <skills-dir>/humanize-rlcr/SKILL.md
+    #   <skills-dir>/<skill>/SKILL.md
     if [[ -d "$runtime_root/scripts" ]] && [[ -d "$runtime_root/hooks" ]] && [[ -d "$runtime_root/prompt-template" ]]; then
         skills_root="$(cd "$runtime_root/.." && pwd)"
-        if [[ -f "$skills_root/humanize/SKILL.md" ]] && [[ -f "$skills_root/humanize-gen-plan/SKILL.md" ]] && [[ -f "$skills_root/humanize-refine-plan/SKILL.md" ]] && [[ -f "$skills_root/humanize-rlcr/SKILL.md" ]]; then
+        local all_skills_present="true"
+        local skill
+        for skill in "${SKILL_NAMES[@]}"; do
+            if [[ ! -f "$skills_root/$skill/SKILL.md" ]]; then
+                all_skills_present="false"
+                break
+            fi
+        done
+        if [[ "$all_skills_present" == "true" ]]; then
             SKILLS_SOURCE_ROOT="$skills_root"
             RUNTIME_SOURCE_ROOT="$runtime_root"
             return 0

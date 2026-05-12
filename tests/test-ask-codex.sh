@@ -7,6 +7,7 @@
 #   MOCK_CODEX_EXIT_CODE - exit code the mock returns (default: 0)
 #   MOCK_CODEX_STDOUT    - text the mock writes to stdout
 #   MOCK_CODEX_STDERR    - text the mock writes to stderr
+#   MOCK_CODEX_ARGS_FILE - file where the mock records non-help argv
 #
 
 set -euo pipefail
@@ -40,6 +41,15 @@ cat > "$MOCK_BIN_DIR/codex" << 'MOCK_EOF'
 #!/usr/bin/env bash
 # Mock codex binary for testing ask-codex.sh
 # Controlled via environment variables.
+if [[ "${1:-}" == "--help" ]]; then
+    if [[ -n "${MOCK_CODEX_HELP:-}" ]]; then
+        printf '%s\n' "$MOCK_CODEX_HELP"
+    fi
+    exit "${MOCK_CODEX_HELP_EXIT_CODE:-0}"
+fi
+if [[ -n "${MOCK_CODEX_ARGS_FILE:-}" ]]; then
+    printf '%s\n' "$*" > "$MOCK_CODEX_ARGS_FILE"
+fi
 if [[ -n "${MOCK_CODEX_STDERR:-}" ]]; then
     echo "$MOCK_CODEX_STDERR" >&2
 fi
@@ -56,12 +66,14 @@ chmod +x "$MOCK_BIN_DIR/codex"
 export MOCK_CODEX_EXIT_CODE=""
 export MOCK_CODEX_STDOUT=""
 export MOCK_CODEX_STDERR=""
+export MOCK_CODEX_ARGS_FILE=""
 
 # Reset mock state between tests
 reset_mock() {
     export MOCK_CODEX_EXIT_CODE="0"
     export MOCK_CODEX_STDOUT=""
     export MOCK_CODEX_STDERR=""
+    export MOCK_CODEX_ARGS_FILE=""
 }
 
 # Helper: run ask-codex with mock codex in PATH, inside mock project
@@ -207,6 +219,18 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     pass "successful run exits 0"
 else
     fail "successful run exits 0" "exit 0" "exit=$EXIT_CODE"
+fi
+
+# Test: codex hooks are always disabled for nested codex exec
+reset_mock
+export MOCK_CODEX_STDOUT="disable-hooks-test"
+export MOCK_CODEX_ARGS_FILE="$TEST_DIR/codex-disable-hooks.args"
+run_ask_codex "disable nested hooks test" > /dev/null 2>&1
+if grep -q -- 'exec --disable codex_hooks' "$MOCK_CODEX_ARGS_FILE"; then
+    pass "nested codex exec always disables codex_hooks"
+else
+    fail "nested codex exec always disables codex_hooks" \
+        "exec --disable codex_hooks" "$(cat "$MOCK_CODEX_ARGS_FILE" 2>/dev/null || echo missing)"
 fi
 
 # ========================================

@@ -141,6 +141,7 @@ CODEX_TIMEOUT="${STATE_CODEX_TIMEOUT:-${CODEX_TIMEOUT:-$DEFAULT_CODEX_TIMEOUT}}"
 ASK_CODEX_QUESTION="${STATE_ASK_CODEX_QUESTION:-false}"
 AGENT_TEAMS="${STATE_AGENT_TEAMS:-false}"
 PRIVACY_MODE="${STATE_PRIVACY_MODE:-true}"
+PROVIDER_MODE="${DEFAULT_PROVIDER_MODE:-}"
 BITLESSON_REQUIRED="false"
 if [[ -n "$RAW_BITLESSON_REQUIRED" ]]; then
     BITLESSON_REQUIRED=$(echo "$RAW_BITLESSON_REQUIRED" | sed 's/^bitlesson_required:[[:space:]]*//' | tr -d ' "')
@@ -1342,7 +1343,7 @@ Since the code review was skipped, please manually verify your changes before fi
 3. Check for common code quality issues
 
 ## Simplification (Optional)
-If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
+If time permits, use the Codex \`code-simplifier:code-simplifier\` agent if it is available in the current runtime. If that agent is not available, perform the same simplification pass directly. Focus more on changes between branch from {{BASE_BRANCH}} to {{START_BRANCH}}.
 
 ## Constraints
 - Must NOT change existing functionality
@@ -1355,7 +1356,7 @@ If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task 
 2. Commit your changes
 3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
 
-        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-skipped-prompt.md" "$fallback" \
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "codex/finalize-phase-skipped-prompt.md" "$fallback" \
             "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
             "PLAN_FILE=$PLAN_FILE" \
             "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \
@@ -1367,7 +1368,7 @@ If time permits, use the \`code-simplifier:code-simplifier\` agent via the Task 
 
 Codex review has passed. The implementation is complete.
 
-You are now in the **Finalize Phase**. Use the \`code-simplifier:code-simplifier\` agent via the Task tool to simplify and refactor your code.
+You are now in the **Finalize Phase**. Use the Codex \`code-simplifier:code-simplifier\` agent if it is available in the current runtime. If that agent is not available, perform the same simplification pass directly.
 
 ## Constraints
 - Must NOT change existing functionality
@@ -1383,7 +1384,7 @@ Focus on the code changes made during this RLCR session. Focus more on changes b
 2. Commit your changes
 3. Write your finalize summary to: {{FINALIZE_SUMMARY_FILE}}"
 
-        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "claude/finalize-phase-prompt.md" "$fallback" \
+        finalize_prompt=$(load_and_render_safe "$TEMPLATE_DIR" "codex/finalize-phase-prompt.md" "$fallback" \
             "FINALIZE_SUMMARY_FILE=$finalize_summary_file" \
             "PLAN_FILE=$PLAN_FILE" \
             "GOAL_TRACKER_FILE=$GOAL_TRACKER_FILE" \

@@ -201,6 +201,54 @@ for script in "${CRITICAL_SCRIPTS[@]}"; do
 done
 
 # ========================================
+# Section 5: Verify Codex Terminal Phase Templates
+# ========================================
+section "Section 5: Verify Codex Terminal Phase Templates"
+
+STOP_HOOK="$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh"
+METHODOLOGY_LIB="$PROJECT_ROOT/hooks/lib/methodology-analysis.sh"
+
+if grep -q '"codex/finalize-phase-prompt.md"' "$STOP_HOOK" &&
+   grep -q '"codex/finalize-phase-skipped-prompt.md"' "$STOP_HOOK"; then
+    pass "Finalize phase uses Codex-specific templates"
+else
+    fail "Finalize phase uses Codex-specific templates"
+fi
+
+if grep -q '"codex/methodology-analysis-prompt.md"' "$METHODOLOGY_LIB"; then
+    pass "Methodology analysis uses Codex-specific template"
+else
+    fail "Methodology analysis uses Codex-specific template"
+fi
+
+if grep -q '"claude/methodology-analysis-prompt.md"' "$METHODOLOGY_LIB" &&
+   grep -q 'PROVIDER_MODE.*codex-only' "$METHODOLOGY_LIB"; then
+    pass "Methodology analysis gates Codex template behind codex-only provider mode"
+else
+    fail "Methodology analysis gates Codex template behind codex-only provider mode"
+fi
+
+CODEX_TERMINAL_TEMPLATES=(
+    "$TEMPLATE_DIR/codex/finalize-phase-prompt.md"
+    "$TEMPLATE_DIR/codex/finalize-phase-skipped-prompt.md"
+    "$TEMPLATE_DIR/codex/methodology-analysis-prompt.md"
+)
+
+for template in "${CODEX_TERMINAL_TEMPLATES[@]}"; do
+    template_name="${template#$TEMPLATE_DIR/}"
+    if [[ ! -f "$template" ]]; then
+        fail "Codex terminal template exists: $template_name"
+        continue
+    fi
+
+    if grep -qE 'Task tool|subagent_type|Agent tool|AskUserQuestion|model: "opus"|model: '\''opus'\''' "$template"; then
+        fail "Codex terminal template avoids Claude-only runtime syntax: $template_name"
+    else
+        pass "Codex terminal template avoids Claude-only runtime syntax: $template_name"
+    fi
+done
+
+# ========================================
 # Summary
 # ========================================
 section "Test Summary"

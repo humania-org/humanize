@@ -233,7 +233,9 @@ DEFAULT_CODEX_EFFORT="${DEFAULT_CODEX_EFFORT:-${_cfg_codex_effort:-high}}"
 # Precedence: pre-set by caller (e.g. --agent-teams flag) > config value > hardcoded fallback (false)
 _cfg_agent_teams="$(get_config_value "$_LOOP_COMMON_CONFIG" "agent_teams" 2>/dev/null || true)"
 DEFAULT_AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-${_cfg_agent_teams:-false}}"
-unset _cfg_codex_model _cfg_codex_effort _cfg_agent_teams
+_cfg_provider_mode="$(get_config_value "$_LOOP_COMMON_CONFIG" "provider_mode" 2>/dev/null || true)"
+DEFAULT_PROVIDER_MODE="${DEFAULT_PROVIDER_MODE:-$_cfg_provider_mode}"
+unset _cfg_codex_model _cfg_codex_effort _cfg_agent_teams _cfg_provider_mode
 
 unset _LOOP_COMMON_PROJECT_ROOT _LOOP_COMMON_CONFIG
 
