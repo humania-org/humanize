@@ -134,6 +134,102 @@ else
     fail "gen-plan command exposes auto-start-if-converged option" "--auto-start-rlcr-if-converged" "missing"
 fi
 
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q -- "--coach" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command exposes coach option"
+else
+    fail "gen-plan command exposes coach option" "--coach" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && ! grep -q -- "--learning-mode" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command does not expose deprecated learning-mode option"
+else
+    fail "gen-plan command does not expose deprecated learning-mode option" "no --learning-mode" "deprecated option still present"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "mandatory stage quizzes" "$GEN_PLAN_CMD" && grep -q "COACH_CHECK_STATUS=passed" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command defines mandatory coach-mode stage quizzes"
+else
+    fail "gen-plan command defines mandatory coach-mode stage quizzes" "mandatory stage quizzes and COACH_CHECK_STATUS=passed" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Decision separation" "$GEN_PLAN_CMD" && grep -q "Decision questions resolve product/design choices" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode separates plan decisions from quizzes"
+else
+    fail "gen-plan coach mode separates plan decisions from quizzes" "decision separation and decision questions" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "short-answer or free-form quiz question" "$GEN_PLAN_CMD" && grep -q "Do not use multiple-choice" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode requires non-multiple-choice stage quizzes"
+else
+    fail "gen-plan coach mode requires non-multiple-choice stage quizzes" "short-answer/free-form and no multiple-choice" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Do not use rapid Q&A" "$GEN_PLAN_CMD" && grep -q "Do not substitute multiple-choice" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode forbids rapid Q&A and choice-only quizzes"
+else
+    fail "gen-plan coach mode forbids rapid Q&A and choice-only quizzes" "no rapid Q&A and no choice-only quizzes" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Ask one quiz question at a time" "$GEN_PLAN_CMD" && grep -q "expected answer" "$GEN_PLAN_CMD" && grep -q "inspecting the repository" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode uses graded quiz questioning"
+else
+    fail "gen-plan coach mode uses graded quiz questioning" "one quiz question, expected answer, and repository inspection" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Memory" "$GEN_PLAN_CMD" && grep -q "Self-check" "$GEN_PLAN_CMD" && grep -q "Education" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode defines memory self-check education categories"
+else
+    fail "gen-plan coach mode defines memory self-check education categories" "Memory, Self-check, and Education categories" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Memory -> Self-check -> Education" "$GEN_PLAN_CMD" && grep -q "Skip categories that do not apply" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode orders categories without busywork"
+else
+    fail "gen-plan coach mode orders categories without busywork" "category order and skip rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Memory mismatch" "$GEN_PLAN_CMD" && grep -q "design intent drift" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode treats memory mismatches as design drift"
+else
+    fail "gen-plan coach mode treats memory mismatches as design drift" "Memory mismatch and design intent drift" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Self-check rejection" "$GEN_PLAN_CMD" && grep -q "AI candidate plan/design is wrong" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode treats self-check rejection as AI design correction"
+else
+    fail "gen-plan coach mode treats self-check rejection as AI design correction" "Self-check rejection and AI design correction" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Education gap" "$GEN_PLAN_CMD" && grep -q "do not auto-start implementation" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode treats education gaps as blocking background gaps"
+else
+    fail "gen-plan coach mode treats education gaps as blocking background gaps" "Education gap and no auto-start" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "first-class gen-plan quality signals" "$GEN_PLAN_CMD" && grep -q "Do not collapse these signals into a generic wrong answer" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode records category-specific quality signals"
+else
+    fail "gen-plan coach mode records category-specific quality signals" "quality signals and no generic wrong answer" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "COACH_CHECK_STATUS=blocked" "$GEN_PLAN_CMD" && grep -q "update the candidate plan state" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode handles unresolved confirmation and revision"
+else
+    fail "gen-plan coach mode handles unresolved confirmation and revision" "blocked status and revision handling" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "reference earlier ledger entries only when current plan content depends on them" "$GEN_PLAN_CMD" && grep -q "mainline logic" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode references relevant prior mainline logic"
+else
+    fail "gen-plan coach mode references relevant prior mainline logic" "relevant prior decisions and mainline logic" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "final stage quiz" "$GEN_PLAN_CMD" && grep -q "overall human acceptance" "$GEN_PLAN_CMD"; then
+    pass "gen-plan coach mode includes overall acceptance"
+else
+    fail "gen-plan coach mode includes overall acceptance" "final stage quiz and overall acceptance" "missing"
+fi
+
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -n "GEN_PLAN_MODE=direct" "$GEN_PLAN_CMD" | grep -q "PLAN_CONVERGENCE_STATUS=partially_converged"; then
     pass "gen-plan direct mode does not mark plan as converged"
 else
@@ -667,6 +763,24 @@ if [[ -x "$VALIDATE_SCRIPT" ]]; then
         pass "validate-gen-plan-io: auto-start flag accepted"
     else
         fail "validate-gen-plan-io: auto-start flag should be accepted" "0" "$EXIT_CODE"
+    fi
+
+    # Test: Valid paths with coach flag should exit 0
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output-coach.md" --coach 2>/dev/null || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        pass "validate-gen-plan-io: coach flag accepted"
+    else
+        fail "validate-gen-plan-io: coach flag should be accepted" "0" "$EXIT_CODE"
+    fi
+
+    # Test: deprecated learning-mode flag should be rejected
+    EXIT_CODE=0
+    "$VALIDATE_SCRIPT" --input "$SCRIPT_TEST_DIR/valid.md" --output "$SCRIPT_TEST_DIR/new-output-learning.md" --learning-mode >/dev/null 2>&1 || EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 6 ]]; then
+        pass "validate-gen-plan-io: deprecated learning-mode flag rejected"
+    else
+        fail "validate-gen-plan-io: deprecated learning-mode flag should be rejected" "6" "$EXIT_CODE"
     fi
 
     # Test: --discussion flag is recognized (not rejected as unknown)

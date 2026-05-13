@@ -52,6 +52,25 @@ flowchart TD
 - `--input <path/to/draft.md>` - The draft document
 - `--output <path/to/plan.md>` - Where to write the plan
 
+**Optional Arguments:**
+- `--coach` - Insert plan-time coaching checks so the user stays aligned with each planning stage before the agent expands the next layer
+
+## Coach Mode
+
+When `--coach` is enabled, pause after each completed planning stage for mandatory Coach Mode stage quizzes:
+- Explain the current stage and the planning decision being made
+- Keep normal plan decision questions separate from coach quizzes
+- Ask short-answer or free-form quiz questions instead of multiple-choice checks
+- Classify coaching questions as Memory, Self-check, or Education, in that order when multiple checks apply
+- Interpret mismatches as design intent drift, AI design correction, or background gap instead of a generic wrong answer
+- Ask one quiz question at a time, walking the plan's decision tree in dependency order
+- Grade the user's answer against the agent's current plan state before continuing
+- Re-explain or revise direction when the user is unsure or identifies a problem
+- Reference earlier confirmed decisions only when later plan content depends on them
+- Perform overall human acceptance before writing the final plan
+
+The flow should not wait until the finished plan for review. It should test alignment after first-pass analysis, candidate-plan synthesis, convergence-round deltas, and final plan direction. Quiz questions should stay tied to the plan's goal, risks, approach, scope, acceptance criteria, dependencies, and task sequence. Coach mode includes real stage quizzes, not rapid Q&A or confirmation-only prompts.
+
 ## Plan Structure Output
 
 The generated plan includes:
