@@ -112,7 +112,7 @@ if [[ "\$subcommand" == "review" ]]; then
         echo "codex 0.130.0 rejects --base with prompt input" >&2
         exit 64
     fi
-    if IFS= read -r stdin_line; then
+    if IFS= read -r stdin_line || [[ -n "\$stdin_line" ]]; then
         printf 'STDIN:%s\n' "\$stdin_line" >> "$args_file"
         echo "codex review must not receive stdin when --base is used" >&2
         exit 65
@@ -231,7 +231,10 @@ else
         "--base arguments with no trailing '-' and no stdin" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
 fi
 
-REVIEW_PROMPT="$REPO_REVIEW/.humanize/rlcr/2026-03-14_12-00-00/round-2-review-prompt.md"
+REVIEW_PROMPT=""
+if [[ -d "$REPO_REVIEW/.humanize/rlcr" ]]; then
+    REVIEW_PROMPT=$(find "$REPO_REVIEW/.humanize/rlcr" -mindepth 2 -maxdepth 2 -type f -name 'round-*-review-prompt.md' -print | sort | tail -n 1)
+fi
 if [[ -f "$REVIEW_PROMPT" ]] && grep -q -- 'must not pass prompt input when `--base` is used' "$REVIEW_PROMPT"; then
     pass "review audit prompt documents --base prompt incompatibility"
 else
