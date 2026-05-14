@@ -17,6 +17,3 @@ temp
 # Python cache
 __pycache__/
 *.pyc
-
-# Refactoring leftovers - use hooks/lib/ versions instead
-hooks/loop-codex-stop-hook-helpers.sh

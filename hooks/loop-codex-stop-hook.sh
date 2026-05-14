@@ -53,13 +53,6 @@ source "$PLUGIN_ROOT/scripts/portable-timeout.sh"
 # Source methodology analysis library
 source "$SCRIPT_DIR/lib/methodology-analysis.sh"
 
-# Source validation gates library
-source "$SCRIPT_DIR/lib/loop-codex-gates.sh"
-
-# Source phase handlers and stop hook helpers
-source "$SCRIPT_DIR/lib/loop-codex-handlers.sh"
-source "$SCRIPT_DIR/lib/loop-codex-stop-hook-helpers.sh"
-
 # Default timeout for git operations (30 seconds)
 GIT_TIMEOUT=30
 
@@ -462,6 +455,32 @@ Complete these tasks before exiting:
         exit 0
     fi
 fi
+
+# ========================================
+# Helper: Clean Up Stale index.lock
+# ========================================
+# git status (and other git commands) temporarily create .git/index.lock
+# while refreshing the index. If a git process is killed mid-operation
+# (e.g., by a timeout wrapper), the lock file can be left behind,
+# causing subsequent git add/commit to fail with:
+#   fatal: Unable to create '.git/index.lock': File exists.
+# This helper removes the stale lock so Claude's commit won't fail.
+cleanup_stale_index_lock() {
+    # Resolve the git dir relative to PROJECT_ROOT, not the hook's cwd, so
+    # that index.lock cleanup targets the correct repo even when the hook
+    # executes from a plugin/cache directory rather than the project root.
+    local project_root="${1:-$PROJECT_ROOT}"
+    local git_dir
+    git_dir=$(git -C "$project_root" rev-parse --git-dir 2>/dev/null) || return 0
+    # git rev-parse --git-dir may return a relative path; make it absolute.
+    if [[ "$git_dir" != /* ]]; then
+        git_dir="$project_root/$git_dir"
+    fi
+    if [[ -f "$git_dir/index.lock" ]]; then
+        echo "Removing stale $git_dir/index.lock" >&2
+        rm -f "$git_dir/index.lock"
+    fi
+}
 
 # ========================================
 # Cache Git Status Output
@@ -1247,14 +1266,14 @@ Provider: codex
         echo "# Review base ($review_base_type): $review_base"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "cat '$prompt_file' | codex review ${CODEX_DISABLE_HOOKS_ARGS[*]+"${CODEX_DISABLE_HOOKS_ARGS[*]}"} --base $review_base ${CODEX_REVIEW_ARGS[*]} -"
+        echo "codex review ${CODEX_DISABLE_HOOKS_ARGS[*]+"${CODEX_DISABLE_HOOKS_ARGS[*]}"} --base $review_base ${CODEX_REVIEW_ARGS[*]}"
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
     echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
 
     CODEX_REVIEW_EXIT_CODE=0
-    (cd "$PROJECT_ROOT" && cat "$prompt_file" | run_with_timeout "$CODEX_TIMEOUT" codex review ${CODEX_DISABLE_HOOKS_ARGS[@]+"${CODEX_DISABLE_HOOKS_ARGS[@]}"} --base "$review_base" "${CODEX_REVIEW_ARGS[@]}" -) \
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review ${CODEX_DISABLE_HOOKS_ARGS[@]+"${CODEX_DISABLE_HOOKS_ARGS[@]}"} --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
         > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Code review exit code: $CODEX_REVIEW_EXIT_CODE" >&2

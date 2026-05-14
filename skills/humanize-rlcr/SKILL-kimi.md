@@ -98,7 +98,7 @@ Pass these through `setup-rlcr-loop.sh`:
 | `--plan-file <path>` | Explicit plan path | - |
 | `--track-plan-file` | Enforce tracked plan immutability | false |
 | `--max N` | Maximum iterations | 42 |
-| `--codex-model MODEL:EFFORT` | Codex model and effort for `codex exec` | gpt-5.4:high |
+| `--codex-model MODEL:EFFORT` | Codex model and effort for `codex exec` | gpt-5.5:high |
 | `--codex-timeout SECONDS` | Codex timeout | 5400 |
 | `--base-branch BRANCH` | Base for review phase | auto-detect |
 | `--full-review-round N` | Full alignment interval | 5 |
@@ -109,7 +109,7 @@ Pass these through `setup-rlcr-loop.sh`:
 | `--yolo` | Skip quiz and enable --claude-answer-codex | false |
 | `--skip-quiz` | Skip Plan Understanding Quiz (implicit in skill mode) | false |
 
-Review phase `codex review` runs with `gpt-5.4:high`.
+Review phase `codex review` runs with `gpt-5.5:high`.
 
 ## Usage
 

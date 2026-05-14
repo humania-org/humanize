@@ -520,6 +520,15 @@ else
         "native hook text absent" "native hook text present"
 fi
 
+if grep -q "gpt-5.5:high" "$KIMI_RLCR_SKILL" 2>/dev/null \
+        && ! grep -q "gpt-5.4:high" "$KIMI_RLCR_SKILL" 2>/dev/null; then
+    pass "Kimi humanize-rlcr/SKILL.md documents current Codex default model"
+else
+    fail "Kimi humanize-rlcr/SKILL.md documents current Codex default model" \
+        "gpt-5.5:high present and gpt-5.4:high absent" \
+        "$(grep -n "gpt-5\\.[45]:high" "$KIMI_RLCR_SKILL" 2>/dev/null || echo MISSING)"
+fi
+
 # --- --target both provider_mode test ---
 # Regression: install_codex_target() was passing $TARGET ("both") to
 # install_codex_user_config(), so provider_mode: "codex-only" was never written

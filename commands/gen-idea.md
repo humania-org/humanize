@@ -233,6 +233,7 @@ Construct the companion `directions.json` in memory using all surviving directio
 **Field derivation rules:**
 - `direction_id`: `"dir-" + zero-padded source_index (2 digits) + "-" + dir_slug`. Example: `"dir-00-command-history"`.
 - `dir_slug`: Derived from direction name — lowercase, replace non-alphanumeric with hyphens, collapse consecutive hyphens, strip leading/trailing hyphens. Must match `^[a-z0-9-]+$`.
+- `dir_slug` collision handling: if two direction names slugify to the same value, append `-2`, `-3`, etc. by original `source_index` order until every `dir_slug` is unique.
 - `source_index`: The 0-based index of this direction in the original `DIRECTIONS` list from Phase 2 (before any degradation drops).
 - `display_order`: 0 for the primary direction, 1 through K for alternatives in their sequential order.
 - `is_primary`: `true` for exactly one direction (PRIMARY), `false` for all others.
