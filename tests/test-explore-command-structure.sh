@@ -249,11 +249,11 @@ fi
 if [[ -f "$FINAL_IDEA_TEMPLATE" ]] \
         && grep -q "Final Recommendation" "$FINAL_IDEA_TEMPLATE" \
         && grep -q "Explore Outcomes" "$FINAL_IDEA_TEMPLATE" \
-        && grep -q "Suggested Gen-Plan Command" "$FINAL_IDEA_TEMPLATE"; then
+        && grep -q "Suggested Productization Flow" "$FINAL_IDEA_TEMPLATE"; then
     pass "final-idea template provides gen-plan-ready synthesis"
 else
     fail "final-idea template provides gen-plan-ready synthesis" \
-        "Final Recommendation + Explore Outcomes + Suggested Gen-Plan Command" \
+        "Final Recommendation + Explore Outcomes + Suggested Productization Flow" \
         "missing"
 fi
 
@@ -295,6 +295,43 @@ if grep -q "/humanize:gen-plan --input <FINAL_IDEA_PATH>" "$REPORT_TEMPLATE"; th
 else
     fail "report template points gen-plan at final-idea.md" \
         "/humanize:gen-plan --input <FINAL_IDEA_PATH>" \
+        "missing"
+fi
+
+if grep -q "/humanize:gen-plan --input <FINAL_IDEA_PATH>" "$FINAL_IDEA_TEMPLATE" \
+        && grep -q "/humanize:start-rlcr-loop <plan-path>" "$FINAL_IDEA_TEMPLATE"; then
+    pass "final-idea template includes full clean productization flow"
+else
+    fail "final-idea template includes full clean productization flow" \
+        "gen-plan plus start-rlcr-loop <plan-path>" \
+        "missing"
+fi
+
+if grep -q "/humanize:gen-plan --input \\.humanize/explore/<run-id>/final-idea\\.md" "$PROJECT_ROOT/docs/usage.md" \
+        && grep -q "/humanize:start-rlcr-loop docs/plan\\.md" "$PROJECT_ROOT/docs/usage.md"; then
+    pass "usage docs show default post-explore productization flow"
+else
+    fail "usage docs show default post-explore productization flow" \
+        "gen-plan final-idea.md then start-rlcr-loop docs/plan.md" \
+        "missing"
+fi
+
+GEN_PLAN_LINE=$(grep -n "Generate Plan From Final Idea" "$REPORT_TEMPLATE" | head -1 | cut -d: -f1 || true)
+FAST_PATH_LINE=$(grep -n "Prototype Fast Path" "$REPORT_TEMPLATE" | head -1 | cut -d: -f1 || true)
+if [[ -n "$GEN_PLAN_LINE" && -n "$FAST_PATH_LINE" && "$GEN_PLAN_LINE" -lt "$FAST_PATH_LINE" ]] \
+        && grep -q "/humanize:start-rlcr-loop <plan-path>" "$REPORT_TEMPLATE"; then
+    pass "report template presents clean final-idea plan path before prototype fast path"
+else
+    fail "report template presents clean final-idea plan path before prototype fast path" \
+        "Generate Plan From Final Idea before Prototype Fast Path with start-rlcr-loop <plan-path>" \
+        "gen_plan_line=$GEN_PLAN_LINE fast_path_line=$FAST_PATH_LINE"
+fi
+
+if grep -q "/humanize:start-rlcr-loop --skip-impl" "$EXPLORE_CMD"; then
+    pass "explore command adoption path uses skip-impl when no plan file is supplied"
+else
+    fail "explore command adoption path uses skip-impl when no plan file is supplied" \
+        "/humanize:start-rlcr-loop --skip-impl" \
         "missing"
 fi
 

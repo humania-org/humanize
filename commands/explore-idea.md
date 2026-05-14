@@ -71,7 +71,7 @@ Handle exit codes:
 - `4`: Report "Input must be a .directions.json or .md file" and stop.
 - `5`: Report "Directions JSON failed schema validation" and stop.
 - `6`: Report the specific cap or argument error from stderr and stop.
-- `7`: Report "Main checkout has uncommitted tracked changes — commit or stash before exploring" and stop.
+- `7`: Report the Git checkout state problem (missing base commit or uncommitted tracked changes) and stop.
 - `8`: Report "Run directory collision — retry to generate a fresh run id" and stop.
 - `9`: Report "Template file missing — plugin configuration error" and stop.
 
@@ -322,11 +322,15 @@ Template substitutions for `REPORT_TEMPLATE` include:
 
 ### 6.3: Adoption Paths
 
-For each worker result, include an adoption path section with:
+Include adoption guidance in this order:
+- Recommended clean productization path: generate a plan from `<FINAL_IDEA_PATH>`, then start a normal RLCR loop with that plan.
+- Optional prototype fast path: continue from the winner worktree only when the prototype state is clearly worth preserving.
+
+For the prototype fast path, include:
 - Worktree path: `worktree_path`
 - Branch name: `branch_name`
 - Commit SHA: `commit_sha`
-- Suggested next command (e.g., `cd <worktree_path> && /humanize:start-rlcr-loop`)
+- Suggested next command (e.g., `cd <worktree_path> && /humanize:start-rlcr-loop --skip-impl`)
 
 ### 6.4: Final Idea Synthesis
 

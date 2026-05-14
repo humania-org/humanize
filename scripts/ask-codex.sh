@@ -241,17 +241,17 @@ EOF
 # Build Codex Command
 # ========================================
 
-# Probe whether the installed Codex CLI supports --disable codex_hooks to prevent
+# Probe whether the installed Codex CLI supports --disable hooks to prevent
 # nested hook recursion when ask-codex.sh is called from inside a running loop.
 # Cache the probe result in the skill directory to avoid repeated probes.
 CODEX_DISABLE_HOOKS_ARGS=()
 _CODEX_DISABLE_HOOKS_CACHE="$SKILL_DIR/.codex-disable-hooks-supported"
 if [[ -f "$_CODEX_DISABLE_HOOKS_CACHE" ]]; then
-    [[ "$(cat "$_CODEX_DISABLE_HOOKS_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+    [[ "$(cat "$_CODEX_DISABLE_HOOKS_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
 else
     CODEX_HELP_OUTPUT="$(codex --help </dev/null 2>&1 || true)"
     if grep -q -- '--disable' <<< "$CODEX_HELP_OUTPUT"; then
-        CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
+        CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
         echo "yes" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
     else
         echo "no" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true

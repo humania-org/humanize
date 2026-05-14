@@ -51,7 +51,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    ```bash
    /humanize:explore-idea .humanize/ideas/<slug>-<timestamp>.directions.json
    ```
-   Dispatches bounded parallel prototype workers (one per direction), each running in an isolated git worktree. After all workers complete, writes `.humanize/explore/<run-id>/explore-report.md` for audit/ranking details and `.humanize/explore/<run-id>/final-idea.md` as the plan-ready synthesis.
+   Dispatches bounded parallel prototype workers (one per direction), each running in an isolated git worktree. After all workers complete, writes `.humanize/explore/<run-id>/explore-report.md` for audit/ranking details and `.humanize/explore/<run-id>/final-idea.md` as the plan-ready synthesis. Worker worktrees are optional prototype fast paths; the default follow-up is to generate a clean plan from `final-idea.md`.
 
 3. **Generate a plan** from your draft or explored final idea:
    ```bash

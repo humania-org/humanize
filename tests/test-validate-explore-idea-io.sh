@@ -7,7 +7,7 @@
 #   - Success: emits VALIDATION_SUCCESS + structured key-value output
 #   - Direction selection: default, --directions by id, --directions by source_index
 #   - Cap enforcement: concurrency, iterations, timeouts
-#   - Dirty checkout hard-fail
+#   - Git checkout state hard-fail
 #
 
 set -euo pipefail
@@ -216,6 +216,41 @@ else
     fail "exit 7 and lists dirty files when many tracked files are modified" \
         "exit 7 + dirty file list" \
         "exit=$EXIT_CODE output=$DIRTY_OUTPUT"
+fi
+
+# Exit 7: non-git checkout cannot provide BASE_COMMIT for worker anchoring
+NON_GIT_DIR="$TEST_DIR/non-git"
+mkdir -p "$NON_GIT_DIR"
+cp "$VALID_FIXTURE" "$NON_GIT_DIR/valid.directions.json"
+EXIT_CODE=0
+NON_GIT_OUTPUT=$(
+    cd "$NON_GIT_DIR"
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$VALIDATE_SCRIPT" "$NON_GIT_DIR/valid.directions.json" 2>&1
+) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 7 ]] && grep -q "Git checkout is required" <<<"$NON_GIT_OUTPUT"; then
+    pass "exit 7 when BASE_COMMIT cannot be resolved outside a git checkout"
+else
+    fail "exit 7 when BASE_COMMIT cannot be resolved outside a git checkout" \
+        "exit 7 + Git checkout required message" \
+        "exit=$EXIT_CODE output=$NON_GIT_OUTPUT"
+fi
+
+# Exit 7: unborn git checkout has no HEAD commit to anchor workers
+UNBORN_REPO="$TEST_DIR/unborn-repo"
+mkdir -p "$UNBORN_REPO"
+(cd "$UNBORN_REPO" && git init -q)
+cp "$VALID_FIXTURE" "$UNBORN_REPO/valid.directions.json"
+EXIT_CODE=0
+UNBORN_OUTPUT=$(
+    cd "$UNBORN_REPO"
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$VALIDATE_SCRIPT" "$UNBORN_REPO/valid.directions.json" 2>&1
+) || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 7 ]] && grep -q "Unable to resolve BASE_COMMIT" <<<"$UNBORN_OUTPUT"; then
+    pass "exit 7 when git checkout has no BASE_COMMIT"
+else
+    fail "exit 7 when git checkout has no BASE_COMMIT" \
+        "exit 7 + unable to resolve BASE_COMMIT message" \
+        "exit=$EXIT_CODE output=$UNBORN_OUTPUT"
 fi
 
 # Exit 9: missing worker prompt template

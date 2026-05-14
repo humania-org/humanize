@@ -243,5 +243,61 @@ run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
 [[ $EXIT_CODE -ne 0 ]] && pass "numeric objective_evidence items: exits non-zero" \
     || fail "numeric objective_evidence items: exits non-zero" "non-zero" "$EXIT_CODE"
 
+# NT-27: Missing metadata.n_requested
+F=$(make_fixture "missing-n-requested" '.metadata |= del(.n_requested)')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "missing metadata.n_requested: exits non-zero" \
+    || fail "missing metadata.n_requested: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-28: Missing metadata.timestamp
+F=$(make_fixture "missing-timestamp" '.metadata |= del(.timestamp)')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "missing metadata.timestamp: exits non-zero" \
+    || fail "missing metadata.timestamp: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-29: Missing metadata.draft_path
+F=$(make_fixture "missing-draft-path" '.metadata |= del(.draft_path)')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "missing metadata.draft_path: exits non-zero" \
+    || fail "missing metadata.draft_path: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-30: metadata.n_requested lower than returned directions
+F=$(make_fixture "n-requested-too-low" '.metadata.n_requested = 1')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "metadata.n_requested below n_returned: exits non-zero" \
+    || fail "metadata.n_requested below n_returned: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-31: display_order must be sequential from 0..K
+F=$(make_fixture "display-order-gap" '.directions[1].display_order = 2')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "display_order gap: exits non-zero" \
+    || fail "display_order gap: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-32: is_primary must be present and boolean on every direction
+F=$(make_fixture "missing-alt-is-primary" '.directions[1] |= del(.is_primary)')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "missing alternate is_primary: exits non-zero" \
+    || fail "missing alternate is_primary: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-33: direction_id must be derived from source_index and dir_slug
+F=$(make_fixture "mismatched-direction-id" '.directions[0].direction_id = "dir-00-wrong"')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "mismatched direction_id derivation: exits non-zero" \
+    || fail "mismatched direction_id derivation: exits non-zero" "non-zero" "$EXIT_CODE"
+
+# NT-34: source_index must be within metadata.n_requested
+F=$(make_fixture "source-index-out-of-range" '.directions[1].source_index = 4 | .directions[1].direction_id = "dir-04-event-sourcing"')
+EXIT_CODE=0
+run_validate "$F" > /dev/null 2>&1 || EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && pass "source_index outside n_requested: exits non-zero" \
+    || fail "source_index outside n_requested: exits non-zero" "non-zero" "$EXIT_CODE"
+
 echo ""
 print_test_summary "validate-directions-json.sh Test Summary"

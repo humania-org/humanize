@@ -523,7 +523,7 @@ run_ask_codex_probe() {
     )
 }
 
-# Test A: when codex supports --disable, ask-codex.sh injects --disable codex_hooks
+# Test A: when codex supports --disable, ask-codex.sh injects --disable hooks
 # Create a mock codex that echoes "--disable" in its --help output
 cat > "$PROBE_BIN_DIR/codex" << 'PROBE_MOCK_SUPPORTS'
 #!/usr/bin/env bash
@@ -604,10 +604,11 @@ else
 fi
 
 # Test C: ask-codex.sh script contains the probe implementation
-if grep -q "codex_hooks" "$ASK_CODEX_SCRIPT" && grep -q "codex-disable-hooks-supported" "$ASK_CODEX_SCRIPT"; then
+if grep -q "CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)" "$ASK_CODEX_SCRIPT" \
+    && grep -q "codex-disable-hooks-supported" "$ASK_CODEX_SCRIPT"; then
     pass "ask-codex.sh contains nested hook disable auto-probe implementation"
 else
-    fail "ask-codex.sh contains nested hook disable auto-probe implementation" "codex_hooks + probe cache" "not found"
+    fail "ask-codex.sh contains nested hook disable auto-probe implementation" "hooks disable args + probe cache" "not found"
 fi
 
 # ========================================

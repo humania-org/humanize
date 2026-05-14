@@ -51,9 +51,18 @@
 
 ## Adoption Paths
 
-### Continue Winner Branch
+### Recommended: Generate Plan From Final Idea
 
-To continue development on the top-ranked prototype:
+Use the plan-ready final idea synthesis as the default productization path. This treats the explore run as research, starts implementation from a clean plan, and keeps worker prototype state optional.
+
+```bash
+/humanize:gen-plan --input <FINAL_IDEA_PATH> --output <plan-path>
+/humanize:start-rlcr-loop <plan-path>
+```
+
+### Prototype Fast Path: Continue Winner Branch
+
+Use this only when the top-ranked prototype is already clearly worth preserving and you want RLCR to review or finalize the mutated worker worktree state:
 
 ```bash
 # Navigate to the winner's worktree
@@ -64,14 +73,6 @@ cd <WINNER_WORKTREE_PATH>
 
 # Start RLCR loop from the prototype state
 /humanize:start-rlcr-loop --skip-impl
-```
-
-### Generate Plan From Final Idea
-
-Use the plan-ready final idea synthesis as input to `/humanize:gen-plan`:
-
-```bash
-/humanize:gen-plan --input <FINAL_IDEA_PATH> --output <plan-path>
 ```
 
 ### Cherry-Pick Prototype

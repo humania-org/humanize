@@ -206,6 +206,14 @@ else
         "review --disable hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
 fi
 
+if ! grep -q 'codex --help 2>&1 | grep -q' "$STOP_HOOK"; then
+    pass "stop hook captures codex help before grepping for --disable"
+else
+    fail "stop hook captures codex help before grepping for --disable" \
+        "no codex --help | grep -q pipeline" \
+        "pipeline still present"
+fi
+
 echo ""
 echo "========================================"
 echo "Disable Nested Codex Hooks Tests"

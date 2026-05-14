@@ -587,4 +587,32 @@ else
         "conflict message" "$(cat "$TEST_DIR/install-shared.log")"
 fi
 
+# Equivalent non-existent paths must also be rejected. Regression: failed
+# realpath calls used raw strings, so a/../shared and shared compared different.
+mkdir -p "$TEST_DIR/path-normalization-missing" "$TEST_DIR/path-normalization-codex-home"
+NORMALIZED_SHARED_A="$TEST_DIR/path-normalization-missing/a/../shared"
+NORMALIZED_SHARED_B="$TEST_DIR/path-normalization-missing/shared"
+set +e
+PATH="$FAKE_BIN:$PATH" TEST_CODEX_FEATURE_LOG="$TEST_DIR/feature-log-shared-normalized.log" \
+    XDG_CONFIG_HOME="$TEST_DIR/shared-normalized-xdg" \
+    "$INSTALL_SCRIPT" \
+    --target both \
+    --codex-config-dir "$TEST_DIR/path-normalization-codex-home" \
+    --codex-skills-dir "$NORMALIZED_SHARED_A" \
+    --kimi-skills-dir "$NORMALIZED_SHARED_B" \
+    --command-bin-dir "$COMMAND_BIN_DIR" \
+    --dry-run \
+    > "$TEST_DIR/install-shared-normalized.log" 2>&1
+NORMALIZED_SHARED_EXIT=$?
+set -e
+
+if [[ "$NORMALIZED_SHARED_EXIT" -ne 0 ]] \
+        && grep -qi "distinct\|same.*dir\|conflict\|identical" "$TEST_DIR/install-shared-normalized.log" 2>/dev/null; then
+    pass "--target both rejects equivalent non-existent shared skills dirs"
+else
+    fail "--target both rejects equivalent non-existent shared skills dirs" \
+        "non-zero conflict error" \
+        "exit=$NORMALIZED_SHARED_EXIT log=$(cat "$TEST_DIR/install-shared-normalized.log")"
+fi
+
 print_test_summary "Codex Hook Install Tests"

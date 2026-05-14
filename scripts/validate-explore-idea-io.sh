@@ -24,7 +24,7 @@
 #   4 - Input is not .directions.json or .md
 #   5 - Directions JSON schema validation failed
 #   6 - Invalid arguments (caps exceeded, bad direction selectors, duplicate selectors)
-#   7 - Main checkout has uncommitted tracked changes (dirty-checkout hard-fail)
+#   7 - Git checkout state invalid (missing BASE_COMMIT or dirty-checkout hard-fail)
 #   8 - Run directory already exists (collision)
 #   9 - Required template file missing (plugin configuration error)
 #
@@ -364,10 +364,35 @@ fi
 EFFECTIVE_CONCURRENCY=$(( CONCURRENCY < SELECTED_COUNT ? CONCURRENCY : SELECTED_COUNT ))
 
 # ========================================
+# Git checkout/base-anchor checks (hard-fail)
+# ========================================
+#
+# Worker base-anchor contract (enforced by worker-prompt.md):
+# Workers are created at BASE_COMMIT in detached HEAD state.
+# Do NOT run `git checkout <BASE_BRANCH>` in worker setup because the coordinator
+# checkout may already have that branch checked out. Each worker asserts
+# HEAD == BASE_COMMIT before creating its explore branch.
+# A HEAD mismatch is a fatal worker error.
+# Workers MUST run only targeted tests for the files they touched, not the full test suite.
+
+if ! PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "ERROR: Git checkout is required for explore-idea." >&2
+    echo "  Workers need a real BASE_COMMIT to create anchored worktrees." >&2
+    exit 7
+fi
+
+if ! BASE_COMMIT="$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD 2>/dev/null)"; then
+    echo "ERROR: Unable to resolve BASE_COMMIT for explore-idea." >&2
+    echo "  Commit at least one revision before running explore-idea." >&2
+    exit 7
+fi
+
+BASE_BRANCH="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")"
+
+# ========================================
 # Dirty checkout check (hard-fail)
 # ========================================
 
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 DIRTY_FILES="$(git -C "$PROJECT_ROOT" diff --name-only HEAD -- 2>/dev/null || true)"
 if [[ -n "$DIRTY_FILES" ]]; then
     echo "ERROR: Main checkout has uncommitted tracked changes." >&2
@@ -424,21 +449,6 @@ fi
 CODEX_REVIEW_MODEL="gpt-5.5"
 CODEX_REVIEW_EFFORT="xhigh"
 CODEX_REVIEW_MODEL_SPEC="$CODEX_REVIEW_MODEL:$CODEX_REVIEW_EFFORT"
-
-# ========================================
-# Base branch and commit
-# ========================================
-#
-# Worker base-anchor contract (enforced by worker-prompt.md):
-# Workers are created at BASE_COMMIT in detached HEAD state.
-# Do NOT run `git checkout <BASE_BRANCH>` in worker setup because the coordinator
-# checkout may already have that branch checked out. Each worker asserts
-# HEAD == BASE_COMMIT before creating its explore branch.
-# A HEAD mismatch is a fatal worker error.
-# Workers MUST run only targeted tests for the files they touched, not the full test suite.
-
-BASE_BRANCH="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
-BASE_COMMIT="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
 
 # ========================================
 # Emit validation output

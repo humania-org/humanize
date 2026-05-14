@@ -39,8 +39,9 @@
 
 <CROSS_DIRECTION_LEARNINGS>
 
-## Suggested Gen-Plan Command
+## Suggested Productization Flow
 
 ```bash
 /humanize:gen-plan --input <FINAL_IDEA_PATH> --output <plan-path>
+/humanize:start-rlcr-loop <plan-path>
 ```

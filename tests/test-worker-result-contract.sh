@@ -140,6 +140,25 @@ else
     fail "template has Hard Constraints section"
 fi
 
+CONSTRAINTS_LINE=$(grep -n "^## Hard Constraints" "$WORKER_PROMPT" | head -1 | cut -d: -f1)
+DIRECTION_DATA_LINE=$(grep -n "^## Direction Data" "$WORKER_PROMPT" | head -1 | cut -d: -f1)
+if [[ -n "$CONSTRAINTS_LINE" && -n "$DIRECTION_DATA_LINE" && "$CONSTRAINTS_LINE" -lt "$DIRECTION_DATA_LINE" ]] \
+        && grep -qi "untrusted" "$WORKER_PROMPT"; then
+    pass "hard constraints appear before untrusted direction data"
+else
+    fail "hard constraints appear before untrusted direction data" \
+        "Hard Constraints before Direction Data with untrusted-data warning" \
+        "constraints_line=$CONSTRAINTS_LINE direction_data_line=$DIRECTION_DATA_LINE"
+fi
+
+if ! sed -n '/```bash/,/```/p' "$WORKER_PROMPT" | grep -q "<DIRECTION_NAME>"; then
+    pass "bash snippets avoid untrusted DIRECTION_NAME interpolation"
+else
+    fail "bash snippets avoid untrusted DIRECTION_NAME interpolation" \
+        "no <DIRECTION_NAME> inside bash code fences" \
+        "found"
+fi
+
 # No nested Skills constraint
 if grep -q "nested Skills" "$WORKER_PROMPT" || grep -q "No nested" "$WORKER_PROMPT"; then
     pass "template forbids nested skills/slash commands"

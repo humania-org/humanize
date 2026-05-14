@@ -109,6 +109,12 @@ Launches bounded parallel prototype workers — one per selected direction — e
 - `explore-report.md` — audit report with two-tier rankings, adoption paths, and cleanup guidance
 - `final-idea.md` — plan-ready synthesis artifact for `/humanize:gen-plan`
 
+Default follow-up:
+```bash
+/humanize:gen-plan --input .humanize/explore/<run-id>/final-idea.md --output docs/plan.md
+/humanize:start-rlcr-loop docs/plan.md
+```
+
 ### start-rlcr-loop
 
 ```

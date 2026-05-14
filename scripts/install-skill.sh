@@ -144,6 +144,34 @@ sync_dir() {
     fi
 }
 
+canonical_path_for_compare() {
+    local path="$1"
+    local dir base
+
+    if [[ -e "$path" ]]; then
+        realpath "$path" 2>/dev/null && return
+    fi
+
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    if [[ -d "$dir" ]]; then
+        printf '%s/%s\n' "$(cd "$dir" && pwd -P)" "$base"
+        return
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$path" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(os.path.abspath(sys.argv[1])))
+PY
+        return
+    fi
+
+    printf '%s\n' "$path"
+}
+
 sync_one_skill() {
     local skill="$1"
     local target_dir="$2"
@@ -478,8 +506,8 @@ if [[ -n "$LEGACY_SKILLS_DIR" ]]; then
 fi
 
 if [[ "$TARGET" == "both" ]]; then
-    _kimi_real="$(realpath "$KIMI_SKILLS_DIR" 2>/dev/null || echo "$KIMI_SKILLS_DIR")"
-    _codex_real="$(realpath "$CODEX_SKILLS_DIR" 2>/dev/null || echo "$CODEX_SKILLS_DIR")"
+    _kimi_real="$(canonical_path_for_compare "$KIMI_SKILLS_DIR")"
+    _codex_real="$(canonical_path_for_compare "$CODEX_SKILLS_DIR")"
     if [[ "$_kimi_real" == "$_codex_real" ]]; then
         die "--target both requires distinct kimi and codex skills dirs; both resolved to: $_kimi_real (use --kimi-skills-dir and --codex-skills-dir to set separate paths)"
     fi

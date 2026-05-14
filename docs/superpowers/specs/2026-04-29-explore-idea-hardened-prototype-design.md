@@ -304,7 +304,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" \
   "<prompt>"
 ```
 
-`ask-codex.sh` must disable nested Codex hooks when supported, using the same `--disable codex_hooks` probing pattern already used by the RLCR stop hook and `bitlesson-select.sh`.
+`ask-codex.sh` must disable nested Codex hooks when supported, using the same `--disable hooks` probing pattern already used by the RLCR stop hook and `bitlesson-select.sh`.
 
 The spec does not use `--effort max`; that flag is not supported by the current script.
 

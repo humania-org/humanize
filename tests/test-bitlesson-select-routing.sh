@@ -494,4 +494,13 @@ else
         "exit=$exit_code, stdout=$stdout_out, args=$captured_args"
 fi
 
+if ! grep -q 'echo "$codex_help_output" | grep -q' "$BITLESSON_SELECT" \
+        && ! grep -q 'echo "$codex_exec_help_output" | grep -q' "$BITLESSON_SELECT"; then
+    pass "Codex selector probes help output without echo|grep pipefail hazard"
+else
+    fail "Codex selector probes help output without echo|grep pipefail hazard" \
+        "no echo help-output | grep -q probes" \
+        "pipefail-prone probe still present"
+fi
+
 print_test_summary "Bitlesson Select Routing Test Summary"

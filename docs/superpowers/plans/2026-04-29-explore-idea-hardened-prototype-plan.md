@@ -140,7 +140,7 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
 
 - AC-13: `ask-codex.sh` auto-probes Codex CLI support and disables nested hooks when supported; existing hook tests pass unchanged
   - Positive Tests (expected to PASS):
-    - When the installed Codex CLI supports `--disable codex_hooks`: `ask-codex.sh` includes that flag in all invocations automatically, without any caller-side flag
+    - When the installed Codex CLI supports `--disable hooks`: `ask-codex.sh` includes that flag in all invocations automatically, without any caller-side flag
     - `tests/test-ask-codex.sh` includes a case verifying the auto-probe and flag injection behavior
   - Negative Tests (expected to FAIL):
     - `tests/test-disable-nested-codex-hooks.sh` fails after the `ask-codex.sh` change: this is a regression that must be fixed before merging
@@ -234,7 +234,7 @@ jq -e '
 
 **PR-B: `ask-codex.sh` auto-probe**
 
-Check if the installed Codex CLI supports `--disable codex_hooks` by probing with `codex --help 2>&1 | grep -q 'disable'` (or equivalent). Store the result and unconditionally include the flag when supported. Follow the same pattern already used in `hooks/lib/loop-codex-stop-hook.sh` and `scripts/bitlesson-select.sh`.
+Check if the installed Codex CLI supports `--disable hooks` by capturing `codex --help` and grepping the captured output for `--disable`. Store the result and unconditionally include the flag when supported. Follow the same pattern already used in `hooks/lib/loop-codex-stop-hook.sh` and `scripts/bitlesson-select.sh`.
 
 **PR-B: Run state before dispatch**
 
@@ -743,7 +743,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" \
   "<prompt>"
 ```
 
-`ask-codex.sh` must disable nested Codex hooks when supported, using the same `--disable codex_hooks` probing pattern already used by the RLCR stop hook and `bitlesson-select.sh`.
+`ask-codex.sh` must disable nested Codex hooks when supported, using the same `--disable hooks` probing pattern already used by the RLCR stop hook and `bitlesson-select.sh`.
 
 The spec does not use `--effort max`; that flag is not supported by the current script.
 

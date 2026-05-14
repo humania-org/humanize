@@ -139,8 +139,16 @@ trim_string() {
 }
 
 collapse_whitespace() {
-    printf '%s' "$1" | tr '\n' ' ' | tr -s ' ' | sed 's/^ //; s/ $//'
+    printf '%s' "$1" | tr '[:space:]' ' ' | tr -s ' ' | sed 's/^ //; s/ $//'
 }
+
+if [[ "$(collapse_whitespace $'alpha\tbeta\n gamma')" == "alpha beta gamma" ]]; then
+    pass "collapse_whitespace normalizes tabs and newlines"
+else
+    fail "collapse_whitespace normalizes tabs and newlines" \
+        "alpha beta gamma" \
+        "$(collapse_whitespace $'alpha\tbeta\n gamma')"
+fi
 
 VALIDATOR_OUTPUT=""
 VALIDATOR_EXIT_CODE=0

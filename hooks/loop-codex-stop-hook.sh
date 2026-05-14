@@ -1161,11 +1161,14 @@ CODEX_DISABLE_HOOKS_ARGS=()
 _CODEX_FEATURE_CACHE="$CACHE_DIR/.codex-disable-hooks-supported"
 if [[ -f "$_CODEX_FEATURE_CACHE" ]]; then
     [[ "$(cat "$_CODEX_FEATURE_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
-elif codex --help 2>&1 | grep -q -- '--disable'; then
-    CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
-    echo "yes" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
 else
-    echo "no" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    CODEX_HELP_OUTPUT="$(codex --help </dev/null 2>&1 || true)"
+    if grep -q -- '--disable' <<< "$CODEX_HELP_OUTPUT"; then
+        CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
+        echo "yes" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    else
+        echo "no" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    fi
 fi
 
 # Build command arguments for summary review (codex exec)
