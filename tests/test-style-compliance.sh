@@ -41,7 +41,10 @@ _pass() { printf '\033[0;32mPASS\033[0m: %s\n' "$1"; PASS_COUNT=$((PASS_COUNT+1)
 _fail() { printf '\033[0;31mFAIL\033[0m: %s\n' "$1"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 # Step 1: every .sh and .py under viz/.
-mapfile -t CORE_FILES < <(
+CORE_FILES=()
+while IFS= read -r f; do
+    CORE_FILES+=("$f")
+done < <(
     find "$PLUGIN_ROOT/viz" \
         -type f \( -name '*.sh' -o -name '*.py' \) \
         -not -path "*/__pycache__/*" \

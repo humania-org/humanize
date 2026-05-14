@@ -11,12 +11,58 @@ import logging
 import os
 import re
 import subprocess
-import yaml
 from datetime import datetime
 
 import rlcr_sources
 
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - exercised by shell tests
+    yaml = None
+
 logger = logging.getLogger(__name__)
+
+
+def _coerce_yaml_scalar(value):
+    """Parse the simple scalar values used in Humanize state frontmatter."""
+    value = value.strip()
+    if value == '':
+        return ''
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        return value[1:-1]
+    lowered = value.lower()
+    if lowered == 'true':
+        return True
+    if lowered == 'false':
+        return False
+    if lowered in {'null', 'none', '~'}:
+        return None
+    if re.fullmatch(r'-?[0-9]+', value):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _safe_load_frontmatter(text):
+    """Load frontmatter, falling back to a small key/value parser without PyYAML."""
+    if yaml is not None:
+        return yaml.safe_load(text) or {}
+
+    meta = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#') or ':' not in line:
+            continue
+        key, value = line.split(':', 1)
+        key = key.strip()
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', key):
+            continue
+        meta[key] = _coerce_yaml_scalar(value)
+    return meta
 
 
 def _derive_project_root(session_dir):
@@ -64,8 +110,8 @@ def parse_yaml_frontmatter(filepath):
         return {}, content
 
     try:
-        meta = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
+        meta = _safe_load_frontmatter(parts[1])
+    except Exception:
         meta = {}
 
     body = parts[2].strip()
