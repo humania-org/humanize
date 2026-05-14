@@ -266,6 +266,10 @@ After Claude candidate plan v1 is ready, run iterative challenge/refine rounds w
      "${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh" "<review current candidate plan>"
      ```
    - Prompt MUST include current candidate plan, prior disagreements, and unresolved items
+   - Prompt MUST include the RLCR plan contract: `AC-*` items are current RLCR completion gates; deferred, future, out-of-scope, post-work, or successor-loop goals must be represented as `FUT-*` under `## Future Work / Out of Scope`, optionally with a current-loop handoff AC.
+   - Prompt MUST require Codex to inspect each AC for deferral semantics. If any AC claims the real work happens outside this RLCR loop, Codex MUST put it under `REQUIRED_CHANGES`, not `OPTIONAL_IMPROVEMENTS`.
+   - Prompt MUST require a hard keyword scan within each AC body. Treat these strings as blocking unless the AC follows the Handoff AC Pattern and the current-loop verification is complete without performing future work: `TODO`, `TBD`, `deferred`, `future`, `follow-up`, `subsequent`, `next phase`, `next iteration`, `next milestone`, `next loop`, `v2`, `v.next`, `Phase II`, `left for`, `to be implemented in`, `see FUT-`.
+   - Prompt MUST require AC/Task bidirectional coverage: every `AC-*` is targeted by at least one Task Breakdown row; every Task Breakdown row targets at least one current-scope `AC-*`; no task target may be empty, `-`, `FUT-*`, or `DEC-*`.
    - Require output format:
      - `AGREE:` points accepted as reasonable
      - `DISAGREE:` points considered unreasonable and why
@@ -384,6 +388,7 @@ Deeply think and generate the plan.md following these rules:
 ## Acceptance Criteria
 
 Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
+`AC-*` items are current RLCR completion gates: they must describe work that this implementation loop must complete and verify. Do not encode deferred, future, out-of-scope, post-work, or successor-loop goals as `AC-*`.
 
 - AC-1: <First criterion>
   - Positive Tests (expected to PASS):
@@ -399,6 +404,21 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
   - Positive Tests: <...>
   - Negative Tests: <...>
 ...
+
+### Handoff AC Pattern
+
+Use this pattern only when the draft contains a legitimate future goal that must be preserved without making it part of the current RLCR completion gate.
+
+- AC-X: Handoff for <future goal> is complete without performing the future work.
+  - Future Work Reference: FUT-Y
+  - Positive Tests (expected to PASS):
+    - <Current-loop artifact/state/documentation exists>
+    - <Handoff documentation explains resume commands, prerequisites, and success criteria>
+    - <The implementation remains in the explicitly chosen current-loop state, e.g. disabled/scaffold/report-only>
+  - Negative Tests (expected to FAIL):
+    - <The implementation claims the future goal is complete>
+    - <The implementation enables or performs out-of-scope future work>
+    - <The handoff documentation omits resume steps>
 
 ## Path Boundaries
 
@@ -450,10 +470,21 @@ Each task must include exactly one routing tag:
 - `coding`: implemented by Claude
 - `analyze`: executed via Codex (`/humanize:ask-codex`)
 
+Every `AC-*` must be covered by at least one task. Every task must target at least one `AC-*`. Do not target `FUT-*`, `DEC-*`, or `-` in the Target AC column.
+
 | Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
 |---------|-------------|-----------|----------------------------|------------|
 | task1 | <...> | AC-1 | coding | - |
 | task2 | <...> | AC-2 | analyze | task1 |
+
+## Future Work / Out of Scope
+
+Future, deferred, post-work, successor-loop, and out-of-scope items belong here, not under `## Acceptance Criteria`.
+
+- FUT-1: <Future item that is not required for this RLCR loop>
+  - Source DEC: DEC-1
+  - Current-loop handoff: AC-X
+  - Promotion trigger: <Condition or follow-up loop that should promote this to a current-scope AC>
 
 ## Claude-Codex Deliberation
 
@@ -510,23 +541,33 @@ When `alternative_plan_language` is empty, absent, set to `"English"`, or set to
 
 5. **AC Format**: All acceptance criteria must use AC-X or AC-X.Y format.
 
-6. **Clear Dependencies**: Show what depends on what, not when things happen.
+6. **Current-Scope AC Contract**: `AC-*` items are the current RLCR completion gate. Do NOT create deferred ACs. Any deferred, future, out-of-scope, post-work, successor-task, or successor-loop goal must be written as `FUT-*` under `## Future Work / Out of Scope`, optionally linked to a current-loop Handoff AC.
 
-7. **TDD-Style Tests**: Each acceptance criterion MUST include both positive tests (expected to pass) and negative tests (expected to fail). This follows Test-Driven Development philosophy and enables deterministic verification.
+7. **Deferred AC Keyword Guard**: Before finalizing, scan each AC body for deferral markers: `TODO`, `TBD`, `deferred`, `future`, `follow-up`, `subsequent`, `next phase`, `next iteration`, `next milestone`, `next loop`, `v2`, `v.next`, `Phase II`, `left for`, `to be implemented in`, and `see FUT-`. If any marker means the AC's real work is outside this loop, rewrite the item as a current-loop handoff AC plus a `FUT-*` item, or move it entirely to future work.
 
-8. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
+8. **Handoff AC Pattern**: When preserving a future goal, write a current-loop AC only for the handoff state/artifact/documentation. The handoff AC may reference `FUT-*`, but its positive and negative tests must be fully verifiable in this loop and must not require completing the future work.
 
-9. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
+9. **AC/Task Bidirectional Coverage**: Every `AC-*` must be covered by at least one Task Breakdown row. Every Task Breakdown row must target at least one current-scope `AC-*`. No row may use an empty target, `-`, `FUT-*`, or `DEC-*` as its Target AC.
 
-10. **Code Style Constraint**: The generated plan MUST include a section or note instructing that implementation code and comments should NOT contain plan-specific progress terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers. These terms belong in the plan document, not in the resulting codebase.
+10. **DEC/FUT Linkage**: If a resolved decision defers work, the decision resolution must explicitly reference a `FUT-*` item. Each `FUT-*` item caused by a decision must include `Source DEC: DEC-N`. If there is a current-loop handoff, both the DEC and FUT entry should reference the handoff AC.
 
-11. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 6 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
+11. **Clear Dependencies**: Show what depends on what, not when things happen.
 
-12. **Debate Traceability**: The plan MUST include Codex-first findings, Claude/Codex agreements, resolved disagreements, and unresolved decisions. Unresolved opposite opinions MUST be recorded in `## Pending User Decisions` for explicit user decision.
+12. **TDD-Style Tests**: Each acceptance criterion MUST include both positive tests (expected to pass) and negative tests (expected to fail). This follows Test-Driven Development philosophy and enables deterministic verification.
 
-13. **Convergence Requirement**: The plan MUST record Claude/Codex agreements, resolved disagreements, and final convergence status in `## Claude-Codex Deliberation`. Stop only when convergence conditions are met or max rounds reached with explicit carry-over decisions.
+13. **Affirmative Path Boundaries**: Describe upper and lower bounds using affirmative language (what IS acceptable) rather than negative language (what is NOT acceptable).
 
-14. **Task Tag Requirement**: The plan MUST include `## Task Breakdown`, and every task MUST be tagged as either `coding` or `analyze` (no untagged tasks, no other tag values).
+14. **Respect Deterministic Designs**: If the draft specifies a fixed approach with no choices, reflect this in the plan by narrowing the path boundaries to match the user's specification.
+
+15. **Code Style Constraint**: The generated plan MUST include a section or note instructing that implementation code and comments should NOT contain plan-specific progress terminology such as "AC-", "Milestone", "Step", "Phase", or similar workflow markers. These terms belong in the plan document, not in the resulting codebase.
+
+16. **Draft Completeness Requirement**: The generated plan MUST incorporate ALL information from the input draft document without omission. The draft represents the most valuable human input and must be fully preserved. Any clarifications obtained through Phase 6 should be added incrementally to the draft's original content, never replacing or losing any original requirements. The final plan must be a superset of the draft information plus all clarified details.
+
+17. **Debate Traceability**: The plan MUST include Codex-first findings, Claude/Codex agreements, resolved disagreements, and unresolved decisions. Unresolved opposite opinions MUST be recorded in `## Pending User Decisions` for explicit user decision.
+
+18. **Convergence Requirement**: The plan MUST record Claude/Codex agreements, resolved disagreements, and final convergence status in `## Claude-Codex Deliberation`. Stop only when convergence conditions are met or max rounds reached with explicit carry-over decisions.
+
+19. **Task Tag Requirement**: The plan MUST include `## Task Breakdown`, and every task MUST be tagged as either `coding` or `analyze` (no untagged tasks, no other tag values).
 
 ---
 
@@ -549,6 +590,10 @@ After updating, **read the complete plan file** and verify:
 - The structured plan aligns with the original draft content
 - Claude/Codex disagreement handling is explicit and correctly reflected
 - No contradictions exist between different parts of the document
+- No `AC-*` contains deferred, future, out-of-scope, post-work, or successor-loop semantics except as a valid Handoff AC whose current-loop verification is complete without performing future work
+- Every `AC-*` is covered by at least one Task Breakdown row, and every Task Breakdown row targets at least one current-scope `AC-*`
+- Every decision that defers work links to a `FUT-*` entry, and every such `FUT-*` entry links back with `Source DEC: DEC-N`
+- Items under `## Future Work / Out of Scope` use `FUT-*`, not `AC-*`, and are not listed as current-scope Task Breakdown work
 
 If inconsistencies are found, fix them using the Edit tool.
 

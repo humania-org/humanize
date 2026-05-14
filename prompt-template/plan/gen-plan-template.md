@@ -6,6 +6,7 @@
 ## Acceptance Criteria
 
 Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
+`AC-*` items are current RLCR completion gates: they must describe work that this implementation loop must complete and verify. Do not encode deferred, future, out-of-scope, post-work, or successor-loop goals as `AC-*`.
 
 - AC-1: <First criterion>
   - Positive Tests (expected to PASS):
@@ -21,6 +22,21 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
   - Positive Tests: <...>
   - Negative Tests: <...>
 ...
+
+### Handoff AC Pattern
+
+Use this pattern only when the draft contains a legitimate future goal that must be preserved without making it part of the current RLCR completion gate.
+
+- AC-X: Handoff for <future goal> is complete without performing the future work.
+  - Future Work Reference: FUT-Y
+  - Positive Tests (expected to PASS):
+    - <Current-loop artifact/state/documentation exists>
+    - <Handoff documentation explains resume commands, prerequisites, and success criteria>
+    - <The implementation remains in the explicitly chosen current-loop state, e.g. disabled/scaffold/report-only>
+  - Negative Tests (expected to FAIL):
+    - <The implementation claims the future goal is complete>
+    - <The implementation enables or performs out-of-scope future work>
+    - <The handoff documentation omits resume steps>
 
 ## Path Boundaries
 
@@ -72,10 +88,21 @@ Each task must include exactly one routing tag:
 - `coding`: implemented by Claude
 - `analyze`: executed via Codex (`/humanize:ask-codex`)
 
+Every `AC-*` must be covered by at least one task. Every task must target at least one `AC-*`. Do not target `FUT-*`, `DEC-*`, or `-` in the Target AC column.
+
 | Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
 |---------|-------------|-----------|----------------------------|------------|
 | task1 | <...> | AC-1 | coding | - |
 | task2 | <...> | AC-2 | analyze | task1 |
+
+## Future Work / Out of Scope
+
+Future, deferred, post-work, successor-loop, and out-of-scope items belong here, not under `## Acceptance Criteria`.
+
+- FUT-1: <Future item that is not required for this RLCR loop>
+  - Source DEC: DEC-1
+  - Current-loop handoff: AC-X
+  - Promotion trigger: <Condition or follow-up loop that should promote this to a current-scope AC>
 
 ## Claude-Codex Deliberation
 

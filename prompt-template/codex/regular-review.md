@@ -7,6 +7,9 @@
 
 You MUST read this plan file first to understand the full scope of work before conducting your review.
 This plan contains the complete requirements and implementation details that Claude should be following.
+Only items under `## Acceptance Criteria` and current-scope Task Breakdown rows are completion gates.
+Items under `## Future Work` / `## Out of Scope`, including `FUT-*` items, are informational and MUST NOT block the COMPLETE verdict.
+If a current-scope AC or current-scope task is deferred, treat it as incomplete.
 
 Based on the original plan and @{{PROMPT_FILE}}, Claude claims to have completed the work. Please conduct a thorough critical review to verify this.
 
@@ -23,7 +26,7 @@ Below is Claude's summary of the work completed:
 
 - Your task is to conduct a deep critical review, focusing on finding implementation issues and identifying gaps between "plan-design" and actual implementation.
 - Relevant top-level guidance documents, phased implementation plans, and other important documentation and implementation references are located under @{{DOCS_PATH}}.
-- If Claude planned to defer any tasks to future phases in its summary, DO NOT follow its lead. Instead, you should force Claude to complete ALL tasks as planned.
+- If Claude planned to defer any current-scope tasks to future phases in its summary, DO NOT follow its lead. Instead, you should force Claude to complete ALL current-scope tasks as planned.
   - Such deferred tasks are considered incomplete work and should be flagged in your review comments, requiring Claude to address them.
   - If Claude planned to defer any tasks, please explore the codebase in-depth and draft a detailed implementation plan. This plan should be included in your review comments for Claude to follow.
   - Your review should be meticulous and skeptical. Look for any discrepancies, missing features, incomplete implementations.
@@ -69,8 +72,8 @@ If Claude mostly worked on queued side issues and failed to advance the mainline
 - In short, your review comments can include: problems/findings/blockers; claims that don't match reality; implementation plans for deferred work (to be implemented now); implementation plans for unfinished work; goal alignment issues.
 - Your output should be structured so Claude can tell which items are mainline gaps, blocking side issues, and queued side issues.
 - If after your investigation the actual situation does not match what Claude claims to have completed, or there is pending work to be done, output your review comments to @{{REVIEW_RESULT_FILE}}.
-- **CRITICAL**: Only output "COMPLETE" as the last line if ALL tasks from the original plan are FULLY completed with no deferrals
+- **CRITICAL**: Only output "COMPLETE" as the last line if ALL current-scope tasks from the original plan are FULLY completed with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any task is deferred
   - UNFINISHED items are considered INCOMPLETE - do NOT output COMPLETE if any task is pending
-  - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals or pending work allowed
+  - The ONLY condition for COMPLETE is: all current-scope original plan tasks are done, all current-scope ACs are met, no current-scope deferrals or pending work allowed
 - The word COMPLETE on the last line will stop Claude.

@@ -8,6 +8,9 @@ This is a **mandatory checkpoint** (at configurable intervals). You must conduct
 @{{PLAN_FILE}}
 
 You MUST read this plan file first to understand the full scope of work before conducting your review.
+Only items under `## Acceptance Criteria` and current-scope Task Breakdown rows are completion gates.
+Items under `## Future Work` / `## Out of Scope`, including `FUT-*` items, are informational and MUST NOT block the COMPLETE verdict.
+If a current-scope AC or current-scope task is deferred, treat it as incomplete.
 
 ---
 ## Claude's Work Summary
@@ -103,12 +106,12 @@ The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the histor
 
 ## Part 6: Output Requirements
 
-- If issues found OR any AC is NOT MET (including deferred ACs), write your findings to @{{REVIEW_RESULT_FILE}}
+- If issues found OR any current-scope AC is NOT MET (including deferred current-scope ACs), write your findings to @{{REVIEW_RESULT_FILE}}
 - Include specific action items for Claude to address, classified into:
   - Mainline Gaps
   - Blocking Side Issues
   - Queued Side Issues
 - **If development is stagnating** (see Part 4), write "STOP" as the last line
-- **CRITICAL**: Only write "COMPLETE" as the last line if ALL ACs from the original plan are FULLY MET with no deferrals
-  - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any AC is deferred
-  - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals allowed
+- **CRITICAL**: Only write "COMPLETE" as the last line if ALL current-scope ACs from the original plan are FULLY MET with no deferrals
+  - DEFERRED current-scope items are considered INCOMPLETE - do NOT output COMPLETE if any current-scope AC is deferred
+  - The ONLY condition for COMPLETE is: all current-scope original plan tasks are done, all current-scope ACs are met, no current-scope deferrals allowed

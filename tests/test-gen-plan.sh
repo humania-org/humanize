@@ -121,6 +121,8 @@ fi
 echo ""
 echo "PT-5b: Claude/Codex deliberation workflow validation"
 PLAN_TEMPLATE="$PROJECT_ROOT/prompt-template/plan/gen-plan-template.md"
+REGULAR_REVIEW_TEMPLATE="$PROJECT_ROOT/prompt-template/codex/regular-review.md"
+FULL_ALIGNMENT_TEMPLATE="$PROJECT_ROOT/prompt-template/codex/full-alignment-review.md"
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "scripts/ask-codex.sh" "$GEN_PLAN_CMD"; then
     pass "gen-plan command allows ask-codex script"
@@ -232,6 +234,69 @@ if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "Tag (\`coding\`/\`analyze\`)" "$PLAN_TE
     pass "plan template includes coding/analyze task tag column"
 else
     fail "plan template includes coding/analyze task tag column" "tag column in task table" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "### Handoff AC Pattern" "$PLAN_TEMPLATE"; then
+    pass "plan template includes handoff AC pattern"
+else
+    fail "plan template includes handoff AC pattern" "Handoff AC Pattern section" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Future Work / Out of Scope" "$PLAN_TEMPLATE" && grep -q "FUT-1" "$PLAN_TEMPLATE"; then
+    pass "plan template includes FUT future-work section"
+else
+    fail "plan template includes FUT future-work section" "Future Work / Out of Scope with FUT-* example" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "current RLCR completion gates" "$PLAN_TEMPLATE"; then
+    pass "plan template defines ACs as current RLCR completion gates"
+else
+    fail "plan template defines ACs as current RLCR completion gates" "current RLCR completion gates contract" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -q "Deferred AC Keyword Guard" "$GEN_PLAN_CMD" \
+   && grep -q "next phase" "$GEN_PLAN_CMD" \
+   && grep -q "to be implemented in" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include deferred AC keyword guard"
+else
+    fail "gen-plan generation rules include deferred AC keyword guard" "Deferred AC Keyword Guard with keyword list" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "AC/Task Bidirectional Coverage" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include AC/task bidirectional coverage"
+else
+    fail "gen-plan generation rules include AC/task bidirectional coverage" "AC/Task Bidirectional Coverage rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "DEC/FUT Linkage" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include DEC/FUT linkage"
+else
+    fail "gen-plan generation rules include DEC/FUT linkage" "DEC/FUT Linkage rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -q "REQUIRED_CHANGES" "$GEN_PLAN_CMD" \
+   && grep -q "real work happens outside this RLCR loop" "$GEN_PLAN_CMD"; then
+    pass "gen-plan codex review requires semantic deferred-AC detection"
+else
+    fail "gen-plan codex review requires semantic deferred-AC detection" "REQUIRED_CHANGES for ACs whose real work happens outside the loop" "missing"
+fi
+
+if [[ -f "$REGULAR_REVIEW_TEMPLATE" ]] \
+   && grep -q "FUT-\\*" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "MUST NOT block the COMPLETE verdict" "$REGULAR_REVIEW_TEMPLATE"; then
+    pass "regular RLCR review template excludes FUT items from COMPLETE gate"
+else
+    fail "regular RLCR review template excludes FUT items from COMPLETE gate" "FUT-* items MUST NOT block COMPLETE" "missing"
+fi
+
+if [[ -f "$FULL_ALIGNMENT_TEMPLATE" ]] \
+   && grep -q "FUT-\\*" "$FULL_ALIGNMENT_TEMPLATE" \
+   && grep -q "MUST NOT block the COMPLETE verdict" "$FULL_ALIGNMENT_TEMPLATE"; then
+    pass "full-alignment RLCR review template excludes FUT items from COMPLETE gate"
+else
+    fail "full-alignment RLCR review template excludes FUT items from COMPLETE gate" "FUT-* items MUST NOT block COMPLETE" "missing"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "### Step 1.5: Consolidate Pending User Decisions" "$GEN_PLAN_CMD"; then
