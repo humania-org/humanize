@@ -1,0 +1,53 @@
+<h2-workflow id="team-intervention-smoke" name="Team Intervention Smoke" version="0.1.0" schema="humanize2.workflow.html.v1">
+  <h2-manifest>
+    <h2-capability name="agent" tools="codex,claude"></h2-capability>
+    <h2-capability name="artifact" schemas="team.workerResult.v1,team.captainResult.v1"></h2-capability>
+    <h2-capability name="script" allow="test.pass"></h2-capability>
+    <h2-capability name="view"></h2-capability>
+  </h2-manifest>
+
+  <h2-state>
+    <h2-board id="team-board" schema="team.board.v1"></h2-board>
+    <h2-artifact name="worker-1-final" schema="team.workerResult.v1"></h2-artifact>
+    <h2-artifact name="worker-2-final" schema="team.workerResult.v1"></h2-artifact>
+    <h2-artifact name="worker-3-final" schema="team.workerResult.v1"></h2-artifact>
+    <h2-artifact name="team-summary" schema="team.captainResult.v1"></h2-artifact>
+  </h2-state>
+
+  <h2-template id="captain-prompt" type="prompt">
+    You are the captain for a Humanize2 team-intervention smoke run. This workflow expects you, the captain, to coordinate the whole team through Humanize2 and then deliver the final artifact named team-summary.
+
+    Use Humanize2 MCP tools directly when available. The workflow context also includes a JSON-RPC URL as a fallback for the same operations. Do not create workers by writing handoff files.
+
+    Do this exact workflow:
+    1. Create three managed worker agent sessions for yourself with agent_spawn_child. Omit parentRunId so Humanize2 uses your current run as the logical parent.
+       Worker 1: agent codex, shortName team-worker-1, cwd inherited from this run, timeoutMs 900000.
+       Worker 2: agent claude, shortName team-worker-2, cwd inherited from this run, timeoutMs 900000.
+       Worker 3: agent codex, shortName team-worker-3, cwd inherited from this run, timeoutMs 900000.
+    2. Give each worker an initial prompt that tells it to write a local note under temp/team-worker-N.md, record initial task A/B/C with local timestamp and cwd, wait 90 seconds before finalizing unless a Humanize2 message changes the task, then deliver worker-N-final through Humanize2 with schema team.workerResult.v1 and producer worker-N.
+    3. Wait 25 seconds after all three workers are created.
+    4. Use agent_send_message to change worker 1 from task A to final task D, worker 2 from task B to final task E, and worker 3 from task C to final task F. Keep the same output files.
+    5. Wait for the worker runs or their continuation runs to stop with agent_wait.
+    6. Patch board team-board with status ok and a short summary of worker final tasks.
+    7. Deliver artifact team-summary through Humanize2 with schema team.captainResult.v1, producer captain, and content containing status ok plus the worker run ids, worker artifact names, and final tasks D/E/F.
+
+    Do not finish until team-summary has been delivered.
+  </h2-template>
+
+  <h2-flow>
+    <h2-script id="preflight" uses="test.pass"></h2-script>
+    <h2-agent id="captain" role="captain" tool="codex" prompt="#captain-prompt" short-name="team-captain" timeout="20m">
+      <h2-expect artifact="team-summary" schema="team.captainResult.v1"></h2-expect>
+    </h2-agent>
+    <h2-transform id="team-board-result" from="artifact.team-summary" to="board.team-board"></h2-transform>
+    <h2-script id="complete" uses="test.pass"></h2-script>
+  </h2-flow>
+
+  <h2-view slot="properties">
+    <section data-h2-view="team-board">
+      <h3>Team Intervention Smoke</h3>
+      <p>Status: <span data-h2-bind="board.team-board.status">Waiting for captain summary.</span></p>
+      <p>Primary final tasks: <span data-h2-bind="board.team-board.finalTasks">-</span></p>
+    </section>
+  </h2-view>
+</h2-workflow>

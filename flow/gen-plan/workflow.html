@@ -1,0 +1,72 @@
+<h2-workflow id="gen-plan" name="Generate Plan" version="0.1.0" schema="humanize2.workflow.html.v1">
+  <h2-manifest>
+    <h2-capability name="agent" tools="claude,codex"></h2-capability>
+    <h2-capability name="artifact" schemas="plan.draft.v1,plan.relevance.v1,plan.analysis.v1,plan.candidate.v1,plan.verdict.v1,plan.final.v1,plan.humanDecision.v1"></h2-capability>
+    <h2-capability name="script" allow="humanize.validatePlanInput,humanize.resolveProjectConfig"></h2-capability>
+    <h2-capability name="human-input"></h2-capability>
+    <h2-capability name="view"></h2-capability>
+  </h2-manifest>
+
+  <h2-state>
+    <h2-board id="plan-convergence" schema="plan.convergence.v1"></h2-board>
+  </h2-state>
+
+  <h2-template id="relevance-prompt" type="prompt">
+    Inspect the delivered idea draft and repository context. Deliver plan-relevance with relevant or not-relevant status and a concise reason.
+  </h2-template>
+  <h2-template id="analysis-prompt" type="prompt">
+    Review the delivered draft before planning. Deliver plan-first-pass-analysis with risks, missing requirements, technical gaps, alternatives, questions, and candidate criteria.
+  </h2-template>
+  <h2-template id="candidate-prompt" type="prompt">
+    Use the draft, relevance result, first-pass analysis, and any prior convergence verdict to produce a candidate implementation plan.
+    The plan must preserve all original draft content, identify risks, and include task routing tags. Deliver plan-candidate through Humanize2.
+  </h2-template>
+  <h2-template id="review-prompt" type="prompt">
+    Challenge the candidate plan for feasibility and unresolved decisions. Deliver plan-convergence-verdict through Humanize2.
+    Use status converged when no required changes remain, revise when another candidate pass is needed, or needs-human-decision when an explicit user decision is required.
+    Include agreements, disagreements, required changes, optional improvements, unresolved decisions, and convergence notes.
+  </h2-template>
+  <h2-template id="final-plan-prompt" type="prompt">
+    Generate the final plan artifact using the agreed schema. Do not implement project code.
+    The final plan must include Goal Description, Acceptance Criteria, Path Boundaries, Feasibility Hints and Suggestions, Dependencies and Sequence, Task Breakdown, Claude-Codex Deliberation, Pending User Decisions, and Implementation Notes.
+    Every Task Breakdown row must use a tag of coding or analyze.
+    Preserve the draft appendix and summarize resolved disagreements. Deliver plan-final through Humanize2.
+  </h2-template>
+
+  <h2-flow>
+    <h2-check id="validate-io" uses="humanize.validatePlanInput"></h2-check>
+    <h2-check id="load-config" uses="humanize.resolveProjectConfig"></h2-check>
+    <h2-await id="plan-draft-await" on="exists(artifact.plan-draft)"></h2-await>
+    <h2-agent id="relevance-checker" role="checker" tool="claude" prompt="#relevance-prompt" short-name="plan-relevance" timeout="20m">
+      <h2-expect artifact="plan-relevance" schema="plan.relevance.v1"></h2-expect>
+    </h2-agent>
+    <h2-agent id="first-pass-reviewer" role="reviewer" tool="codex" prompt="#analysis-prompt" short-name="plan-first-pass" timeout="30m">
+      <h2-expect artifact="plan-first-pass-analysis" schema="plan.analysis.v1"></h2-expect>
+    </h2-agent>
+    <h2-loop id="plan-convergence-loop" max="3">
+      <h2-agent id="candidate-writer" role="planner" tool="claude" prompt="#candidate-prompt" short-name="plan-candidate" timeout="45m">
+        <h2-expect artifact="plan-candidate" schema="plan.candidate.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="convergence-reviewer" role="reviewer" tool="codex" prompt="#review-prompt" short-name="plan-convergence" timeout="30m">
+        <h2-expect artifact="plan-convergence-verdict" schema="plan.verdict.v1"></h2-expect>
+      </h2-agent>
+      <h2-branch id="convergence-route" on="artifact.plan-convergence-verdict.status">
+        <h2-case value="revise" continue="plan-convergence-loop"></h2-case>
+        <h2-case value="converged" goto="final-plan-writer"></h2-case>
+        <h2-case value="needs-human-decision" goto="decision-request"></h2-case>
+        <h2-default goto="decision-request"></h2-default>
+      </h2-branch>
+    </h2-loop>
+    <h2-human id="decision-request" prompt="Resolve pending planning decisions" artifact="plan-human-decision" schema="plan.humanDecision.v1"></h2-human>
+    <h2-agent id="final-plan-writer" role="planner" tool="claude" prompt="#final-plan-prompt" short-name="plan-final" timeout="45m">
+      <h2-expect artifact="plan-final" schema="plan.final.v1"></h2-expect>
+    </h2-agent>
+  </h2-flow>
+
+  <h2-view slot="properties">
+    <section data-h2-view="plan-convergence">
+      <h3>Plan Convergence</h3>
+      <p>Status: <span data-h2-bind="board.plan-convergence.status">-</span></p>
+    </section>
+  </h2-view>
+</h2-workflow>

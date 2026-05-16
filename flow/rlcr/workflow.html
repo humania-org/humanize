@@ -1,0 +1,146 @@
+<h2-workflow id="rlcr" name="Review Loop With Code Review" version="0.1.0" schema="humanize2.workflow.html.v1">
+  <h2-manifest>
+    <h2-capability name="agent" tools="claude,codex"></h2-capability>
+    <h2-capability name="artifact" schemas="rlcr.plan.v1,rlcr.planCompliance.v1,rlcr.quiz.v1,rlcr.quizAnswer.v1,rlcr.summary.v1,rlcr.verdict.v1,rlcr.codeReview.v1,rlcr.final.v1"></h2-capability>
+    <h2-capability name="script" allow="git.statusClean,git.detectBase,rlcr.initializeGoalTracker,rlcr.updateLoopStatus,test.pass"></h2-capability>
+    <h2-capability name="human-input"></h2-capability>
+    <h2-capability name="view"></h2-capability>
+  </h2-manifest>
+
+  <h2-state>
+    <h2-board id="goal-tracker" schema="rlcr.goalTracker.v1"></h2-board>
+    <h2-board id="loop-status" schema="rlcr.loopStatus.v1"></h2-board>
+  </h2-state>
+
+  <h2-template id="plan-compliance-prompt" type="prompt">
+    Check the delivered implementation-plan against the current repository. Reject plans that are unrelated to the repository or require switching branches.
+    Deliver plan-compliance with status pass, fail-relevance, or fail-branch-switch, plus a concise reason.
+  </h2-template>
+  <h2-template id="plan-quiz-prompt" type="prompt">
+    Generate a short plan understanding quiz from implementation-plan and repository context.
+    Deliver plan-quiz with two multiple-choice questions, answers, and a concise plan summary.
+  </h2-template>
+  <h2-template id="builder-prompt" type="prompt">
+    Execute the delivered implementation plan inside the current project. Keep all coordination through Humanize2.
+    Use declared workflow input snapshots as the current contract. If review-verdict, code-review-result, or loop-status says revise, address every required follow-up and blocking finding before delivering the next round-summary.
+    Maintain the goal tracker semantics in Humanize2 boards: preserve the ultimate goal and acceptance criteria, update active work, completed verified work, deferrals, and plan evolution.
+    Read project lessons before work when available and include a BitLesson delta in the summary content.
+    When you believe the full plan is complete, deliver round-summary with completed work, verification evidence, changed paths, goal tracker updates, BitLesson delta, and remaining risks.
+  </h2-template>
+  <h2-template id="reviewer-prompt" type="prompt">
+    Review the delivered round-summary against the plan, goal tracker, and repository state.
+    Deliver review-verdict with status complete, revise, or stop, plus findings and required follow-up.
+    End the verdict with COMPLETE only when the implementation goal and acceptance criteria are satisfied and no blocking issue remains.
+  </h2-template>
+  <h2-template id="code-review-prompt" type="prompt">
+    Review the cumulative round summaries, the latest review verdict, and the repository state.
+    Deliver code-review-result with status complete or revise, plus findings and a concise summary.
+    End the summary with COMPLETE only when the final implementation is ready for finalization.
+  </h2-template>
+  <h2-template id="finalizer-prompt" type="prompt">
+    Finalize the loop after code review succeeds. Deliver rlcr-final with final status, artifacts, verification evidence, final goal tracker state, and remaining risks.
+  </h2-template>
+
+  <h2-flow>
+    <h2-check id="clean-worktree" uses="git.statusClean"></h2-check>
+    <h2-check id="base-detection" uses="git.detectBase"></h2-check>
+    <h2-await id="plan-await" on="exists(artifact.implementation-plan)"></h2-await>
+    <h2-agent id="plan-compliance-checker" role="checker" tool="claude" prompt="#plan-compliance-prompt" short-name="rlcr-plan-compliance" timeout="20m">
+      <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+      <h2-expect artifact="plan-compliance" schema="rlcr.planCompliance.v1"></h2-expect>
+    </h2-agent>
+    <h2-branch id="plan-compliance-route" on="artifact.plan-compliance.status">
+      <h2-case value="pass" goto="plan-quiz-generator"></h2-case>
+      <h2-default goto="stopped"></h2-default>
+    </h2-branch>
+    <h2-agent id="plan-quiz-generator" role="checker" tool="claude" prompt="#plan-quiz-prompt" short-name="rlcr-plan-quiz" timeout="20m">
+      <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+      <h2-expect artifact="plan-quiz" schema="rlcr.quiz.v1"></h2-expect>
+    </h2-agent>
+    <h2-human id="plan-understanding" prompt="Confirm understanding of the implementation plan before work begins" artifact="plan-quiz-answer" schema="rlcr.quizAnswer.v1"></h2-human>
+    <h2-transform id="initialize-goal-tracker" from="artifact.implementation-plan" to="board.goal-tracker" uses="rlcr.initializeGoalTracker"></h2-transform>
+    <h2-loop id="code-review-loop" max="42" counter-label="Review Round">
+      <h2-loop id="implementation-loop" max="42" counter-label="Round">
+        <h2-agent id="builder" role="builder" tool="claude" prompt="#builder-prompt" short-name="rlcr-builder" timeout="6h">
+          <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+          <h2-input artifact="review-verdict" schema="rlcr.verdict.v1" label="Latest review verdict" optional="true"></h2-input>
+          <h2-input artifact="code-review-result" schema="rlcr.codeReview.v1" label="Latest code review result" optional="true"></h2-input>
+          <h2-input board="goal-tracker" label="Goal tracker"></h2-input>
+          <h2-input board="loop-status" label="Loop status" optional="true"></h2-input>
+          <h2-expect artifact="round-summary" schema="rlcr.summary.v1"></h2-expect>
+        </h2-agent>
+        <h2-agent id="reviewer" role="reviewer" tool="codex" prompt="#reviewer-prompt" short-name="rlcr-reviewer" timeout="90m">
+          <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+          <h2-input artifact="round-summary" schema="rlcr.summary.v1" label="Latest implementation summary"></h2-input>
+          <h2-input board="goal-tracker" label="Goal tracker"></h2-input>
+          <h2-input board="loop-status" label="Loop status" optional="true"></h2-input>
+          <h2-expect artifact="review-verdict" schema="rlcr.verdict.v1"></h2-expect>
+        </h2-agent>
+        <h2-transform id="update-loop-status" from="artifact.review-verdict" to="board.loop-status" uses="rlcr.updateLoopStatus"></h2-transform>
+        <h2-branch id="review-route" on="artifact.review-verdict.status">
+          <h2-case value="revise" continue="implementation-loop"></h2-case>
+          <h2-case value="complete" goto="code-review"></h2-case>
+          <h2-case value="stop" goto="stopped"></h2-case>
+          <h2-default goto="stopped"></h2-default>
+        </h2-branch>
+      </h2-loop>
+      <h2-agent id="code-review" role="reviewer" tool="codex" prompt="#code-review-prompt" short-name="rlcr-code-review" timeout="90m">
+        <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+        <h2-input artifact="round-summary" schema="rlcr.summary.v1" label="Final implementation summary"></h2-input>
+        <h2-input artifact="review-verdict" schema="rlcr.verdict.v1" label="Final review verdict"></h2-input>
+        <h2-input board="goal-tracker" label="Goal tracker"></h2-input>
+        <h2-input board="loop-status" label="Loop status"></h2-input>
+        <h2-expect artifact="code-review-result" schema="rlcr.codeReview.v1"></h2-expect>
+      </h2-agent>
+      <h2-transform id="update-code-review-status" from="artifact.code-review-result" to="board.loop-status" uses="rlcr.updateLoopStatus"></h2-transform>
+      <h2-branch id="code-review-route" on="artifact.code-review-result.status">
+        <h2-case value="revise" continue="code-review-loop"></h2-case>
+        <h2-case value="complete" goto="finalizer"></h2-case>
+        <h2-case value="stop" goto="stopped"></h2-case>
+        <h2-default goto="stopped"></h2-default>
+      </h2-branch>
+    </h2-loop>
+    <h2-agent id="finalizer" role="finalizer" tool="claude" prompt="#finalizer-prompt" short-name="rlcr-finalizer" timeout="30m">
+      <h2-input artifact="implementation-plan" schema="rlcr.plan.v1" label="Implementation plan"></h2-input>
+      <h2-input artifact="round-summary" schema="rlcr.summary.v1" label="Final implementation summary"></h2-input>
+      <h2-input artifact="review-verdict" schema="rlcr.verdict.v1" label="Final review verdict"></h2-input>
+      <h2-input artifact="code-review-result" schema="rlcr.codeReview.v1" label="Code review result"></h2-input>
+      <h2-input board="goal-tracker" label="Goal tracker"></h2-input>
+      <h2-input board="loop-status" label="Loop status"></h2-input>
+      <h2-expect artifact="rlcr-final" schema="rlcr.final.v1"></h2-expect>
+    </h2-agent>
+    <h2-end id="complete-end"></h2-end>
+    <h2-script id="stopped" uses="test.pass"></h2-script>
+  </h2-flow>
+
+  <h2-view slot="properties">
+    <section data-h2-view="rlcr-operational-panel">
+      <h3>RLCR Status</h3>
+      <dl>
+        <dt>Round</dt>
+        <dd><span data-h2-bind="board.goal-tracker.round">-</span> / <span data-h2-bind="board.goal-tracker.maxRounds">-</span></dd>
+        <dt>Phase</dt>
+        <dd><span data-h2-bind="board.goal-tracker.phase">-</span></dd>
+        <dt>Loop status</dt>
+        <dd><span data-h2-bind="board.loop-status.status">running</span></dd>
+        <dt>Next action</dt>
+        <dd><span data-h2-bind="board.loop-status.nextAction"><span data-h2-bind="board.goal-tracker.nextAction">-</span></span></dd>
+      </dl>
+      <h4>Goal</h4>
+      <p><span data-h2-bind="board.goal-tracker.ultimateGoal">-</span></p>
+      <h4>Plan</h4>
+      <p><span data-h2-bind="board.goal-tracker.planSummary">-</span></p>
+      <h4>Operational</h4>
+      <table>
+        <tbody>
+          <tr><th>Acceptance criteria</th><td><span data-h2-bind="board.goal-tracker.acceptanceCriteriaCount">0</span></td></tr>
+          <tr><th>Tasks</th><td><span data-h2-bind="board.goal-tracker.activeTaskCount">0</span> active, <span data-h2-bind="board.goal-tracker.completedTaskCount">0</span> done, <span data-h2-bind="board.goal-tracker.deferredTaskCount">0</span> deferred</td></tr>
+          <tr><th>Issues</th><td><span data-h2-bind="board.goal-tracker.blockingIssueCount">0</span> blocking, <span data-h2-bind="board.goal-tracker.queuedIssueCount">0</span> queued</td></tr>
+          <tr><th>Git</th><td><span data-h2-bind="board.goal-tracker.gitSummary">-</span></td></tr>
+        </tbody>
+      </table>
+      <h4>Review</h4>
+      <p><span data-h2-bind="board.loop-status.reviewSummary">-</span></p>
+    </section>
+  </h2-view>
+</h2-workflow>

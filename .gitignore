@@ -16,3 +16,15 @@ temp
 # Python cache
 __pycache__/
 *.pyc
+
+# Humanize2 build artifacts and dependencies
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local superpowers cache
+.superpowers/
+
+# Humanize2 runtime state (per-user, written under ~/.h2 by default)
+.h2/

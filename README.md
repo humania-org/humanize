@@ -6,6 +6,8 @@
 
 A Claude Code plugin that provides iterative development with independent AI review. Build with confidence through continuous feedback loops.
 
+> **Note**: The `h2-dev` branch is a transitional branch that ships Humanize 1.0 features (RLCR loop, Codex review, planning commands) **and** the Humanize 2.0 platform (MCP server hub with HTML workflow cartridges) side by side. See the [Humanize 2.0 Platform](#humanize-20-platform-mcp-server-hub) section below for the new generic workflow runtime.
+
 ## What is RLCR?
 
 **RLCR** stands for **Ralph-Loop with Codex Review**, inspired by the official ralph-loop plugin and enhanced with independent Codex review. The name also reads as **Reinforcement Learning with Code Review** -- reflecting the iterative cycle where AI-generated code is continuously refined through external review feedback.
@@ -97,6 +99,66 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
 - [Install for Kimi](docs/install-for-kimi.md) -- Kimi CLI skill setup
 - [Configuration](docs/usage.md#configuration) -- Shared config hierarchy and override rules
 - [Bitter Lesson Workflow](docs/bitlesson.md) -- Project memory, selector routing, and delta validation
+
+## Humanize 2.0 Platform (MCP Server Hub)
+
+Humanize 2.0 ships alongside the 1.0 plugin on this branch. It is a local MCP server hub and HTML workflow runtime that turns Humanize from a fixed RLCR plugin into a general-purpose flow execution platform. The same human programmer keeps using familiar agent CLIs (Codex, Claude Code, Gemini CLI, Zed, etc.); the hub provides the shared workflow layer underneath.
+
+### Build
+
+The MCP server is shipped as TypeScript source and must be built once before use:
+
+```bash
+cd <plugin-root>
+npm install
+npm run build
+```
+
+### Plugin MCP Registration
+
+The plugin auto-registers a `humanize2` MCP server via `.mcp.json` at the plugin root. After building, the server starts automatically with the plugin under any MCP-capable Claude Code client.
+
+### Start the Local Hub
+
+```bash
+HUMANIZE2_PORT=4772 npm run hub
+# Open the dashboard
+xdg-open http://127.0.0.1:4772
+```
+
+The dashboard lists Agent Sessions, shows the logical session graph and Gantt timeline, and lets you select a session to inspect input history, log, and output. The hub uses `~/.h2/config.yaml` and stores run history under `~/.h2/cache` by default. Set `HUMANIZE2_CACHE_DIR` or `HUMANIZE2_DEFAULT_TIMEOUT_MS` to override those values.
+
+### MCP Tools
+
+The `humanize2` server exposes these MCP tools:
+
+- `agent_status` reports availability for configured agent backends.
+- `agent_run` accepts an explicit `agent` field and dispatches to that backend.
+- `agent_spawn_child` starts a hub-managed child run; the current run is used as the parent automatically when called from a Humanize2-managed agent.
+- `codex_run` dispatches directly to Codex CLI.
+- `claude_run` dispatches directly to Claude Code CLI.
+- `agent_send_message` sends a message to a hub-managed run. If the run is still active, the hub interrupts it and starts a linked continuation run.
+- `agent_wait` waits for a hub-managed run to finish.
+
+The hub also exposes a workflow surface (`workflow_*`, `view_*`, `board_*`, `artifact_*`, `event_*`, `human_*`) for HTML workflow cartridges under `flow/`.
+
+### Workflow Cartridges
+
+First-party flow cartridges ship under `flow/`:
+
+- `flow/rlcr` -- the legacy RLCR loop expressed as a workflow cartridge
+- `flow/gen-idea`, `flow/gen-plan`, `flow/refine-plan` -- planning workflows
+- `flow/experimental/team-intervention-smoke` -- intervention smoke test
+
+See the source under `src/` and tests under `tests/` for the full workflow grammar, MCP/RPC surface, and runtime behavior.
+
+### Development Checks
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
 
 ## License
 

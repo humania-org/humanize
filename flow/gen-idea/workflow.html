@@ -1,0 +1,80 @@
+<h2-workflow id="gen-idea" name="Generate Idea Draft" version="0.1.0" schema="humanize2.workflow.html.v1">
+  <h2-manifest>
+    <h2-capability name="agent" tools="claude,codex"></h2-capability>
+    <h2-capability name="artifact" schemas="idea.input.v1,idea.directions.v1,idea.proposal.v1,idea.draft.v1"></h2-capability>
+    <h2-capability name="script" allow="humanize.validateIdeaInput,idea.collectProposalStatus"></h2-capability>
+    <h2-capability name="view"></h2-capability>
+  </h2-manifest>
+
+  <h2-state>
+    <h2-board id="idea-scoreboard" schema="idea.scoreboard.v1"></h2-board>
+  </h2-state>
+
+  <h2-template id="direction-prompt" type="prompt">
+    Read the delivered idea-input artifact and repository context. Do not modify project files.
+    Gather repo context from README.md, local instruction files when present, and the top-level directory listing.
+    Produce exactly 6 orthogonal directions. Each direction must include a 2-5 word name and a single-sentence rationale explaining why it is distinct.
+    If fewer than 6 directions are possible after one retry, deliver at least 2 directions and include a warning field. Deliver idea-directions through Humanize2.
+  </h2-template>
+  <h2-template id="exploration-prompt" type="prompt">
+    Explore the direction assigned by your vertex id and expected artifact. Read idea-directions and select the matching ordered direction.
+    Include a verbatim copy of the original idea from idea-input in your reasoning context.
+    Explore this direction within the current repo. Gather OBJECTIVE_EVIDENCE:
+    - Specific repo paths with existing patterns worth extending.
+    - Prior art or precedent in the codebase or adjacent tooling.
+    - Measurable considerations where discoverable from reading the code.
+
+    Read-only. Do not write any files.
+
+    If no concrete evidence exists for this direction, report the literal string "exploratory, no concrete precedent" once in OBJECTIVE_EVIDENCE and stop exploring further. Fabrication of references is forbidden.
+
+    Deliver your expected idea-proposal-* artifact through Humanize2 with APPROACH_SUMMARY, OBJECTIVE_EVIDENCE, KNOWN_RISKS, and CONFIDENCE.
+  </h2-template>
+  <h2-template id="synthesis-prompt" type="prompt">
+    Synthesize the delivered exploration proposals into one Primary direction and alternatives.
+    Choose the Primary direction by evidence density, fit with existing repo patterns, implementation surface area, and confidence.
+    Preserve the original idea content from idea-input byte-for-byte in the draft content.
+    Deliver idea-draft through Humanize2 with title, original idea, primary direction, objective evidence, known risks, alternatives, synthesis notes, requested direction count, and actual proposal count.
+  </h2-template>
+
+  <h2-flow>
+    <h2-check id="validate-input" uses="humanize.validateIdeaInput"></h2-check>
+    <h2-await id="idea-input-await" on="exists(artifact.idea-input)"></h2-await>
+    <h2-agent id="direction-lead" role="lead" tool="claude" prompt="#direction-prompt" short-name="gen-idea-directions" timeout="30m">
+      <h2-expect artifact="idea-directions" schema="idea.directions.v1"></h2-expect>
+    </h2-agent>
+    <h2-parallel id="exploration-swarm">
+      <h2-agent id="explore-direction-1" role="explorer" parent="direction-lead" tool="claude" prompt="#exploration-prompt" short-name="idea-direction-1" timeout="30m">
+        <h2-expect artifact="idea-proposal-1" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="explore-direction-2" role="explorer" parent="direction-lead" tool="codex" prompt="#exploration-prompt" short-name="idea-direction-2" timeout="30m">
+        <h2-expect artifact="idea-proposal-2" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="explore-direction-3" role="explorer" parent="direction-lead" tool="claude" prompt="#exploration-prompt" short-name="idea-direction-3" timeout="30m">
+        <h2-expect artifact="idea-proposal-3" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="explore-direction-4" role="explorer" parent="direction-lead" tool="codex" prompt="#exploration-prompt" short-name="idea-direction-4" timeout="30m">
+        <h2-expect artifact="idea-proposal-4" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="explore-direction-5" role="explorer" parent="direction-lead" tool="claude" prompt="#exploration-prompt" short-name="idea-direction-5" timeout="30m">
+        <h2-expect artifact="idea-proposal-5" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+      <h2-agent id="explore-direction-6" role="explorer" parent="direction-lead" tool="codex" prompt="#exploration-prompt" short-name="idea-direction-6" timeout="30m">
+        <h2-expect artifact="idea-proposal-6" schema="idea.proposal.v1"></h2-expect>
+      </h2-agent>
+    </h2-parallel>
+    <h2-transform id="proposal-summary" from="artifact.idea-proposal-1" to="board.idea-scoreboard" uses="idea.collectProposalStatus"></h2-transform>
+    <h2-agent id="synthesis-lead" role="synthesizer" tool="claude" prompt="#synthesis-prompt" short-name="idea-synthesis" timeout="30m">
+      <h2-expect artifact="idea-draft" schema="idea.draft.v1"></h2-expect>
+    </h2-agent>
+  </h2-flow>
+
+  <h2-view slot="properties">
+    <section data-h2-view="idea-scoreboard">
+      <h3>Idea Exploration Scoreboard</h3>
+      <p>Architecture proposal: <span data-h2-bind="board.idea-scoreboard.architecture">-</span></p>
+      <p>Product proposal: <span data-h2-bind="board.idea-scoreboard.product">-</span></p>
+      <p>Risk proposal: <span data-h2-bind="board.idea-scoreboard.risk">-</span></p>
+    </section>
+  </h2-view>
+</h2-workflow>

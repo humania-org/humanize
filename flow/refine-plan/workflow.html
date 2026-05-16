@@ -1,0 +1,43 @@
+<h2-workflow id="refine-plan" name="Refine Plan" version="0.1.0" schema="humanize2.workflow.html.v1">
+  <h2-manifest>
+    <h2-capability name="agent" tools="claude,codex"></h2-capability>
+    <h2-capability name="artifact" schemas="plan.annotated.v1,plan.comments.v1,plan.refined.v1,plan.qa.v1,plan.humanDecision.v1"></h2-capability>
+    <h2-capability name="script" allow="humanize.validateRefinePlanInput,humanize.extractPlanComments,plan.extractComments"></h2-capability>
+    <h2-capability name="human-input"></h2-capability>
+    <h2-capability name="view"></h2-capability>
+  </h2-manifest>
+
+  <h2-state>
+    <h2-board id="comment-ledger" schema="plan.commentLedger.v1"></h2-board>
+  </h2-state>
+
+  <h2-template id="comment-processing-prompt" type="prompt">
+    Process the delivered plan comments. Answer questions, identify requested edits, and deliver comment-processing-result through Humanize2.
+  </h2-template>
+  <h2-template id="refinement-prompt" type="prompt">
+    Produce a refined plan that preserves the established plan structure and removes comment markup. Deliver refined-plan and refinement-qa through Humanize2.
+  </h2-template>
+
+  <h2-flow>
+    <h2-check id="validate-input" uses="humanize.validateRefinePlanInput"></h2-check>
+    <h2-await id="annotated-plan-await" on="exists(artifact.annotated-plan)"></h2-await>
+    <h2-check id="extract-comments" uses="humanize.extractPlanComments"></h2-check>
+    <h2-transform id="comments-to-ledger" from="artifact.annotated-plan" to="board.comment-ledger" uses="plan.extractComments"></h2-transform>
+    <h2-agent id="comment-processor" role="planner" tool="claude" prompt="#comment-processing-prompt" short-name="comment-processing" timeout="30m">
+      <h2-expect artifact="comment-processing-result" schema="plan.comments.v1"></h2-expect>
+    </h2-agent>
+    <h2-human id="unresolved-comment-decision" prompt="Resolve any comments marked as requiring a human decision" artifact="comment-human-decision" schema="plan.humanDecision.v1"></h2-human>
+    <h2-agent id="refinement-writer" role="planner" tool="claude" prompt="#refinement-prompt" short-name="plan-refinement" timeout="45m">
+      <h2-expect artifact="refined-plan" schema="plan.refined.v1"></h2-expect>
+      <h2-expect artifact="refinement-qa" schema="plan.qa.v1"></h2-expect>
+    </h2-agent>
+  </h2-flow>
+
+  <h2-view slot="properties">
+    <section data-h2-view="comment-ledger">
+      <h3>Comment Ledger</h3>
+      <p>Resolved comments: <span data-h2-bind="board.comment-ledger.resolved">-</span></p>
+      <p>Pending comments: <span data-h2-bind="board.comment-ledger.pending">-</span></p>
+    </section>
+  </h2-view>
+</h2-workflow>
