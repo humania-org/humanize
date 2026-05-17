@@ -193,6 +193,12 @@ function parseSimpleYaml(
       continue;
     }
 
+    // extraArgs list is done — reset section so sibling fields (model,
+    // permissionMode, sandbox) under the same agent are not silently ignored
+    if (section === "agents.extraArgs" && indent >= 4 && currentAgent !== undefined && !trimmed.startsWith("- ")) {
+      section = "agents";
+    }
+
     const separatorIndex = trimmed.indexOf(":");
     if (separatorIndex < 0) {
       continue;
