@@ -158,7 +158,7 @@ function parseSimpleYaml(
   const values: Partial<Pick<HumanizeConfig, "cacheDir" | "defaultRunTimeoutMs" | "defaultTheme" | "agentDefaults" | "workflow">> = {
     agentDefaults: {}
   };
-  let section: "agents" | "workflow" | "workflow.softEnforcement" | "workflow.scripts" | "workflow.scripts.allow" | undefined;
+  let section: "agents" | "workflow" | "workflow.softEnforcement" | "workflow.scripts" | "workflow.scripts.allow" | "agents.extraArgs" | undefined;
   let currentAgent: AgentId | undefined;
 
   for (const line of contents.split("\n")) {
@@ -180,7 +180,7 @@ function parseSimpleYaml(
     }
 
     // agent extraArgs list items (e.g., `  - --skip-git-repo-check`)
-    if (section === "agents" && indent >= 6 && currentAgent !== undefined && trimmed.startsWith("- ")) {
+    if (section === "agents.extraArgs" && indent >= 6 && currentAgent !== undefined && trimmed.startsWith("- ")) {
       const item = trimmed.slice(2).trim().replace(/^["']|["']$/g, "");
       if (item.length > 0) {
         const defaults = values.agentDefaults?.[currentAgent] ?? {};
@@ -250,7 +250,7 @@ function parseSimpleYaml(
       section = "workflow.scripts.allow";
       continue;
     }
-    if (section === "agents" && indent === 2) {
+    if ((section === "agents" || section === "agents.extraArgs") && indent === 2) {
       currentAgent = key === "codex" || key === "claude" ? key : undefined;
       continue;
     }
@@ -277,6 +277,7 @@ function parseSimpleYaml(
       const defaults = values.agentDefaults?.[currentAgent] ?? {};
       if (value === "[]" || value.length === 0) {
         defaults.extraArgs = [];
+        section = "agents.extraArgs";
       } else {
         defaults.extraArgs = parseCommaList(value);
       }
