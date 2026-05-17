@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { AgentId } from "./agents/types.js";
+import type { AgentId, PermissionMode, SandboxMode } from "./agents/types.js";
 
 export const DEFAULT_RUN_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_DASHBOARD_THEME: DashboardTheme = "dark";
@@ -12,6 +12,9 @@ export type DashboardTheme = "light" | "dark";
 export interface AgentModelDefaults {
   model?: string;
   reasoningEffort?: string;
+  permissionMode?: PermissionMode;
+  sandbox?: SandboxMode;
+  extraArgs?: string[];
 }
 
 export type AgentModelDefaultsByAgent = Partial<Record<AgentId, AgentModelDefaults>>;
@@ -176,6 +179,20 @@ function parseSimpleYaml(
       continue;
     }
 
+    // agent extraArgs list items (e.g., `  - --skip-git-repo-check`)
+    if (section === "agents" && indent >= 6 && currentAgent !== undefined && trimmed.startsWith("- ")) {
+      const item = trimmed.slice(2).trim().replace(/^["']|["']$/g, "");
+      if (item.length > 0) {
+        const defaults = values.agentDefaults?.[currentAgent] ?? {};
+        defaults.extraArgs = [...(defaults.extraArgs ?? []), item];
+        values.agentDefaults = {
+          ...values.agentDefaults,
+          [currentAgent]: defaults
+        };
+      }
+      continue;
+    }
+
     const separatorIndex = trimmed.indexOf(":");
     if (separatorIndex < 0) {
       continue;
@@ -245,6 +262,24 @@ function parseSimpleYaml(
       if (key === "reasoningEffort") {
         defaults.reasoningEffort = value;
       }
+      if (key === "permissionMode") {
+        defaults.permissionMode = value as PermissionMode;
+      }
+      if (key === "sandbox") {
+        defaults.sandbox = value as SandboxMode;
+      }
+      values.agentDefaults = {
+        ...values.agentDefaults,
+        [currentAgent]: defaults
+      };
+    }
+    if (section === "agents" && indent >= 4 && currentAgent !== undefined && key === "extraArgs") {
+      const defaults = values.agentDefaults?.[currentAgent] ?? {};
+      if (value === "[]" || value.length === 0) {
+        defaults.extraArgs = [];
+      } else {
+        defaults.extraArgs = parseCommaList(value);
+      }
       values.agentDefaults = {
         ...values.agentDefaults,
         [currentAgent]: defaults
@@ -262,11 +297,13 @@ function mergeAgentDefaults(
   return {
     codex: {
       ...defaults.codex,
-      ...overrides?.codex
+      ...overrides?.codex,
+      extraArgs: overrides?.codex?.extraArgs ?? defaults.codex?.extraArgs
     },
     claude: {
       ...defaults.claude,
-      ...overrides?.claude
+      ...overrides?.claude,
+      extraArgs: overrides?.claude?.extraArgs ?? defaults.claude?.extraArgs
     }
   };
 }
