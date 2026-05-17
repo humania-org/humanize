@@ -93,6 +93,69 @@ describe("humanize2 user config", () => {
     expect(config.defaultTheme).toBe("light");
   });
 
+  it("loads agent model fields after a prior agent's multiline extraArgs list", async () => {
+    const home = await tempDirectory();
+    const configPath = join(home, "multiline-extraargs-config.yaml");
+
+    const contents = [
+      "version: 1",
+      "cacheDir: /tmp/humanize2-cache",
+      "defaultRunTimeoutMs: 12345",
+      "defaultTheme: dark",
+      "agents:",
+      "  codex:",
+      "    model: gpt-5.4",
+      "    extraArgs:",
+      "      - --temperature",
+      "      - 0.7",
+      "      - --max-tokens",
+      "      - 4096",
+      "  claude:",
+      "    model: claude-opus-4-7",
+      "    reasoningEffort: xhigh",
+      ""
+    ].join("\n");
+    await writeFile(configPath, contents, "utf8");
+
+    const config = await loadHumanizeConfig({ HUMANIZE2_CONFIG: configPath }, home);
+
+    expect(config.agentDefaults.codex).toMatchObject({
+      model: "gpt-5.4",
+      extraArgs: ["--temperature", "0.7", "--max-tokens", "4096"]
+    });
+    expect(config.agentDefaults.claude).toMatchObject({
+      model: "claude-opus-4-7",
+      reasoningEffort: "xhigh"
+    });
+  });
+
+  it("loads sibling fields after empty extraArgs under the same agent", async () => {
+    const home = await tempDirectory();
+    const configPath = join(home, "sibling-after-extraargs-config.yaml");
+
+    const contents = [
+      "version: 1",
+      "cacheDir: /tmp/humanize2-cache",
+      "defaultRunTimeoutMs: 12345",
+      "defaultTheme: dark",
+      "agents:",
+      "  codex:",
+      "    extraArgs: []",
+      "    model: gpt-5.5",
+      "    reasoningEffort: xhigh",
+      ""
+    ].join("\n");
+    await writeFile(configPath, contents, "utf8");
+
+    const config = await loadHumanizeConfig({ HUMANIZE2_CONFIG: configPath }, home);
+
+    expect(config.agentDefaults.codex).toMatchObject({
+      model: "gpt-5.5",
+      reasoningEffort: "xhigh",
+      extraArgs: []
+    });
+  });
+
   it("loads workflow retry and script allowlist settings from the user config", async () => {
     const home = await tempDirectory();
     const configPath = join(home, "workflow-config.yaml");

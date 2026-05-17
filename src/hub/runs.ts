@@ -147,6 +147,9 @@ export class AgentRunCoordinator {
       ...input,
       model: input.model ?? defaults.model,
       reasoningEffort: input.reasoningEffort ?? defaults.reasoningEffort,
+      permissionMode: input.permissionMode ?? defaults.permissionMode,
+      sandbox: input.sandbox ?? defaults.sandbox,
+      extraArgs: input.extraArgs ?? defaults.extraArgs,
       cwd: input.cwd ?? parentRun?.cwd,
       workflowContext: input.workflowContext ?? inheritedWorkflowContext
     };

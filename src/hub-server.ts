@@ -30,7 +30,8 @@ async function main(): Promise<void> {
     jsonRpcUrl,
     store,
     initialRuns,
-    defaultRunTimeoutMs: config.defaultRunTimeoutMs
+    defaultRunTimeoutMs: config.defaultRunTimeoutMs,
+    agentDefaults: config.agentDefaults
   });
   const workflowCoordinator = new WorkflowCoordinator(coordinator, {
     store: workflowStore,

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { AgentId } from "./agents/types.js";
+import type { AgentId, PermissionMode, SandboxMode } from "./agents/types.js";
 
 export const DEFAULT_RUN_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_DASHBOARD_THEME: DashboardTheme = "dark";
@@ -12,6 +12,9 @@ export type DashboardTheme = "light" | "dark";
 export interface AgentModelDefaults {
   model?: string;
   reasoningEffort?: string;
+  permissionMode?: PermissionMode;
+  sandbox?: SandboxMode;
+  extraArgs?: string[];
 }
 
 export type AgentModelDefaultsByAgent = Partial<Record<AgentId, AgentModelDefaults>>;
@@ -155,7 +158,7 @@ function parseSimpleYaml(
   const values: Partial<Pick<HumanizeConfig, "cacheDir" | "defaultRunTimeoutMs" | "defaultTheme" | "agentDefaults" | "workflow">> = {
     agentDefaults: {}
   };
-  let section: "agents" | "workflow" | "workflow.softEnforcement" | "workflow.scripts" | "workflow.scripts.allow" | undefined;
+  let section: "agents" | "workflow" | "workflow.softEnforcement" | "workflow.scripts" | "workflow.scripts.allow" | "agents.extraArgs" | undefined;
   let currentAgent: AgentId | undefined;
 
   for (const line of contents.split("\n")) {
@@ -174,6 +177,26 @@ function parseSimpleYaml(
         values.workflow = workflow;
       }
       continue;
+    }
+
+    // agent extraArgs list items (e.g., `  - --skip-git-repo-check`)
+    if (section === "agents.extraArgs" && indent >= 6 && currentAgent !== undefined && trimmed.startsWith("- ")) {
+      const item = trimmed.slice(2).trim().replace(/^["']|["']$/g, "");
+      if (item.length > 0) {
+        const defaults = values.agentDefaults?.[currentAgent] ?? {};
+        defaults.extraArgs = [...(defaults.extraArgs ?? []), item];
+        values.agentDefaults = {
+          ...values.agentDefaults,
+          [currentAgent]: defaults
+        };
+      }
+      continue;
+    }
+
+    // extraArgs list is done — reset section so sibling fields (model,
+    // permissionMode, sandbox) under the same agent are not silently ignored
+    if (section === "agents.extraArgs" && indent >= 4 && currentAgent !== undefined && !trimmed.startsWith("- ")) {
+      section = "agents";
     }
 
     const separatorIndex = trimmed.indexOf(":");
@@ -233,8 +256,9 @@ function parseSimpleYaml(
       section = "workflow.scripts.allow";
       continue;
     }
-    if (section === "agents" && indent === 2) {
+    if ((section === "agents" || section === "agents.extraArgs") && indent === 2) {
       currentAgent = key === "codex" || key === "claude" ? key : undefined;
+      section = "agents";
       continue;
     }
     if (section === "agents" && indent >= 4 && currentAgent !== undefined && value.length > 0) {
@@ -244,6 +268,25 @@ function parseSimpleYaml(
       }
       if (key === "reasoningEffort") {
         defaults.reasoningEffort = value;
+      }
+      if (key === "permissionMode") {
+        defaults.permissionMode = value as PermissionMode;
+      }
+      if (key === "sandbox") {
+        defaults.sandbox = value as SandboxMode;
+      }
+      values.agentDefaults = {
+        ...values.agentDefaults,
+        [currentAgent]: defaults
+      };
+    }
+    if (section === "agents" && indent >= 4 && currentAgent !== undefined && key === "extraArgs") {
+      const defaults = values.agentDefaults?.[currentAgent] ?? {};
+      if (value === "[]" || value.length === 0) {
+        defaults.extraArgs = [];
+        section = "agents.extraArgs";
+      } else {
+        defaults.extraArgs = parseCommaList(value);
       }
       values.agentDefaults = {
         ...values.agentDefaults,
@@ -262,11 +305,13 @@ function mergeAgentDefaults(
   return {
     codex: {
       ...defaults.codex,
-      ...overrides?.codex
+      ...overrides?.codex,
+      extraArgs: overrides?.codex?.extraArgs ?? defaults.codex?.extraArgs
     },
     claude: {
       ...defaults.claude,
-      ...overrides?.claude
+      ...overrides?.claude,
+      extraArgs: overrides?.claude?.extraArgs ?? defaults.claude?.extraArgs
     }
   };
 }
