@@ -99,6 +99,24 @@ if [[ "\$subcommand" == "exec" ]]; then
 fi
 
 if [[ "\$subcommand" == "review" ]]; then
+    saw_base=false
+    saw_prompt=false
+    for arg in "\$@"; do
+        if [[ "\$arg" == "--base" ]]; then
+            saw_base=true
+        elif [[ "\$arg" == "-" ]]; then
+            saw_prompt=true
+        fi
+    done
+    if [[ "\$saw_base" == "true" && "\$saw_prompt" == "true" ]]; then
+        echo "codex 0.130.0 rejects --base with prompt input" >&2
+        exit 64
+    fi
+    if IFS= read -r stdin_line || [[ -n "\$stdin_line" ]]; then
+        printf 'STDIN:%s\n' "\$stdin_line" >> "$args_file"
+        echo "codex review must not receive stdin when --base is used" >&2
+        exit 65
+    fi
     echo "No issues found."
     exit 0
 fi
@@ -204,6 +222,24 @@ if grep -q -- 'review --disable hooks' "$TEST_DIR/review.args"; then
 else
     fail "review-phase stop hook disables hooks for codex review" \
         "review --disable hooks" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
+fi
+
+if grep -q -- ' --base ' "$TEST_DIR/review.args" && ! grep -q -- ' -$' "$TEST_DIR/review.args" && ! grep -q '^STDIN:' "$TEST_DIR/review.args"; then
+    pass "review-phase codex review uses --base without prompt input"
+else
+    fail "review-phase codex review avoids --base plus prompt input" \
+        "--base arguments with no trailing '-' and no stdin" "$(cat "$TEST_DIR/review.args" 2>/dev/null || echo missing)"
+fi
+
+REVIEW_PROMPT=""
+if [[ -d "$REPO_REVIEW/.humanize/rlcr" ]]; then
+    REVIEW_PROMPT=$(find "$REPO_REVIEW/.humanize/rlcr" -mindepth 2 -maxdepth 2 -type f -name 'round-*-review-prompt.md' -print | sort | tail -n 1)
+fi
+if [[ -f "$REVIEW_PROMPT" ]] && grep -q -- 'must not pass prompt input when `--base` is used' "$REVIEW_PROMPT"; then
+    pass "review audit prompt documents --base prompt incompatibility"
+else
+    fail "review audit prompt documents --base prompt incompatibility" \
+        'must not pass prompt input when `--base` is used' "$(cat "$REVIEW_PROMPT" 2>/dev/null || echo missing)"
 fi
 
 echo ""
