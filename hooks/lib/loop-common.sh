@@ -792,6 +792,12 @@ to_lower() {
     echo "$1" | tr '[:upper:]' '[:lower:]'
 }
 
+# Normalize Windows path separators to the POSIX-style separators used by the
+# hook validators' string patterns.
+normalize_path_separators() {
+    echo "${1//\\//}"
+}
+
 # Check if a path (lowercase) matches a round file pattern
 # Usage: is_round_file "$lowercase_path" "summary|prompt|todos|contract"
 is_round_file_type() {
@@ -1257,7 +1263,7 @@ is_cancel_authorized() {
 # Check if a path is inside .humanize/rlcr directory
 is_in_humanize_loop_dir() {
     local path="$1"
-    echo "$path" | grep -q '\.humanize/rlcr/'
+    normalize_path_separators "$path" | grep -q '\.humanize/rlcr/'
 }
 
 # Check if a git add command would add .humanize files to version control

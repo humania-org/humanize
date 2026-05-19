@@ -218,6 +218,50 @@ else
     fail "Write validator round-3-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
+WINDOWS_LOOP_DIR="${LOOP_DIR//\//\\}"
+
+# Test 11c: Write validator blocks stale summary with Windows separators
+echo "Test 11c: Write validator blocks Windows-path round-3-summary.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-3-summary.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Write", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Write validator blocks Windows-path round-3-summary.md"
+else
+    fail "Write validator Windows-path round-3-summary.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 11d: Write validator allows current summary with Windows separators
+echo "Test 11d: Write validator allows Windows-path round-5-summary.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-5-summary.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Write", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Write validator allows Windows-path round-5-summary.md"
+else
+    fail "Write validator Windows-path round-5-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 11e: Write validator blocks plan.md backup with Windows separators
+echo "Test 11e: Write validator blocks Windows-path plan.md backup"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\plan.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Write", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Write validator blocks Windows-path plan.md backup"
+else
+    fail "Write validator Windows-path plan.md backup" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
 echo ""
 echo "=== Test: Edit Validator Allowlist ==="
 echo ""
@@ -272,6 +316,48 @@ if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
     pass "Edit validator blocks round-0-contract.md"
 else
     fail "Edit validator round-0-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13d: Edit validator blocks stale summary with Windows separators
+echo "Test 13d: Edit validator blocks Windows-path round-3-summary.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-3-summary.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Edit", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Edit validator blocks Windows-path round-3-summary.md"
+else
+    fail "Edit validator Windows-path round-3-summary.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13e: Edit validator allows current summary with Windows separators
+echo "Test 13e: Edit validator allows Windows-path round-5-summary.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-5-summary.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Edit", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Edit validator allows Windows-path round-5-summary.md"
+else
+    fail "Edit validator Windows-path round-5-summary.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 13f: Edit validator blocks plan.md backup with Windows separators
+echo "Test 13f: Edit validator blocks Windows-path plan.md backup"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\plan.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Edit", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "plan"; then
+    pass "Edit validator blocks Windows-path plan.md backup"
+else
+    fail "Edit validator Windows-path plan.md backup" "exit 2 with plan error" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 # Test 14: Edit validator blocks round-4-todos.md
@@ -367,6 +453,34 @@ if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
     pass "Read validator blocks round-3-contract.md"
 else
     fail "Read validator round-3-contract.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 18c: Read validator blocks stale summary with Windows separators
+echo "Test 18c: Read validator blocks Windows-path round-3-summary.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-3-summary.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Read", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 2 ]] && echo "$RESULT" | grep -qi "round"; then
+    pass "Read validator blocks Windows-path round-3-summary.md"
+else
+    fail "Read validator Windows-path round-3-summary.md" "exit 2 with round error" "exit $EXIT_CODE, output: $RESULT"
+fi
+
+# Test 18d: Read validator allows current contract with Windows separators
+echo "Test 18d: Read validator allows Windows-path round-5-contract.md"
+WINDOWS_FILE_PATH="${WINDOWS_LOOP_DIR}\\round-5-contract.md"
+HOOK_INPUT=$(jq -nc --arg file_path "$WINDOWS_FILE_PATH" '{tool_name: "Read", tool_input: {file_path: $file_path}}')
+set +e
+RESULT=$(echo "$HOOK_INPUT" | "$PROJECT_ROOT/hooks/loop-read-validator.sh" 2>&1)
+EXIT_CODE=$?
+set -e
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "Read validator allows Windows-path round-5-contract.md"
+else
+    fail "Read validator Windows-path round-5-contract.md" "exit 0" "exit $EXIT_CODE, output: $RESULT"
 fi
 
 echo ""

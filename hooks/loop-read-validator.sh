@@ -44,6 +44,7 @@ if ! require_tool_input_field "$HOOK_INPUT" "file_path"; then
 fi
 
 FILE_PATH=$(echo "$HOOK_INPUT" | jq -r '.tool_input.file_path // ""')
+FILE_PATH=$(normalize_path_separators "$FILE_PATH")
 FILE_PATH_LOWER=$(to_lower "$FILE_PATH")
 
 # Extract session_id from hook input for session-aware loop filtering
