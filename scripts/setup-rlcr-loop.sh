@@ -52,7 +52,7 @@ SKIP_IMPL_PLAN_ANCHORED="false"
 ASK_CODEX_QUESTION="true"
 AGENT_TEAMS="${DEFAULT_AGENT_TEAMS:-false}"
 BITLESSON_ALLOW_EMPTY_NONE="true"
-PRIVACY_MODE="false"
+PRIVACY_MODE="true"
 
 extract_plan_goal_content() {
     local plan_path="$1"
@@ -136,7 +136,8 @@ OPTIONS:
                        Allow BitLesson delta with action:none even with no new entries (default)
   --require-bitlesson-entry-for-none
                        Require at least one BitLesson entry when action is none
-  --privacy            Disable methodology analysis at loop exit (default: analysis enabled)
+  --privacy            No-op; analysis is disabled by default (kept for backward compatibility)
+  --no-privacy         Enable methodology analysis at loop exit (default: analysis disabled)
   -h, --help           Show this help message
 
 DESCRIPTION:
@@ -299,6 +300,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --privacy)
             PRIVACY_MODE="true"
+            shift
+            ;;
+        --no-privacy)
+            PRIVACY_MODE="false"
             shift
             ;;
         -*)

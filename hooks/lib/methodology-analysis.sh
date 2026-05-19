@@ -162,14 +162,10 @@ complete_methodology_analysis() {
             ;;
     esac
 
-    # Rename methodology-analysis-state.md to the terminal state
-    local target_name="${exit_reason}-state.md"
-    mv "$LOOP_DIR/methodology-analysis-state.md" "$LOOP_DIR/$target_name"
-    echo "Methodology analysis complete. State preserved as: $LOOP_DIR/$target_name" >&2
-
-    # Clean up marker file
-    rm -f "$LOOP_DIR/.methodology-exit-reason"
-
+    # Validation complete. The caller (stop hook) is responsible for renaming
+    # methodology-analysis-state.md to the terminal state and cleaning up
+    # .methodology-exit-reason AFTER the git-clean gate passes, so the active
+    # state file remains in place until cleanliness is confirmed.
     return 0
 }
 

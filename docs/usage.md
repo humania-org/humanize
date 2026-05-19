@@ -59,6 +59,8 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 
 | Command | Purpose |
 |---------|---------|
+| `/gen-idea <idea-or-path>` | Generate a repo-grounded idea draft with N parallel directions |
+| `/explore-idea <draft-or-directions.json>` | Launch bounded parallel prototype workers and synthesize a two-tier report |
 | `/start-rlcr-loop <plan.md>` | Start iterative development with Codex review |
 | `/cancel-rlcr-loop` | Cancel active loop |
 | `/gen-plan --input <draft.md> --output <plan.md>` | Generate structured plan from draft |
@@ -66,6 +68,52 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
 | `/ask-codex [question]` | One-shot consultation with Codex |
 
 ## Command Reference
+
+### gen-idea
+
+```
+/humanize:gen-idea <idea-text-or-path> [--n <int>] [--output <path>]
+```
+
+Generates a repo-grounded idea draft using directed-diversity exploration. A lead agent picks N orthogonal directions, N parallel Explore subagents develop each direction with objective evidence from the repo, and the lead synthesizes a draft with one primary direction plus N-1 alternatives.
+
+**Outputs:**
+- Draft file: `.humanize/ideas/<slug>-<timestamp>.md` (or `--output` path)
+- Companion JSON: `<draft-path-without-.md>.directions.json` — lossless record of all direction proposals, used as input to `explore-idea`
+
+**Options:**
+- `--n <int>` — number of parallel directions (default: 6)
+- `--output <path>` — custom output path for the draft (must have `.md` suffix)
+
+### explore-idea
+
+```
+/humanize:explore-idea <draft.md | draft.directions.json> [--directions ids] [--concurrency N] [--max-worker-iterations N] [--worker-timeout-min N] [--codex-timeout-min N]
+```
+
+Launches bounded parallel prototype workers — one per selected direction — each running in an isolated git worktree. After all workers complete, synthesizes an explore report plus a plan-ready final idea:
+- **Tier 1**: Best product direction (ranked by user value, evidence, strategic fit)
+- **Tier 2**: Most implementation-ready prototype (ranked by outcome: task status, Codex verdict, tests, commits)
+
+**Options:**
+- `--directions <ids>` — comma-separated `direction_id` or `source_index` values to run (default: first 6 by display order)
+- `--concurrency <N>` — parallel worker count (default: 6, max: 10)
+- `--max-worker-iterations <N>` — per-worker iteration cap (default: 2, max: 3)
+- `--worker-timeout-min <N>` — worker timeout in minutes (default: 60, max: 60)
+- `--codex-timeout-min <N>` — Codex call timeout in minutes (default: 20, max: 20)
+
+**Run artifacts** stored in `.humanize/explore/<RUN_ID>/`:
+- `manifest.json` — coordinator state and per-worker metadata
+- `dispatch-prompts/` — exact prompts sent to each worker
+- `worker-results.jsonl` — machine-readable result rows
+- `explore-report.md` — audit report with two-tier rankings, adoption paths, and cleanup guidance
+- `final-idea.md` — plan-ready synthesis artifact for `/humanize:gen-plan`
+
+Default follow-up:
+```bash
+/humanize:gen-plan --input .humanize/explore/<run-id>/final-idea.md --output docs/plan.md
+/humanize:start-rlcr-loop docs/plan.md
+```
 
 ### start-rlcr-loop
 
@@ -315,12 +363,92 @@ Set up the monitoring helper for real-time progress tracking:
 # Add to your .bashrc or .zshrc
 source ~/.claude/plugins/cache/PolyArch/humanize/<LATEST.VERSION>/scripts/humanize.sh
 
-# Monitor RLCR loop progress
-humanize monitor rlcr
+# Terminal monitors (one project per terminal):
+humanize monitor rlcr        # latest RLCR loop log
+humanize monitor skill       # all skill invocations (codex + gemini)
+humanize monitor codex       # ask-codex skill invocations only
+humanize monitor gemini      # ask-gemini skill invocations only
 
+# Browser dashboard (multiple loops at once, foreground default):
+humanize monitor web --project /path/to/project
 ```
 
 Progress data is stored in `.humanize/rlcr/<timestamp>/` for each loop session.
+
+### Browser dashboard (`humanize monitor web`)
+
+The web dashboard layers on top of the same `.humanize/rlcr/<session>/`
+metadata and `~/.cache/humanize/<sanitized-project>/<session>/round-*-codex-{run,review}.log`
+cache logs that the terminal monitors read. There is no parallel
+capture pipeline; the dashboard is a reader, not a writer.
+
+Lifecycle (per DEC-1, DEC-3):
+
+- Foreground default (`humanize monitor web --project <path>`). Press
+  Ctrl+C to stop. The server is CLI-fixed to one project at startup;
+  to monitor several projects simultaneously, run multiple instances
+  (one per project) with different `--port` values.
+- `--daemon` runs the same server inside a per-project tmux session
+  (`humanize-viz-<8-hex>`); use `viz-stop.sh --project <path>` or
+  the project's own tmux kill command to stop it.
+
+Per-session inline live log panes appear on the home page for every
+active session, driven by Server-Sent Events from
+`/api/sessions/<session_id>/logs/<basename>`. Multiple loops stream
+in parallel without leaving the home page.
+
+### Remote browser access
+
+The dashboard binds to `127.0.0.1` by default. To expose it over the
+network, supply `--host` and an authentication token. The token is
+required for any non-loopback host; the server refuses to start
+otherwise.
+
+Token-aware endpoints honor `Authorization: Bearer <tok>` for normal
+fetch requests and `?token=<tok>` query parameters for the SSE stream
+(per DEC-4: browsers cannot set arbitrary headers on EventSource).
+WebSocket transport is rejected entirely in remote mode.
+
+#### Pattern 1 (recommended): SSH tunnel
+
+The safest remote pattern keeps the server bound to localhost and
+forwards the port over SSH:
+
+```bash
+# On the server machine:
+humanize monitor web --project /path/to/project --port 18000
+
+# On your laptop:
+ssh -N -L 18000:localhost:18000 user@server.example.com
+# Then open http://localhost:18000 in the local browser.
+```
+
+No token is required because the server still binds to loopback. The
+SSH tunnel provides authentication and encryption.
+
+#### Pattern 2: Direct LAN bind
+
+For trusted-network deployments where SSH tunneling is impractical:
+
+```bash
+# Generate a strong random token (one-time):
+TOKEN="$(openssl rand -hex 32)"
+
+# Start the dashboard:
+humanize monitor web \
+    --project /path/to/project \
+    --host 0.0.0.0 \
+    --port 18000 \
+    --auth-token "$TOKEN"
+
+# Or supply the token via env var instead of CLI:
+HUMANIZE_VIZ_TOKEN="$TOKEN" humanize monitor web \
+    --project /path/to/project --host 0.0.0.0 --port 18000
+```
+
+Open the dashboard with `http://server:18000/?token=<TOKEN>` once;
+the browser caches the token in `sessionStorage` and propagates it
+on subsequent fetches and SSE reconnects.
 
 ## Cancellation
 

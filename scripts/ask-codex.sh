@@ -143,8 +143,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Join question parts into a single string
-QUESTION="${QUESTION_PARTS[*]}"
+# Join question parts into a single string (use ${arr[*]+...} to avoid set -u crash on bash 3.2)
+QUESTION="${QUESTION_PARTS[*]+"${QUESTION_PARTS[*]}"}"
 
 # ========================================
 # Validate Prerequisites
@@ -241,8 +241,26 @@ EOF
 # Build Codex Command
 # ========================================
 
+# Probe whether the installed Codex CLI supports --disable hooks to prevent
+# nested hook recursion when ask-codex.sh is called from inside a running loop.
+# Cache the probe result in the skill directory to avoid repeated probes.
+CODEX_DISABLE_HOOKS_ARGS=()
+_CODEX_DISABLE_HOOKS_CACHE="$SKILL_DIR/.codex-disable-hooks-supported"
+if [[ -f "$_CODEX_DISABLE_HOOKS_CACHE" ]]; then
+    [[ "$(cat "$_CODEX_DISABLE_HOOKS_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
+else
+    CODEX_HELP_OUTPUT="$(codex --help </dev/null 2>&1 || true)"
+    if grep -q -- '--disable' <<< "$CODEX_HELP_OUTPUT"; then
+        CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
+        echo "yes" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
+    else
+        echo "no" > "$_CODEX_DISABLE_HOOKS_CACHE" 2>/dev/null || true
+    fi
+fi
+
 # Build codex exec arguments (same pattern as loop-codex-stop-hook.sh)
-CODEX_EXEC_ARGS=("-m" "$CODEX_MODEL")
+# Use ${arr[@]+"${arr[@]}"} to safely expand possibly-empty arrays under set -u (bash 3.2 compat)
+CODEX_EXEC_ARGS=(${CODEX_DISABLE_HOOKS_ARGS[@]+"${CODEX_DISABLE_HOOKS_ARGS[@]}"} "-m" "$CODEX_MODEL")
 if [[ -n "$CODEX_EFFORT" ]]; then
     CODEX_EXEC_ARGS+=("-c" "model_reasoning_effort=${CODEX_EFFORT}")
 fi

@@ -732,7 +732,9 @@ echo "T-NEG-9b: Codex review log file exists and is empty"
 # Compute the real cache dir using same logic as loop-codex-stop-hook.sh
 # Cache path: $XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP/round-N-codex-review.log
 LOOP_TIMESTAMP=$(basename "$LOOP_DIR")
-SANITIZED_PROJECT_PATH=$(echo "$TEST_DIR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
+# Canonicalize the test dir so it matches what loop-codex-stop-hook.sh computes via resolve_project_root
+CANONICAL_TEST_DIR=$(realpath "$TEST_DIR" 2>/dev/null || echo "$TEST_DIR")
+SANITIZED_PROJECT_PATH=$(echo "$CANONICAL_TEST_DIR" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g')
 REVIEW_CACHE_DIR="$XDG_CACHE_HOME/humanize/$SANITIZED_PROJECT_PATH/$LOOP_TIMESTAMP"
 # Round 5 because we pass CURRENT_ROUND + 1 (4 + 1 = 5) to run_and_handle_code_review
 REVIEW_LOG="$REVIEW_CACHE_DIR/round-5-codex-review.log"

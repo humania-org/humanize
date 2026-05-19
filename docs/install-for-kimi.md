@@ -53,6 +53,10 @@ cp -r skills/humanize-gen-plan ~/.config/agents/skills/
 cp -r skills/humanize-refine-plan ~/.config/agents/skills/
 cp -r skills/humanize-rlcr ~/.config/agents/skills/
 
+# Kimi does not use Codex native Stop hooks, so install the gate-based
+# RLCR entrypoint used by scripts/install-skill.sh --target kimi.
+cp skills/humanize-rlcr/SKILL-kimi.md ~/.config/agents/skills/humanize-rlcr/SKILL.md
+
 # Copy runtime dependencies used by the skills
 # (must match install-skill.sh's install_runtime_bundle)
 cp -r scripts ~/.config/agents/skills/humanize/

@@ -1,0 +1,1495 @@
+/* ─── Topbar ─── */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-6);
+    height: 52px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border-0);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(12px);
+}
+
+.topbar-left { display: flex; align-items: center; gap: var(--space-3); }
+
+.topbar-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.logo-mark {
+    color: var(--accent);
+    font-size: 1.1rem;
+}
+.logo-text {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: -0.03em;
+    color: var(--text-0);
+}
+
+.topbar-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--text-2);
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--duration-fast);
+    margin-right: var(--space-2);
+}
+.topbar-back:hover { color: var(--text-0); }
+
+.topbar-title {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-3);
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topbar-right { display: flex; align-items: center; gap: var(--space-2); }
+
+.topbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all var(--duration-fast);
+}
+.topbar-btn:hover { background: var(--bg-2); color: var(--text-0); border-color: var(--border-1); }
+
+.topbar-link {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-2);
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    transition: all var(--duration-fast);
+    letter-spacing: 0.01em;
+}
+.topbar-link:hover { background: var(--bg-2); color: var(--text-0); }
+
+.lang-toggle {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+/* ─── Main Content ─── */
+.page {
+    padding: var(--space-8) var(--space-6);
+    max-width: 1280px;
+    margin: 0 auto;
+    animation: fade-up var(--duration-slow) var(--ease-out);
+}
+
+/* ─── Section Headers ─── */
+.section-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+}
+.section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-0);
+}
+
+/* ─── Project Switcher Bar ─── */
+.project-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-6);
+}
+
+.project-current {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.project-current-label {
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+    flex-shrink: 0;
+}
+
+.project-current-path {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-0);
+}
+
+.project-current-full {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 300px;
+}
+
+/* ─── Session Cards ─── */
+.cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--space-5);
+    margin-bottom: var(--space-10);
+}
+
+.session-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+    cursor: pointer;
+    transition: all var(--duration-base) var(--ease-out);
+    position: relative;
+    overflow: hidden;
+}
+.session-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity var(--duration-base);
+}
+.session-card:hover {
+    border-color: var(--border-2);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md), var(--shadow-glow);
+}
+.session-card:hover::before { opacity: 1; }
+
+/* Entry animation only for cards inserted by the diff-updater; the
+   initial page render and unchanged cards do not re-animate. */
+.session-card.js-card-new {
+    animation: fade-up var(--duration-slow) var(--ease-out) both;
+}
+
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+}
+.card-round-tag {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-2);
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-5);
+    font-size: 0.82rem;
+    margin-bottom: var(--space-3);
+}
+
+.card-field-label {
+    color: var(--text-3);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+.card-field-value {
+    color: var(--text-1);
+    font-weight: 500;
+}
+
+.card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-0);
+    font-size: 0.75rem;
+    color: var(--text-3);
+}
+
+/* ─── Pipeline Viewport (zoom/pan canvas) ─── */
+.pipeline-container {
+    width: 100%;
+    height: 100%;
+}
+
+.pl-viewport {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    cursor: grab;
+}
+.pl-viewport:active { cursor: grabbing; }
+
+.pl-controls {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 10;
+}
+
+.pl-ctrl-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-sm);
+    background: var(--bg-1);
+    color: var(--text-1);
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--duration-fast);
+    font-family: var(--font-display);
+}
+.pl-ctrl-btn:hover { background: var(--bg-3); color: var(--text-0); border-color: var(--accent); }
+
+.pl-canvas {
+    position: relative;
+    transform-origin: 0 0;
+    transition: transform 80ms ease-out;
+}
+
+.pl-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+}
+
+/* ─── Pipeline Nodes (absolute positioned) ─── */
+.pl-node {
+    position: absolute;
+    background: var(--bg-1);
+    border: 2px solid var(--border-1);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color var(--duration-base) var(--ease-out),
+                box-shadow var(--duration-base) var(--ease-out);
+    overflow: hidden;
+    z-index: 1;
+    height: 68px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.pl-node:hover {
+    border-color: var(--border-2);
+    box-shadow: var(--shadow-md);
+    z-index: 2;
+}
+.pl-node.expanded {
+    width: 480px !important;
+    z-index: 5;
+    cursor: default;
+    box-shadow: var(--shadow-lg), var(--shadow-glow);
+    border-color: var(--accent);
+}
+.pl-node.active-round {
+    border-color: var(--accent);
+    animation: pulse-ring 2.5s var(--ease-in-out) infinite;
+}
+
+.pl-node[data-verdict="advanced"] { border-left: 4px solid var(--verdict-advanced); }
+.pl-node[data-verdict="stalled"] { border-left: 4px solid var(--verdict-stalled); }
+.pl-node[data-verdict="regressed"] { border-left: 4px solid var(--verdict-regressed); }
+.pl-node[data-verdict="complete"] { border-left: 4px solid var(--verdict-complete); }
+.pl-node[data-verdict="unknown"] { border-left: 4px solid var(--verdict-unknown); }
+
+/* ─── Active Node Enhancements ─── */
+.pl-node.active-round {
+    border-color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow), var(--shadow-md);
+    animation: pulse-ring 2.5s var(--ease-in-out) infinite;
+}
+
+.node-active-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--bg-3);
+    overflow: hidden;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.node-active-bar-fill {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: active-bar-sweep 2s ease-in-out infinite;
+}
+
+@keyframes active-bar-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+}
+
+.node-live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: live-blink 1.2s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes live-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+}
+
+/* ─── Ghost "In Progress" Node ─── */
+.pl-ghost-node {
+    border: 2px dashed var(--accent) !important;
+    border-left: 4px dashed var(--accent) !important;
+    background: var(--bg-glow) !important;
+    opacity: 0.7;
+    cursor: default !important;
+    animation: ghost-breathe 3s ease-in-out infinite;
+}
+
+.pl-ghost-node:hover {
+    border-color: var(--accent) !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+@keyframes ghost-breathe {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.8; }
+}
+
+/* ─── Active Edge (flowing dash animation) ─── */
+.pl-edge-active {
+    animation: edge-flow 1s linear infinite;
+}
+
+@keyframes edge-flow {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -20; }
+}
+
+
+.node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    gap: var(--space-2);
+}
+
+.node-round-num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: var(--text-0);
+}
+
+.node-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.72rem;
+    color: var(--text-2);
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+
+.node-verdict-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.node-phase-tag {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-3);
+    padding: 1px 6px;
+    background: var(--bg-3);
+    border-radius: var(--radius-xs);
+}
+
+.node-mini-stats {
+    display: flex;
+    gap: var(--space-3);
+    padding: 0 var(--space-4) var(--space-3);
+    font-size: 0.72rem;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+}
+
+/* ─── Flyout Modal (expand from node to center) ─── */
+.flyout-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0);
+    z-index: 20;
+    pointer-events: none;
+    visibility: hidden;
+    transition: background 300ms var(--ease-out), visibility 0s 300ms;
+}
+.flyout-overlay.visible {
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: auto;
+    visibility: visible;
+    transition: background 300ms var(--ease-out), visibility 0s;
+}
+
+.flyout-panel {
+    position: absolute;
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    box-shadow: var(--shadow-lg), 0 0 60px rgba(217, 119, 87, 0.08);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.flyout-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-0);
+    flex-shrink: 0;
+}
+
+.flyout-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.flyout-title h3 {
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+}
+
+.flyout-round-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--border-2);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: var(--text-0);
+    background: var(--bg-2);
+}
+
+.flyout-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    color: var(--text-2);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--duration-fast);
+}
+.flyout-close:hover { background: var(--bg-3); color: var(--text-0); }
+
+.flyout-meta-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--border-0);
+    font-size: 0.82rem;
+    color: var(--text-1);
+    flex-shrink: 0;
+}
+
+.flyout-meta-item strong {
+    color: var(--text-3);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.flyout-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-5);
+}
+
+.flyout-section {
+    margin-bottom: var(--space-5);
+}
+.flyout-section:last-child { margin-bottom: 0; }
+
+.flyout-section-title {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-0);
+}
+
+/* ─── Detail Page ─── */
+.detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: 1fr auto;
+    grid-template-areas:
+        "graph sidebar"
+        "goal  goal";
+    height: calc(100vh - 52px);
+}
+
+/* Active sessions get an extra row below the canvas for the live
+   monitor log. The right sidebar spans both the graph and log rows
+   so the log sits strictly below the pipeline canvas and does not
+   cover the sidebar. The log row height follows the --log-h custom
+   property so the three-state toggle (collapsed / normal / expanded)
+   can swap row size without re-declaring grid-template-rows. */
+.detail-layout.has-log {
+    --log-h: 260px;
+    grid-template-rows: 1fr var(--log-h) auto;
+    grid-template-areas:
+        "graph   sidebar"
+        "log     sidebar"
+        "goal    goal";
+}
+
+/* Collapsed: only the header stays visible so the pipeline canvas
+   gets almost all of the vertical space. */
+.detail-layout.has-log.log-collapsed {
+    --log-h: 34px;
+}
+.detail-layout.has-log.log-collapsed .session-log .live-log-pane { display: none; }
+
+/* Expanded: log takes most of the viewport; the canvas above it
+   shrinks to a thin peek. Good for reading long bursts without
+   leaving the session-detail page. */
+.detail-layout.has-log.log-expanded {
+    --log-h: 70vh;
+}
+
+.graph-area {
+    grid-area: graph;
+    overflow: auto;
+    background: var(--bg-0);
+    position: relative;
+}
+
+/* Right sidebar — session-level analysis */
+.session-sidebar {
+    grid-area: sidebar;
+    overflow-y: auto;
+    padding: var(--space-5);
+    background: var(--bg-1);
+    border-left: 1px solid var(--border-0);
+}
+
+/* Bottom live-monitor log — only visible when .detail-layout
+   carries the .has-log modifier (active/analyzing/finalizing
+   sessions). Hidden for completed sessions. */
+.session-log {
+    grid-area: log;
+    display: none;
+    flex-direction: column;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border-0);
+    overflow: hidden;
+}
+
+.detail-layout.has-log .session-log { display: flex; }
+
+.session-log .live-log-header {
+    flex: 0 0 auto;
+    border-radius: 0;
+    background: var(--bg-2);
+}
+
+.session-log .live-log-pane {
+    flex: 1 1 auto;
+    max-height: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+}
+
+.sidebar-section {
+    margin-bottom: var(--space-5);
+    padding-bottom: var(--space-5);
+    border-bottom: 1px solid var(--border-0);
+}
+.sidebar-section:last-child { border-bottom: none; padding-bottom: 0; }
+
+.sidebar-title {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: var(--space-3);
+}
+
+.sidebar-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+}
+
+.sidebar-stat {
+    background: var(--bg-2);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    text-align: center;
+}
+
+.sidebar-stat-num {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+}
+
+.sidebar-stat-label {
+    font-size: 0.68rem;
+    color: var(--text-3);
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+
+.sidebar-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.sidebar-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+}
+
+.sidebar-meta-key {
+    color: var(--text-3);
+    font-size: 0.75rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+
+.sidebar-meta-val {
+    color: var(--text-0);
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.sidebar-verdict-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.sidebar-verdict-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.8rem;
+}
+
+.sidebar-verdict-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.sidebar-verdict-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width var(--duration-slow) var(--ease-out);
+}
+
+.sidebar-ac-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.sidebar-ac-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.8rem;
+    padding: 3px 0;
+}
+
+.sidebar-ac-icon {
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.sidebar-ac-text {
+    color: var(--text-1);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.meta-item-label {
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin-bottom: 2px;
+}
+.meta-item-value {
+    font-weight: 500;
+    color: var(--text-0);
+    font-size: 0.9rem;
+}
+
+/* Goal Tracker Bar */
+.goal-bar {
+    grid-area: goal;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    background: var(--bg-1);
+    border-top: 1px solid var(--border-0);
+    overflow-x: auto;
+}
+
+.ac-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid var(--border-1);
+    background: var(--bg-2);
+    color: var(--text-2);
+    transition: all var(--duration-fast);
+}
+.ac-pill.done { background: rgba(110, 231, 160, 0.08); color: var(--verdict-advanced); border-color: var(--verdict-advanced); }
+.ac-pill.wip { background: rgba(96, 165, 250, 0.08); color: var(--verdict-active); border-color: var(--verdict-active); }
+
+/* ─── Analytics ─── */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-4);
+    margin-bottom: var(--space-8);
+}
+
+.stat-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+    text-align: center;
+    transition: all var(--duration-base) var(--ease-out);
+}
+.stat-card:hover { border-color: var(--border-2); box-shadow: var(--shadow-sm); }
+
+.stat-number {
+    font-family: var(--font-display);
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+    letter-spacing: -0.03em;
+}
+
+.stat-label {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    margin-top: var(--space-2);
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: var(--space-5);
+    margin-bottom: var(--space-8);
+}
+
+.chart-panel {
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-5);
+}
+.chart-panel h4 {
+    font-size: 0.78rem;
+    color: var(--text-2);
+    margin-bottom: var(--space-4);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.chart-wrap { position: relative; height: 220px; }
+
+/* Verdict Timeline */
+.tl-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+}
+
+.tl-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.tl-label {
+    width: 110px;
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-2);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tl-label:hover { color: var(--accent); }
+
+.tl-dots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.tl-dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: transform var(--duration-fast);
+    cursor: default;
+}
+.tl-dot:hover { transform: scale(1.4); }
+
+.tl-legend {
+    display: flex;
+    gap: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-0);
+    margin-top: var(--space-3);
+    font-size: 0.72rem;
+    color: var(--text-3);
+}
+
+.tl-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tl-legend .tl-dot {
+    width: 8px;
+    height: 8px;
+}
+
+/* Comparison Table */
+.cmp-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.85rem;
+}
+.cmp-table th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--bg-2);
+    color: var(--text-2);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-1);
+    cursor: pointer;
+    user-select: none;
+    transition: color var(--duration-fast);
+}
+.cmp-table th:hover { color: var(--accent); }
+.cmp-table th:first-child { border-radius: var(--radius-sm) 0 0 0; }
+.cmp-table th:last-child { border-radius: 0 var(--radius-sm) 0 0; }
+
+.cmp-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-0);
+    color: var(--text-1);
+}
+.cmp-table tr:hover td { background: var(--bg-glow); }
+
+/* ─── Empty State ─── */
+.empty {
+    text-align: center;
+    padding: var(--space-16) var(--space-6);
+    color: var(--text-3);
+}
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-4);
+    opacity: 0.3;
+}
+.empty-msg { font-size: 1.05rem; color: var(--text-2); }
+.empty-hint { font-size: 0.85rem; margin-top: var(--space-2); }
+
+/* ─── GitHub Section ─── */
+.gh-section {
+    margin-top: var(--space-5);
+    padding: var(--space-5);
+    background: var(--bg-2);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-1);
+}
+
+.warning-banner {
+    padding: var(--space-4);
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-4);
+    font-size: 0.85rem;
+    color: var(--verdict-stalled);
+}
+
+/* ─── Live log panes (T6: home page inline streaming) ─── */
+.active-sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+}
+
+
+.live-log-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.78rem;
+    color: var(--text-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-3);
+    border-radius: var(--radius-sm);
+}
+
+.live-log-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--verdict-active, #22c55e);
+    color: var(--bg-0, #000);
+    font-weight: 600;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.live-log-name {
+    font-family: var(--font-mono);
+    color: var(--text-1);
+    flex: 0 1 auto;
+}
+
+.live-log-status {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    color: var(--text-3);
+}
+
+/* Three-state toggle on the session-detail log header: ▴ expand,
+   ▭ normal, ▾ collapse. The currently active state's button is
+   tinted so the user can see where they are. */
+.live-log-toggle {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: var(--space-2);
+}
+
+.live-log-btn {
+    appearance: none;
+    border: 1px solid var(--border-1);
+    background: var(--bg-1);
+    color: var(--text-2);
+    width: 22px;
+    height: 20px;
+    padding: 0;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s ease-out, color 0.1s ease-out;
+}
+
+.live-log-btn:hover {
+    background: var(--bg-2);
+    color: var(--text-0);
+}
+
+.live-log-btn.is-active {
+    background: var(--accent, var(--text-1));
+    color: var(--bg-0);
+    border-color: transparent;
+}
+
+.live-log-status-ok    { color: var(--verdict-advanced, #22c55e); }
+.live-log-status-warn  { color: var(--verdict-stalled, #fbbf24); }
+.live-log-status-eof   { color: var(--text-3); }
+
+.live-log-pane {
+    margin: 0;
+    padding: var(--space-3);
+    background: var(--bg-0);
+    border: 1px solid var(--border-0);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-1);
+    max-height: 280px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 900px) {
+    .detail-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        grid-template-areas:
+            "graph"
+            "sidebar"
+            "goal";
+    }
+    /* Same three-state contract as the desktop layout: the log row
+       follows the --log-h custom property so collapsed (34px) /
+       normal / expanded share one declaration. --log-h's default is
+       tightened here because the narrow-screen viewport is
+       shorter. */
+    .detail-layout.has-log {
+        --log-h: 220px;
+        grid-template-rows: auto var(--log-h) auto auto;
+        grid-template-areas:
+            "graph"
+            "log"
+            "sidebar"
+            "goal";
+    }
+    .session-sidebar { border-left: none; border-top: 1px solid var(--border-0); }
+    .pipeline-grid { --cols: 2 !important; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .charts-grid { grid-template-columns: 1fr; }
+    .live-log-pane { max-height: 200px; }
+    .analytics-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .session-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+ * Claude Design — home layout + session card + canvas node tile
+ * ---------------------------------------------------------------
+ * Wires the reference UI kit (~/Humanize Viz Dashboard.html) into
+ * the existing routes. Canvas node positions and SVG connectors
+ * are still driven by pipeline.js's snake-path layout; only the
+ * node's visual skin is swapped here.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Home wrapper and section eyebrow. */
+.home {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-6);
+}
+.home > section + section { margin-top: var(--space-10); }
+
+.eyebrow-rule {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    margin-bottom: var(--space-4);
+}
+.eyebrow-rule.completed { margin-top: var(--space-8); }
+.eyebrow-rule::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-0);
+}
+
+.session-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: var(--space-4);
+}
+
+/* Cross-session analytics strip shown at the top of the home page.
+   Four slots: total sessions, avg rounds, completion rate, and an
+   inline sparkline showing rounds / day for the last 14 days. */
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-4);
+}
+.stat {
+    background: var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    text-align: center;
+}
+.stat-num {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--text-0);
+}
+.stat-label {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+    margin-top: 6px;
+}
+.stat-chart { text-align: left; padding-bottom: 8px; }
+.stat-chart .stat-label { margin-top: 0; margin-bottom: 4px; }
+.spark { display: block; width: 100%; height: 42px; }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+.spark-fill { fill: var(--accent-dim); }
+.spark-dot  { fill: var(--accent); }
+
+/* Session card — two-row head + 2x2 meta + AC bar + foot strip. */
+.session-card .session-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+}
+.session-head-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+.session-round {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-1);
+    white-space: nowrap;
+}
+.session-id {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px var(--space-5);
+    font-size: 0.84rem;
+    margin-bottom: var(--space-3);
+}
+.session-meta .k {
+    font-family: var(--font-display);
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+}
+.session-meta .v {
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.session-meta .v.verdict-advanced  { color: var(--verdict-advanced); }
+.session-meta .v.verdict-stalled   { color: var(--verdict-stalled); }
+.session-meta .v.verdict-regressed { color: var(--verdict-regressed); }
+.session-meta .v.verdict-complete  { color: var(--verdict-complete); }
+.session-meta .v.verdict-active    { color: var(--verdict-active); }
+
+.session-ac { margin-bottom: var(--space-3); }
+.ac-bar {
+    height: 4px;
+    background: var(--bg-3);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+.ac-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    border-radius: var(--radius-full);
+    transition: width var(--duration-slow) var(--ease-out);
+}
+
+.session-foot {
+    display: flex;
+    justify-content: space-between;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-0);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--text-3);
+}
+
+/* Badge pulse dot — reference uses an animated inner dot next to the
+   status label to signal "active / in-flight" at a glance. */
+.badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: blink 1.2s ease-in-out infinite;
+    flex: 0 0 auto;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+/* Pipeline canvas frame — textured dotted background so the tiles
+   and connectors read as a diagrammatic surface. Wraps the existing
+   #pl-viewport without changing the snake-path positioning done
+   inside. */
+.canvas-frame {
+    background:
+        radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--text-3) 22%, transparent) 1px, transparent 0)
+        0 0 / 18px 18px,
+        var(--bg-1);
+    border: 1px solid var(--border-1);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    overflow: hidden;
+    height: 100%;
+}
+.canvas-frame .pipeline-container {
+    background: transparent;
+    border-radius: var(--radius-sm);
+}
+
+/* Canvas node tile — replaces the older .pl-node skin. Positioning
+   is still driven by the inline left/top/width set by pipeline.js. */
+.canvas-tile {
+    position: absolute;
+    background: var(--bg-2);
+    border: 1.5px solid var(--border-1);
+    border-left: 3px solid var(--border-1);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+    color: var(--text-0);
+    cursor: pointer;
+    overflow: hidden;
+    transition: all var(--duration-base) var(--ease-out);
+}
+.canvas-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-2);
+}
+.canvas-tile[data-verdict="advanced"]  { border-left-color: var(--verdict-advanced); }
+.canvas-tile[data-verdict="stalled"]   { border-left-color: var(--verdict-stalled); }
+.canvas-tile[data-verdict="regressed"] { border-left-color: var(--verdict-regressed); }
+.canvas-tile[data-verdict="complete"]  { border-left-color: var(--verdict-complete); }
+.canvas-tile[data-verdict="unknown"]   { border-left-color: var(--border-2); }
+
+.canvas-tile.is-running {
+    border-color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 8%, var(--bg-2));
+    box-shadow: 0 0 22px var(--accent-glow), var(--shadow-md);
+    border-left-color: var(--verdict-active);
+}
+.canvas-tile.is-queued {
+    border: 1.5px dashed color-mix(in oklab, var(--accent) 50%, transparent);
+    border-left: 1.5px dashed color-mix(in oklab, var(--accent) 50%, transparent);
+    background: var(--bg-glow);
+    opacity: 0.6;
+    cursor: default;
+}
+
+.canvas-tile-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+.canvas-num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.84rem;
+    color: var(--text-0);
+}
+.canvas-tile-meta {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.canvas-tile-stats {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-2);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.vdot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+.vdot[data-verdict="advanced"]  { background: var(--verdict-advanced); }
+.vdot[data-verdict="stalled"]   { background: var(--verdict-stalled); }
+.vdot[data-verdict="regressed"] { background: var(--verdict-regressed); }
+.vdot[data-verdict="complete"]  { background: var(--verdict-complete); }
+.vdot[data-verdict="unknown"]   { background: var(--verdict-unknown); }
+.vdot[data-verdict="active"]    { background: var(--verdict-active); }
+
+.live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: blink 1.2s ease-in-out infinite;
+    flex: 0 0 auto;
+}
+
+/* Sweeping progress bar used on the active (running) node tile. */
+.canvas-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--bg-3);
+    overflow: hidden;
+}
+.canvas-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 2s ease-in-out infinite;
+}
+@keyframes sweep {
+    0%   { transform: translateX(-120%); }
+    100% { transform: translateX(370%); }
+}

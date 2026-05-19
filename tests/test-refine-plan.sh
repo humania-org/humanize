@@ -117,7 +117,7 @@ assert_equals() {
 frontmatter_value() {
     local file="$1"
     local key="$2"
-    sed -n "/^---$/,/^---$/{ /^${key}:[[:space:]]*/{ s/^${key}:[[:space:]]*//p; q; } }" "$file"
+    awk -v k="$key" 'BEGIN{f=0} /^---$/{f++; next} f==1 && $0 ~ "^"k":[[:space:]]"{sub("^"k":[[:space:]]*",""); print; exit}' "$file"
 }
 
 json_first_string_value() {
@@ -139,8 +139,16 @@ trim_string() {
 }
 
 collapse_whitespace() {
-    printf '%s' "$1" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//'
+    printf '%s' "$1" | tr '[:space:]' ' ' | tr -s ' ' | sed 's/^ //; s/ $//'
 }
+
+if [[ "$(collapse_whitespace $'alpha\tbeta\n gamma')" == "alpha beta gamma" ]]; then
+    pass "collapse_whitespace normalizes tabs and newlines"
+else
+    fail "collapse_whitespace normalizes tabs and newlines" \
+        "alpha beta gamma" \
+        "$(collapse_whitespace $'alpha\tbeta\n gamma')"
+fi
 
 VALIDATOR_OUTPUT=""
 VALIDATOR_EXIT_CODE=0
@@ -530,17 +538,20 @@ scan_reference_comments() {
 }
 
 comment_matches_question() {
-    local text="${1,,}"
+    local text
+    text=$(echo "$1" | tr '[:upper:]' '[:lower:]')
     [[ "$text" == *"why"* || "$text" == *"how"* || "$text" == *"what"* || "$text" == *"explain"* || "$text" == *"clarify"* || "$text" == *"unclear"* ]]
 }
 
 comment_matches_change_request() {
-    local text="${1,,}"
+    local text
+    text=$(echo "$1" | tr '[:upper:]' '[:lower:]')
     [[ "$text" == *"add"* || "$text" == *"remove"* || "$text" == *"delete"* || "$text" == *"rewrite"* || "$text" == *"restore"* || "$text" == *"rename"* || "$text" == *"split"* || "$text" == *"merge"* || "$text" == *"modify"* ]]
 }
 
 comment_matches_research_request() {
-    local text="${1,,}"
+    local text
+    text=$(echo "$1" | tr '[:upper:]' '[:lower:]')
     [[ "$text" == *"investigate"* || "$text" == *"compare"* || "$text" == *"confirm"* || "$text" == *"current behavior"* || "$text" == *"gather evidence"* || "$text" == *"before deciding"* ]]
 }
 
@@ -561,7 +572,7 @@ normalize_alt_language() {
     local raw
     local lower
     raw="$(trim_string "$1")"
-    lower="${raw,,}"
+    lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
 
     case "$lower" in
         chinese|zh) echo "Chinese|zh|variant" ;;

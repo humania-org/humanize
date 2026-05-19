@@ -452,7 +452,10 @@ EOF
 UPDATED_CONTENT=$(jq -Rs . < "$TEST_DIR/goal-tracker-updated.md")
 JSON='{"tool_name":"Write","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","content":'"$UPDATED_CONTENT"'}}'
 set +e
-RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh" 2>&1)
+# cd into TEST_DIR so git rev-parse fails (temp dir has no git repo) and the
+# resolver falls back to CLAUDE_PROJECT_DIR, preventing the real active loop
+# from being picked up.
+RESULT=$(echo "$JSON" | (cd "$TEST_DIR"; CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-write-validator.sh") 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
@@ -498,7 +501,9 @@ echo ""
 echo "Test 12e: Edit validator allows mutable goal-tracker edits after round 0"
 JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","old_string":"| [mainline] Keep AC-1 moving | AC-1 | pending | - |","new_string":"| [mainline] Keep AC-1 moving | AC-1 | in_progress | re-anchored |"}}'
 set +e
-RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+# cd into TEST_DIR so git rev-parse fails and the resolver falls back to
+# CLAUDE_PROJECT_DIR, preventing the real active loop from being picked up.
+RESULT=$(echo "$JSON" | (cd "$TEST_DIR"; CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh") 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
@@ -512,7 +517,9 @@ echo ""
 echo "Test 12ea: Edit validator allows mutable deletions after round 0"
 JSON='{"tool_name":"Edit","tool_input":{"file_path":"'"$HOOK_LOOP_DIR"'/goal-tracker.md","old_string":"| [mainline] Keep AC-1 moving | AC-1 | pending | - |","new_string":""}}'
 set +e
-RESULT=$(echo "$JSON" | CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh" 2>&1)
+# cd into TEST_DIR so git rev-parse fails and the resolver falls back to
+# CLAUDE_PROJECT_DIR, preventing the real active loop from being picked up.
+RESULT=$(echo "$JSON" | (cd "$TEST_DIR"; CLAUDE_PROJECT_DIR="$TEST_DIR" bash "$PROJECT_ROOT/hooks/loop-edit-validator.sh") 2>&1)
 EXIT_CODE=$?
 set -e
 if [[ $EXIT_CODE -eq 0 ]]; then
@@ -647,7 +654,10 @@ mkdir -p "$TEST_DIR/no-state"
 # No .humanize directory - should allow exit (no block decision)
 
 set +e
-OUTPUT=$(echo '{}' | CLAUDE_PROJECT_DIR="$TEST_DIR/no-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh" 2>&1)
+# cd into no-state dir so git rev-parse fails (temp dir has no git repo) and the
+# resolver falls back to CLAUDE_PROJECT_DIR; otherwise the real active loop is
+# found and the hook blocks instead of allowing exit.
+OUTPUT=$(echo '{}' | (cd "$TEST_DIR/no-state"; CLAUDE_PROJECT_DIR="$TEST_DIR/no-state" bash "$PROJECT_ROOT/hooks/loop-codex-stop-hook.sh") 2>&1)
 EXIT_CODE=$?
 set -e
 # Should exit 0 (pass through) when no loop is active, with no block decision

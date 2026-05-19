@@ -399,7 +399,7 @@ echo "Test 10: Plan file with very long lines"
     echo "Another normal line."
 } > "$TEST_DIR/long-lines.md"
 
-LINE_COUNT=$(wc -l < "$TEST_DIR/long-lines.md")
+LINE_COUNT=$(wc -l < "$TEST_DIR/long-lines.md" | tr -d ' ')
 if [[ "$LINE_COUNT" == "5" ]]; then
     pass "Long lines handled correctly ($LINE_COUNT lines)"
 else

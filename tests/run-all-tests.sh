@@ -91,6 +91,15 @@ TEST_SUITES=(
     # Session ID and Agent Teams tests
     "test-session-id.sh"
     "test-agent-teams.sh"
+    # gen-idea companion JSON tests (PR-A)
+    "test-validate-gen-idea-io.sh"
+    "test-directions-json-schema.sh"
+    "test-gen-idea-dual-write.sh"
+    # explore-idea tests (PR-B)
+    "test-validate-explore-idea-io.sh"
+    "test-worker-result-contract.sh"
+    "test-explore-manifest.sh"
+    "test-explore-command-structure.sh"
     # Ask Codex tests
     "test-ask-codex.sh"
     # Bitlesson routing tests
@@ -99,6 +108,16 @@ TEST_SUITES=(
     "test-model-router.sh"
     # Skill monitor tests
     "test-skill-monitor.sh"
+    # Viz dashboard tests
+    "test-viz.sh"
+    "test-viz-isolation.sh"
+    "test-streaming.sh"
+    "test-app-auth.sh"
+    "test-app-routes-live.sh"
+    "test-cancel-session.sh"
+    "test-frontend-migration.sh"
+    "test-rlcr-sources.sh"
+    "test-style-compliance.sh"
     # Robustness tests
     "robustness/test-state-file-robustness.sh"
     "robustness/test-session-robustness.sh"
@@ -123,6 +142,12 @@ ZSH_TESTS=(
     "test-zsh-monitor-safety.sh"
 )
 
+# Signal-heavy runtime tests are more stable when they run after the
+# parallel batch finishes.
+SERIAL_TESTS=(
+    "test-monitor-runtime.sh"
+)
+
 # Temp directory for per-suite output files
 OUTPUT_DIR=$(mktemp -d)
 trap "rm -rf $OUTPUT_DIR" EXIT
@@ -140,11 +165,43 @@ MOCK_CODEX
     export PATH="$OUTPUT_DIR/mock-bin:$PATH"
 fi
 
+# Provide a portable `timeout` shim on platforms that lack it (e.g. macOS base install).
+# Uses python3 subprocess so stdin is preserved and exit code 124 is returned on timeout.
+if ! command -v timeout &>/dev/null; then
+    mkdir -p "$OUTPUT_DIR/mock-bin"
+    cat > "$OUTPUT_DIR/mock-bin/timeout" << 'TIMEOUT_SHIM'
+#!/usr/bin/env python3
+import subprocess, sys
+timeout_secs = float(sys.argv[1])
+cmd = sys.argv[2:]
+try:
+    result = subprocess.run(cmd, timeout=timeout_secs)
+    sys.exit(result.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+except Exception as e:
+    print(f"timeout shim error: {e}", file=sys.stderr)
+    sys.exit(1)
+TIMEOUT_SHIM
+    chmod +x "$OUTPUT_DIR/mock-bin/timeout"
+    export PATH="$OUTPUT_DIR/mock-bin:$PATH"
+fi
+
 # Check if a suite needs zsh
 needs_zsh() {
     local suite="$1"
     for zsh_test in "${ZSH_TESTS[@]}"; do
         if [[ "$suite" == "$zsh_test" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+needs_serial() {
+    local suite="$1"
+    for serial_test in "${SERIAL_TESTS[@]}"; do
+        if [[ "$suite" == "$serial_test" ]]; then
             return 0
         fi
     done
@@ -159,84 +216,45 @@ format_ms() {
     echo "${s}.${frac}s"
 }
 
-# Launch all test suites in parallel
-declare -A PIDS          # suite -> PID
-declare -A SKIPPED       # suite -> reason
-ACTIVE_PIDS=()
+# Portable millisecond timestamp (date +%s%3N is GNU-only, not on macOS bash 3.2)
+ms_now() {
+    python3 -c "import time; print(int(time.time()*1000))" 2>/dev/null \
+        || echo "$(date +%s)000"
+}
 
-for suite in "${TEST_SUITES[@]}"; do
-    suite_path="$SCRIPT_DIR/$suite"
-    safe_name="$(echo "$suite" | tr '/' '_')"
-    out_file="$OUTPUT_DIR/${safe_name}.out"
-    exit_file="$OUTPUT_DIR/${safe_name}.exit"
-    time_file="$OUTPUT_DIR/${safe_name}.time"
+run_suite_capture() {
+    local suite="$1"
+    local out_file="$2"
+    local exit_file="$3"
+    local time_file="$4"
+    local suite_path="$SCRIPT_DIR/$suite"
+    local t_start
 
-    if [[ ! -f "$suite_path" ]]; then
-        SKIPPED["$suite"]="not found"
-        continue
-    fi
-
+    t_start=$(ms_now)
     if needs_zsh "$suite"; then
-        if ! command -v zsh &>/dev/null; then
-            SKIPPED["$suite"]="zsh not available"
-            continue
-        fi
-        (
-            t_start=$(date +%s%3N)
-            zsh "$suite_path" >"$out_file" 2>&1
-            echo $? >"$exit_file"
-            echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        ) &
+        zsh "$suite_path" >"$out_file" 2>&1
     else
-        (
-            t_start=$(date +%s%3N)
-            "$suite_path" >"$out_file" 2>&1
-            echo $? >"$exit_file"
-            echo $(( $(date +%s%3N) - t_start )) >"$time_file"
-        ) &
+        "$suite_path" >"$out_file" 2>&1
     fi
-    PIDS["$suite"]=$!
-    ACTIVE_PIDS+=("${PIDS[$suite]}")
+    echo $? >"$exit_file"
+    echo $(( $(ms_now) - t_start )) >"$time_file"
+}
 
-    # Throttle background jobs
-    while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_JOBS" ]]; do
-        if supports_wait_n; then
-            wait -n 2>/dev/null || true
-            # Prune finished PIDs from ACTIVE_PIDS
-            still_running=()
-            for pid in "${ACTIVE_PIDS[@]}"; do
-                if kill -0 "$pid" 2>/dev/null; then
-                    still_running+=("$pid")
-                fi
-            done
-            ACTIVE_PIDS=("${still_running[@]}")
-        else
-            # Fallback: wait for the oldest PID (less efficient but portable in older bash)
-            wait "${ACTIVE_PIDS[0]}" 2>/dev/null || true
-            ACTIVE_PIDS=("${ACTIVE_PIDS[@]:1}")
-        fi
-    done
-done
-
-# Wait for all and collect results
-TOTAL_PASSED=0
-TOTAL_FAILED=0
-FAILED_SUITES=()
-# Sortable file: elapsed_ms<TAB>display_line
-SORT_FILE="$OUTPUT_DIR/sortable.txt"
-: > "$SORT_FILE"
-
-esc=$'\033'
-for suite in "${TEST_SUITES[@]}"; do
-    [[ -n "${SKIPPED[$suite]+x}" ]] && continue
-
-    pid="${PIDS[$suite]}"
-    wait "$pid" 2>/dev/null
-
-    safe_name="$(echo "$suite" | tr '/' '_')"
-    out_file="$OUTPUT_DIR/${safe_name}.out"
-    exit_file="$OUTPUT_DIR/${safe_name}.exit"
-    time_file="$OUTPUT_DIR/${safe_name}.time"
+collect_suite_result() {
+    local suite="$1"
+    local safe_name="$2"
+    local out_file="$3"
+    local exit_file="$4"
+    local time_file="$5"
+    local exit_code
+    local output
+    local elapsed_ms
+    local elapsed_display
+    local output_stripped
+    local passed
+    local failed
+    local line
+    local zsh_label
 
     exit_code=$(cat "$exit_file" 2>/dev/null || echo "1")
     output=$(cat "$out_file" 2>/dev/null || echo "")
@@ -263,12 +281,106 @@ for suite in "${TEST_SUITES[@]}"; do
         line=$(echo -e "${GREEN}PASSED${NC}: $suite${zsh_label} ($passed tests, ${elapsed_display})")
         printf '%d\t%s\n' "$elapsed_ms" "$line" >> "$SORT_FILE"
     fi
+}
+
+# Launch all test suites in parallel, except signal-heavy runtime tests which
+# run serially after the parallel batch finishes. PIDs and skip reasons are
+# stored under OUTPUT_DIR instead of associative arrays so bash 3.2 works.
+ACTIVE_PIDS=()
+SERIAL_SUITES=()
+
+for suite in "${TEST_SUITES[@]}"; do
+    suite_path="$SCRIPT_DIR/$suite"
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+
+    if [[ ! -f "$suite_path" ]]; then
+        echo "not found" > "$OUTPUT_DIR/${safe_name}.skip"
+        continue
+    fi
+
+    if needs_serial "$suite"; then
+        SERIAL_SUITES+=("$suite")
+        echo "serial" > "$OUTPUT_DIR/${safe_name}.serial"
+        continue
+    fi
+
+    if needs_zsh "$suite"; then
+        if ! command -v zsh &>/dev/null; then
+            echo "zsh not available" > "$OUTPUT_DIR/${safe_name}.skip"
+            continue
+        fi
+    fi
+
+    (
+        run_suite_capture "$suite" "$out_file" "$exit_file" "$time_file"
+    ) &
+    echo $! > "$OUTPUT_DIR/${safe_name}.pid"
+    ACTIVE_PIDS+=($!)
+
+    # Throttle background jobs
+    while [[ "${#ACTIVE_PIDS[@]}" -ge "$MAX_JOBS" ]]; do
+        if supports_wait_n; then
+            wait -n 2>/dev/null || true
+            # Prune finished PIDs from ACTIVE_PIDS
+            still_running=()
+            for pid in "${ACTIVE_PIDS[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    still_running+=("$pid")
+                fi
+            done
+            ACTIVE_PIDS=(${still_running[@]+"${still_running[@]}"})
+        else
+            # Fallback: wait for the oldest PID (less efficient but portable in older bash)
+            wait "${ACTIVE_PIDS[0]}" 2>/dev/null || true
+            ACTIVE_PIDS=("${ACTIVE_PIDS[@]:1}")
+        fi
+    done
+done
+
+# Wait for parallel suites and collect results.
+TOTAL_PASSED=0
+TOTAL_FAILED=0
+FAILED_SUITES=()
+# Sortable file: elapsed_ms<TAB>display_line
+SORT_FILE="$OUTPUT_DIR/sortable.txt"
+: > "$SORT_FILE"
+
+esc=$'\033'
+for suite in "${TEST_SUITES[@]}"; do
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    [[ -f "$OUTPUT_DIR/${safe_name}.skip" ]] && continue
+    [[ -f "$OUTPUT_DIR/${safe_name}.serial" ]] && continue
+
+    pid=$(cat "$OUTPUT_DIR/${safe_name}.pid" 2>/dev/null || echo "")
+    [[ -n "$pid" ]] && wait "$pid" 2>/dev/null
+
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+    collect_suite_result "$suite" "$safe_name" "$out_file" "$exit_file" "$time_file"
+done
+
+# Run serial suites after the parallel batch finishes.
+for suite in "${SERIAL_SUITES[@]}"; do
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    out_file="$OUTPUT_DIR/${safe_name}.out"
+    exit_file="$OUTPUT_DIR/${safe_name}.exit"
+    time_file="$OUTPUT_DIR/${safe_name}.time"
+
+    run_suite_capture "$suite" "$out_file" "$exit_file" "$time_file"
+    collect_suite_result "$suite" "$safe_name" "$out_file" "$exit_file" "$time_file"
 done
 
 # Print skipped suites first
 for suite in "${TEST_SUITES[@]}"; do
-    if [[ -n "${SKIPPED[$suite]+x}" ]]; then
-        echo -e "${YELLOW}SKIP${NC}: $suite (${SKIPPED[$suite]})"
+    safe_name="$(echo "$suite" | tr '/' '_')"
+    skip_file="$OUTPUT_DIR/${safe_name}.skip"
+    if [[ -f "$skip_file" ]]; then
+        skip_reason=$(cat "$skip_file" 2>/dev/null || echo "unknown")
+        echo -e "${YELLOW}SKIP${NC}: $suite ($skip_reason)"
     fi
 done
 

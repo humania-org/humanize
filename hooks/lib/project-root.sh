@@ -3,9 +3,19 @@
 # Deterministic project-root resolver for all humanize hooks and scripts.
 #
 # Resolution priority:
-#   1. CLAUDE_PROJECT_DIR (set by Claude Code, stable across `cd` within a session)
-#   2. git rev-parse --show-toplevel (nearest enclosing repo)
-#   3. Non-zero return.
+#   1. linked git worktree toplevel when it differs from CLAUDE_PROJECT_DIR
+#   2. CLAUDE_PROJECT_DIR (Claude session root)
+#   3. git rev-parse --show-toplevel (nearest enclosing repo)
+#   4. Non-zero return.
+#
+# CLAUDE_PROJECT_DIR is normally the authoritative session root. Hooks and
+# helper scripts are often executed from the plugin checkout while targeting a
+# different project, so blindly preferring the plugin repo's git toplevel makes
+# active loop state and project config disappear.
+#
+# The exception is a linked git worktree: explore-idea workers can inherit the
+# coordinator's CLAUDE_PROJECT_DIR while running inside their own worktree. In
+# that case the current checkout is the safer root.
 #
 # pwd is intentionally NOT used as a fallback: it drifts with `cd`
 # invocations during a session and silently causes state.md lookups
@@ -39,17 +49,30 @@ _HUMANIZE_PROJECT_ROOT_SOURCED=1
 #   }
 #
 resolve_project_root() {
-    local root="${CLAUDE_PROJECT_DIR:-}"
-    if [[ -z "$root" ]]; then
-        root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    local env_root="${CLAUDE_PROJECT_DIR:-}"
+    local git_root=""
+    local root=""
+
+    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$git_root" ]]; then
+        git_root="$(canonicalize_path "$git_root")"
+    fi
+    if [[ -n "$env_root" ]]; then
+        env_root="$(canonicalize_path "$env_root")"
+    fi
+
+    if [[ -n "$git_root" && -n "$env_root" && "$git_root" != "$env_root" && -f "$git_root/.git" ]]; then
+        root="$git_root"
+    elif [[ -n "$env_root" ]]; then
+        root="$env_root"
+    else
+        root="$git_root"
     fi
     if [[ -z "$root" ]]; then
         return 1
     fi
 
-    local canonical
-    canonical=$(canonicalize_path "$root")
-    printf '%s\n' "${canonical:-$root}"
+    printf '%s\n' "$root"
 }
 
 # canonicalize_path_prefix

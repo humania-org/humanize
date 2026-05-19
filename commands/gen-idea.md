@@ -3,6 +3,8 @@ description: "Generate a repo-grounded idea draft via directed-swarm exploration
 argument-hint: "<idea-text-or-path> [--n <int>] [--output <path>]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-idea-io.sh:*)"
+  - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-directions-json.sh:*)"
+  - "Bash(rm:*)"
   - "Read"
   - "Glob"
   - "Grep"
@@ -16,7 +18,7 @@ Read and execute below with ultrathink.
 
 ## Hard Constraint: Draft-Only Output
 
-This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the single output draft file produced in Phase 4; prerequisite directory creation for the default `.humanize/ideas/` path by the validation script is permitted as part of that write. All exploration subagents run read-only.
+This command MUST NOT implement features, modify source code, or create commits while producing the draft. Permitted writes are limited to the output draft file and its companion `directions.json` artifact produced in Phase 4; prerequisite directory creation for the default `.humanize/ideas/` path by the validation script is permitted. `rm` is permitted solely to delete those two just-written files when companion JSON validation fails (no-partial-output cleanup). All exploration subagents run read-only.
 
 This command transforms a loose idea into a repo-grounded draft suitable as input to `/humanize:gen-plan`. It applies directed-diversity exploration: a lead picks N orthogonal directions, N parallel `Explore` subagents develop each, the lead synthesizes a draft with one primary direction plus N-1 alternatives. Each direction carries objective evidence from the repo.
 
@@ -28,7 +30,7 @@ This command transforms a loose idea into a repo-grounded draft suitable as inpu
 2. IO Validation
 3. Direction Generation
 4. Parallel Exploration
-5. Synthesis and Write
+5. Synthesis, Write Draft, and Write Companion JSON
 
 ---
 
@@ -51,14 +53,15 @@ Run:
 ```
 
 Handle exit codes:
-- `0`: Parse stdout to extract `INPUT_MODE`, `OUTPUT_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). When `INPUT_MODE` is `file`, stdout additionally contains an `IDEA_BODY_FILE: <path>` line; extract that too. Continue to Phase 2. (`SLUG` is informational — the script has already incorporated it into `OUTPUT_FILE`, so later phases do not need to use `SLUG` directly.)
+- `0`: Parse stdout to extract `INPUT_MODE`, `OUTPUT_FILE`, `DIRECTIONS_JSON_FILE`, `SLUG`, `TEMPLATE_FILE`, `N` (each appears on its own `KEY: value` line). When `INPUT_MODE` is `file`, stdout additionally contains an `IDEA_BODY_FILE: <path>` line; extract that too. Continue to Phase 2. (`SLUG` is informational — the script has already incorporated it into `OUTPUT_FILE`, so later phases do not need to use `SLUG` directly.)
 - `1`: Report "Missing or empty idea input" and stop.
 - `2`: Report "Input looks like a file path but is missing, not readable, or not `.md`" and stop.
 - `3`: Report "Output directory does not exist — please create it or choose a different path" and stop.
 - `4`: Report "Output file already exists — choose a different path" and stop.
 - `5`: Report "No write permission to output directory" and stop.
-- `6`: Report "Invalid arguments" with the stdout usage text and stop.
+- `6`: Report "Invalid arguments — output path must have `.md` suffix" with the stdout usage text and stop.
 - `7`: Report "Template file missing — plugin configuration error" and stop.
+- `8`: Report "Companion directions.json already exists — choose a different output path or remove the existing companion file" and stop.
 
 Before `VALIDATION_SUCCESS`, stdout may contain one or more lines starting with `WARNING:` (for example, `WARNING: short idea (<N> chars); proceeding` when an inline idea is under 10 characters). Surface these warnings to the user in your final report but continue Phase 2 normally. `WARNING:` lines are informational, not errors.
 
@@ -190,13 +193,73 @@ Produce the finalized draft content in memory by replacing placeholders:
 
 Write the finalized content to `OUTPUT_FILE` using the `Write` tool. Single write; no progressive edits.
 
-### Step 4.5: Report
+### Step 4.5: Build and Write Companion JSON
+
+Construct the companion `directions.json` in memory using all surviving direction proposals from Phase 3, then write it to `DIRECTIONS_JSON_FILE` (from Phase 1 stdout).
+
+**JSON structure (schema version 1):**
+
+```json
+{
+  "schema_version": 1,
+  "title": "<TITLE from Step 4.2>",
+  "original_idea": "<IDEA_BODY verbatim>",
+  "synthesis_notes": "<SYNTHESIS_NOTES from Step 4.3>",
+  "metadata": {
+    "n_requested": <N>,
+    "n_returned": <count of surviving directions>,
+    "timestamp": "<YYYYMMDD-HHmmss>",
+    "draft_path": "<OUTPUT_FILE>"
+  },
+  "directions": [
+    {
+      "direction_id": "dir-<NN>-<dir-slug>",
+      "dir_slug": "<lowercase-alphanumeric-hyphen slug derived from direction name>",
+      "source_index": <original 0-based index from DIRECTIONS list>,
+      "display_order": <0 for primary, 1..K for alternatives in sequential order>,
+      "is_primary": <true for PRIMARY, false otherwise>,
+      "name": "<direction name>",
+      "rationale": "<direction rationale from Phase 2>",
+      "raw_phase3_response": "<exact raw subagent response text for this direction>",
+      "approach_summary": "<APPROACH_SUMMARY from subagent>",
+      "objective_evidence": ["<bullet item>", ...],
+      "known_risks": ["<bullet item>", ...],
+      "confidence": "<high|medium|low>"
+    }
+  ]
+}
+```
+
+**Field derivation rules:**
+- `direction_id`: `"dir-" + zero-padded source_index (2 digits) + "-" + dir_slug`. Example: `"dir-00-command-history"`.
+- `dir_slug`: Derived from direction name — lowercase, replace non-alphanumeric with hyphens, collapse consecutive hyphens, strip leading/trailing hyphens. Must match `^[a-z0-9-]+$`.
+- `dir_slug` collision handling: if two direction names slugify to the same value, append `-2`, `-3`, etc. by original `source_index` order until every `dir_slug` is unique.
+- `source_index`: The 0-based index of this direction in the original `DIRECTIONS` list from Phase 2 (before any degradation drops).
+- `display_order`: 0 for the primary direction, 1 through K for alternatives in their sequential order.
+- `is_primary`: `true` for exactly one direction (PRIMARY), `false` for all others.
+- `objective_evidence`: Each bullet item from the subagent's `OBJECTIVE_EVIDENCE` field as a string array element.
+- `known_risks`: Each bullet item from the subagent's `KNOWN_RISKS` field as a string array element.
+- `metadata.n_returned` must equal `directions.length`.
+
+After writing `DIRECTIONS_JSON_FILE`, validate it:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/validate-directions-json.sh" "$DIRECTIONS_JSON_FILE"
+```
+
+If validation fails, delete both `OUTPUT_FILE` and `DIRECTIONS_JSON_FILE` and stop with error: `companion JSON validation failed — this is a bug in the command; please report it`.
+
+### Step 4.6: Report
 
 Report to the user:
-- Path written (`OUTPUT_FILE`).
+- Draft path written: `OUTPUT_FILE`
+- Companion JSON path written: `DIRECTIONS_JSON_FILE`
 - Primary direction name.
 - Requested `N` and the actual direction count (note if reduced due to degradation).
-- Next-step hint: `To turn this draft into a plan, run: /humanize:gen-plan --input <OUTPUT_FILE> --output <plan-path>`.
+- Next-step hints:
+  ```
+  To explore directions as parallel prototypes, run: /humanize:explore-idea <DIRECTIONS_JSON_FILE>
+  To turn this draft into a plan, run: /humanize:gen-plan --input <OUTPUT_FILE> --output <plan-path>
+  ```
 
 ---
 
@@ -206,4 +269,5 @@ Report to the user:
 - Phase 2 degradation follows the retry-once + ≥2 minimum rule stated above.
 - Phase 3 degradation follows the drop-and-continue + ≥2 minimum rule stated above.
 - Never fabricate repo references or prior art. The `exploratory, no concrete precedent` sentinel from subagents is preserved verbatim in the draft.
-- If any phase stops with an error, do not write a partial `OUTPUT_FILE`.
+- If any phase stops with an error, do not write a partial `OUTPUT_FILE` or `DIRECTIONS_JSON_FILE`.
+- If companion JSON validation fails after writing both files, delete both files and stop.

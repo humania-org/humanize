@@ -355,7 +355,7 @@ handle_bg_task_short_circuit() {
         local guard_state_file guard_stored_sid
         guard_state_file=$(resolve_active_state_file "$loop_dir")
         if [[ -n "$guard_state_file" ]]; then
-            guard_stored_sid=$(sed -n '/^---$/,/^---$/{ /^'"${FIELD_SESSION_ID}"':/{ s/^'"${FIELD_SESSION_ID}"': *//; p; } }' "$guard_state_file" 2>/dev/null | tr -d ' ')
+            guard_stored_sid=$(awk -v key="${FIELD_SESSION_ID}" 'BEGIN{f=0} /^---$/{f++; next} f==1 && $0 ~ "^"key":"{sub("^"key":[[:space:]]*",""); print; exit}' "$guard_state_file" 2>/dev/null | tr -d ' ') || true
             if [[ -n "$guard_stored_sid" ]] \
                && [[ -n "$hook_session_id" ]] \
                && [[ "$guard_stored_sid" != "$hook_session_id" ]]; then

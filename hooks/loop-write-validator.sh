@@ -252,8 +252,9 @@ fi
 
 if is_goal_tracker_path "$FILE_PATH_LOWER"; then
     GOAL_TRACKER_PATH="$ACTIVE_LOOP_DIR/goal-tracker.md"
-    NORMALIZED_FILE_PATH=$(_normalize_path "$FILE_PATH")
-    NORMALIZED_GOAL_TRACKER_PATH=$(_normalize_path "$GOAL_TRACKER_PATH")
+    # Use canonicalize_path to resolve symlinks (e.g. /var -> /private/var on macOS)
+    NORMALIZED_FILE_PATH=$(canonicalize_path "$FILE_PATH" 2>/dev/null || _normalize_path "$FILE_PATH")
+    NORMALIZED_GOAL_TRACKER_PATH=$(canonicalize_path "$GOAL_TRACKER_PATH" 2>/dev/null || _normalize_path "$GOAL_TRACKER_PATH")
 
     if [[ "$NORMALIZED_FILE_PATH" != "$NORMALIZED_GOAL_TRACKER_PATH" ]]; then
         goal_tracker_blocked_message "$CURRENT_ROUND" "$GOAL_TRACKER_PATH" >&2

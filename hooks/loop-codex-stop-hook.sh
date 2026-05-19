@@ -654,7 +654,14 @@ Please commit all changes before allowing the loop to exit.
                 exit 0
             fi
         fi
-        # Analysis complete and tree clean, allow exit
+        # Analysis complete and tree clean. Now do the terminal rename so the
+        # active state file stays in place until this cleanliness gate passes.
+        _meth_exit_reason=$(cat "$LOOP_DIR/.methodology-exit-reason" 2>/dev/null | tr -d '[:space:]' || echo "")
+        if [[ -n "$_meth_exit_reason" ]]; then
+            mv "$LOOP_DIR/methodology-analysis-state.md" "$LOOP_DIR/${_meth_exit_reason}-state.md" 2>/dev/null || true
+            rm -f "$LOOP_DIR/.methodology-exit-reason"
+            echo "Methodology analysis complete. State preserved as: $LOOP_DIR/${_meth_exit_reason}-state.md" >&2
+        fi
         exit 0
     else
         # Analysis not yet complete, block
@@ -1172,12 +1179,15 @@ mkdir -p "$CACHE_DIR"
 CODEX_DISABLE_HOOKS_ARGS=()
 _CODEX_FEATURE_CACHE="$CACHE_DIR/.codex-disable-hooks-supported"
 if [[ -f "$_CODEX_FEATURE_CACHE" ]]; then
-    [[ "$(cat "$_CODEX_FEATURE_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
-elif codex --help 2>&1 | grep -q -- '--disable'; then
-    CODEX_DISABLE_HOOKS_ARGS=(--disable codex_hooks)
-    echo "yes" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    [[ "$(cat "$_CODEX_FEATURE_CACHE")" == "yes" ]] && CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
 else
-    echo "no" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    CODEX_HELP_OUTPUT="$(codex --help </dev/null 2>&1 || true)"
+    if grep -q -- '--disable' <<< "$CODEX_HELP_OUTPUT"; then
+        CODEX_DISABLE_HOOKS_ARGS=(--disable hooks)
+        echo "yes" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    else
+        echo "no" > "$_CODEX_FEATURE_CACHE" 2>/dev/null
+    fi
 fi
 
 # Build command arguments for summary review (codex exec)
@@ -1228,6 +1238,8 @@ run_codex_code_review() {
     local prompt_fallback="# Code Review Phase - Round ${round}
 
 This file documents the code review invocation for audit purposes.
+Compatibility note: Codex 0.130.0 rejects [PROMPT] input, including - stdin, when --base is used.
+Humanize must not pass prompt input when --base is used; this file is audit-only.
 Provider: codex
 
 ## Review Configuration
@@ -1256,14 +1268,14 @@ Provider: codex
         echo "# Review base ($review_base_type): $review_base"
         echo "# Timeout: $CODEX_TIMEOUT seconds"
         echo ""
-        echo "codex review ${CODEX_DISABLE_HOOKS_ARGS[*]} --base $review_base ${CODEX_REVIEW_ARGS[*]}"
+        echo "codex review ${CODEX_DISABLE_HOOKS_ARGS[*]+"${CODEX_DISABLE_HOOKS_ARGS[*]}"} --base $review_base ${CODEX_REVIEW_ARGS[*]}"
     } > "$CODEX_REVIEW_CMD_FILE"
 
     echo "Code review command saved to: $CODEX_REVIEW_CMD_FILE" >&2
     echo "Running codex review with timeout ${CODEX_TIMEOUT}s in $PROJECT_ROOT (base: $review_base)..." >&2
 
     CODEX_REVIEW_EXIT_CODE=0
-    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review "${CODEX_DISABLE_HOOKS_ARGS[@]}" --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
+    (cd "$PROJECT_ROOT" && run_with_timeout "$CODEX_TIMEOUT" codex review ${CODEX_DISABLE_HOOKS_ARGS[@]+"${CODEX_DISABLE_HOOKS_ARGS[@]}"} --base "$review_base" "${CODEX_REVIEW_ARGS[@]}") \
         > "$CODEX_REVIEW_LOG_FILE" 2>&1 || CODEX_REVIEW_EXIT_CODE=$?
 
     echo "Code review exit code: $CODEX_REVIEW_EXIT_CODE" >&2
@@ -1682,7 +1694,7 @@ CODEX_PROMPT_CONTENT=$(cat "$REVIEW_PROMPT_FILE")
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    echo "codex exec ${CODEX_DISABLE_HOOKS_ARGS[*]} ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
+    echo "codex exec ${CODEX_DISABLE_HOOKS_ARGS[*]+"${CODEX_DISABLE_HOOKS_ARGS[*]}"} ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$CODEX_PROMPT_CONTENT"
@@ -1692,7 +1704,7 @@ echo "Codex command saved to: $CODEX_CMD_FILE" >&2
 echo "Running summary review with timeout ${CODEX_TIMEOUT}s..." >&2
 
 CODEX_EXIT_CODE=0
-printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_DISABLE_HOOKS_ARGS[@]}" "${CODEX_EXEC_ARGS[@]}" - \
+printf '%s' "$CODEX_PROMPT_CONTENT" | run_with_timeout "$CODEX_TIMEOUT" codex exec ${CODEX_DISABLE_HOOKS_ARGS[@]+"${CODEX_DISABLE_HOOKS_ARGS[@]}"} "${CODEX_EXEC_ARGS[@]}" - \
     > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
 
 echo "Codex exit code: $CODEX_EXIT_CODE" >&2

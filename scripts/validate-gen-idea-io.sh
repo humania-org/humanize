@@ -8,8 +8,9 @@
 #   3 - Output parent directory does not exist (user-supplied path only)
 #   4 - Output file already exists
 #   5 - No write permission to output directory
-#   6 - Invalid arguments (including --n out of range)
+#   6 - Invalid arguments (including --n out of range, missing .md suffix)
 #   7 - Template file not found (plugin configuration error)
+#   8 - Companion directions.json file already exists
 
 set -e
 
@@ -89,13 +90,13 @@ SLUG=""
 # Detect whether IDEA_INPUT is meant as a file path. The `-f` test below is
 # the primary gate; this heuristic only matters when that test fails and we
 # must decide whether to emit INPUT_NOT_FOUND (user meant a path) or treat
-# the text as inline. Any whitespace disqualifies the input from path mode,
-# so inline ideas that happen to mention a filename like "rename README.md"
-# or that contain "/" fall through to inline. Limitation: a real path that
-# contains whitespace and does not exist is silently treated as inline.
+# the text as inline. Only whitespace-free inputs ending in ".md" trigger
+# path mode: slashes alone are not reliable indicators (ideas like "undo/redo"
+# or "CI/CD" are valid inline text). Limitation: a real path that contains
+# whitespace and does not exist is silently treated as inline.
 looks_like_path=false
 if [[ "$IDEA_INPUT" != *[[:space:]]* ]]; then
-    if [[ "$IDEA_INPUT" == *.md || "$IDEA_INPUT" == */* ]]; then
+    if [[ "$IDEA_INPUT" == *.md ]]; then
         looks_like_path=true
     fi
 fi
@@ -148,8 +149,15 @@ if [[ -z "$OUTPUT_FILE" ]]; then
     DEFAULT_OUTPUT=true
 fi
 
+if [[ "${OUTPUT_FILE##*.}" != "md" ]]; then
+    echo "VALIDATION_ERROR: OUTPUT_NOT_MD"
+    echo "Output path must have .md suffix for companion JSON derivation; got: $OUTPUT_FILE"
+    exit 6
+fi
+
 OUTPUT_FILE="$(realpath -m "$OUTPUT_FILE" 2>/dev/null || echo "$OUTPUT_FILE")"
 OUTPUT_DIR="$(dirname "$OUTPUT_FILE")"
+DIRECTIONS_JSON_FILE="${OUTPUT_FILE%.md}.directions.json"
 
 if [[ "$DEFAULT_OUTPUT" == true ]]; then
     mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
@@ -165,6 +173,12 @@ if [[ -e "$OUTPUT_FILE" ]]; then
     echo "VALIDATION_ERROR: OUTPUT_EXISTS"
     echo "Output already exists: $OUTPUT_FILE"
     exit 4
+fi
+
+if [[ -e "$DIRECTIONS_JSON_FILE" ]]; then
+    echo "VALIDATION_ERROR: COMPANION_EXISTS"
+    echo "Companion directions.json already exists: $DIRECTIONS_JSON_FILE"
+    exit 8
 fi
 
 if [[ ! -w "$OUTPUT_DIR" ]]; then
@@ -192,6 +206,7 @@ if [[ "$INPUT_MODE" == "file" ]]; then
     echo "IDEA_BODY_FILE: $IDEA_BODY_FILE"
 fi
 echo "OUTPUT_FILE: $OUTPUT_FILE"
+echo "DIRECTIONS_JSON_FILE: $DIRECTIONS_JSON_FILE"
 echo "SLUG: $SLUG"
 echo "TEMPLATE_FILE: $TEMPLATE_FILE"
 echo "N: $N"

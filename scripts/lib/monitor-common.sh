@@ -318,7 +318,7 @@ parse_goal_tracker() {
     # Stop at next section header (##) to avoid counting ACs from other sections
     local total_acs
     total_acs=$(sed -n '/### Acceptance Criteria/,/^##/p' "$tracker_file" \
-        | grep -cE '(^\|\s*\*{0,2}AC-?[0-9]+|^-\s*\*{0,2}AC-?[0-9]+)' || true)
+        | grep -cE '(^\|\s*\*{0,2}[A]?[C]-?[0-9]+|^-\s*\*{0,2}[A]?[C]-?[0-9]+)' || true)
     total_acs=${total_acs:-0}
 
     # Count Active Tasks
@@ -351,7 +351,7 @@ parse_goal_tracker() {
     # Count verified ACs (unique AC entries in Completed section)
     local completed_acs
     completed_acs=$(sed -n '/### Completed and Verified/,/^###/p' "$tracker_file" \
-        | grep -oE '^\|\s*AC-?[0-9]+' | sort -u | wc -l | tr -d ' ')
+        | grep -oE '^\|\s*[A]?[C]-?[0-9]+' | sort -u | wc -l | tr -d ' ')
     completed_acs=${completed_acs:-0}
 
     # Count Deferred tasks

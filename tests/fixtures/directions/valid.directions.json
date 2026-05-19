@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "title": "Command Pattern Undo Stack",
+  "original_idea": "add undo/redo to the editor",
+  "synthesis_notes": "The command-history approach is strongest due to existing repo patterns.",
+  "metadata": {
+    "n_requested": 2,
+    "n_returned": 2,
+    "timestamp": "20260429-120000",
+    "draft_path": ".humanize/ideas/undo-redo-20260429-120000.md"
+  },
+  "directions": [
+    {
+      "direction_id": "dir-00-command-history",
+      "dir_slug": "command-history",
+      "source_index": 0,
+      "display_order": 0,
+      "is_primary": true,
+      "name": "Command History",
+      "rationale": "Reuses existing command pattern infrastructure with minimal surface area.",
+      "raw_phase3_response": "Implement a command stack that records each action as an invertible command object.",
+      "approach_summary": "Wrap each editor action in a command object with do/undo methods; maintain a bounded history stack.",
+      "objective_evidence": ["src/editor/actions.ts extends existing Command interface"],
+      "known_risks": ["Memory pressure from large history stacks"],
+      "confidence": "high"
+    },
+    {
+      "direction_id": "dir-01-event-sourcing",
+      "dir_slug": "event-sourcing",
+      "source_index": 1,
+      "display_order": 1,
+      "is_primary": false,
+      "name": "Event Sourcing",
+      "rationale": "Provides full audit log but introduces significant complexity versus command pattern.",
+      "raw_phase3_response": "Store all mutations as immutable events; replay events to reconstruct state.",
+      "approach_summary": "Replace mutable state with an append-only event log; replay to any point.",
+      "objective_evidence": ["exploratory, no concrete precedent"],
+      "known_risks": ["Event schema migration complexity", "Performance degradation on large logs"],
+      "confidence": "low"
+    }
+  ]
+}

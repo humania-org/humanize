@@ -144,6 +144,34 @@ sync_dir() {
     fi
 }
 
+canonical_path_for_compare() {
+    local path="$1"
+    local dir base
+
+    if [[ -e "$path" ]]; then
+        realpath "$path" 2>/dev/null && return
+    fi
+
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    if [[ -d "$dir" ]]; then
+        printf '%s/%s\n' "$(cd "$dir" && pwd -P)" "$base"
+        return
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$path" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(os.path.abspath(sys.argv[1])))
+PY
+        return
+    fi
+
+    printf '%s\n' "$path"
+}
+
 sync_one_skill() {
     local skill="$1"
     local target_dir="$2"
@@ -379,13 +407,33 @@ EOF
     log "installed bitlesson-selector shim into: $shim_path"
 }
 
+overwrite_kimi_rlcr_skill() {
+    local target_dir="$1"
+    local kimi_src="$SKILLS_SOURCE_ROOT/humanize-rlcr/SKILL-kimi.md"
+    local skill_file="$target_dir/humanize-rlcr/SKILL.md"
+    local runtime_root="$target_dir/humanize"
+
+    [[ -f "$kimi_src" ]] || die "missing Kimi RLCR skill source: $kimi_src"
+    [[ "$DRY_RUN" == "true" ]] && { log "DRY-RUN overwrite Kimi RLCR skill"; return; }
+
+    local tmp
+    tmp="$(mktemp)"
+    _HYDRATE_RUNTIME_ROOT="$runtime_root" \
+        awk '{gsub(/\{\{HUMANIZE_RUNTIME_ROOT\}\}/, ENVIRON["_HYDRATE_RUNTIME_ROOT"]); print}' \
+        "$kimi_src" > "$tmp" \
+        || { rm -f "$tmp"; die "failed to hydrate Kimi RLCR skill"; }
+    mv "$tmp" "$skill_file"
+    log "installed Kimi-specific humanize-rlcr SKILL.md (gate-based)"
+}
+
 install_kimi_target() {
     sync_target "kimi" "$KIMI_SKILLS_DIR"
+    overwrite_kimi_rlcr_skill "$KIMI_SKILLS_DIR"
 }
 
 install_codex_target() {
     sync_target "codex" "$CODEX_SKILLS_DIR"
-    install_codex_user_config "$CODEX_SKILLS_DIR/humanize" "$TARGET"
+    install_codex_user_config "$CODEX_SKILLS_DIR/humanize" "codex"
     install_codex_native_hooks "$CODEX_SKILLS_DIR"
 }
 
@@ -455,6 +503,14 @@ if [[ -n "$LEGACY_SKILLS_DIR" ]]; then
             CODEX_SKILLS_DIR="$LEGACY_SKILLS_DIR"
             ;;
     esac
+fi
+
+if [[ "$TARGET" == "both" ]]; then
+    _kimi_real="$(canonical_path_for_compare "$KIMI_SKILLS_DIR")"
+    _codex_real="$(canonical_path_for_compare "$CODEX_SKILLS_DIR")"
+    if [[ "$_kimi_real" == "$_codex_real" ]]; then
+        die "--target both requires distinct kimi and codex skills dirs; both resolved to: $_kimi_real (use --kimi-skills-dir and --codex-skills-dir to set separate paths)"
+    fi
 fi
 
 log "repo root: $REPO_ROOT"

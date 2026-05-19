@@ -84,7 +84,8 @@ After each round, write the required summary and stop/exit normally. Humanize's 
 - `--agent-teams` - Enable Agent Teams mode
 - `--yolo` - Skip Plan Understanding Quiz and enable --claude-answer-codex
 - `--skip-quiz` - Skip the Plan Understanding Quiz only
-- `--privacy` - Disable methodology analysis at loop exit (default: analysis enabled)
+- `--privacy` - No-op; methodology analysis is disabled by default
+- `--no-privacy` - Enable methodology analysis at loop exit
 
 ### Cancel RLCR Loop
 

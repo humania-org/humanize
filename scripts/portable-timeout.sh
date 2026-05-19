@@ -10,20 +10,25 @@
 detect_timeout_impl() {
     if command -v gtimeout &>/dev/null; then
         echo "gtimeout"
-    elif command -v timeout &>/dev/null; then
-        # Check if it's GNU timeout (Linux) vs BSD (which doesn't exist on macOS)
-        if timeout --version &>/dev/null 2>&1; then
-            echo "timeout"
-        else
-            echo "none"
-        fi
-    elif command -v python3 &>/dev/null; then
-        echo "python3"
-    elif command -v python &>/dev/null; then
-        echo "python"
-    else
-        echo "none"
+        return
     fi
+    if command -v timeout &>/dev/null; then
+        # Require recognizable GNU coreutils output to avoid matching shims
+        # (shims typically output nothing for --version and lack "timeout" in output)
+        if timeout --version 2>&1 | grep -qiE 'GNU|coreutils|timeout [0-9]'; then
+            echo "timeout"
+            return
+        fi
+    fi
+    if command -v python3 &>/dev/null; then
+        echo "python3"
+        return
+    fi
+    if command -v python &>/dev/null; then
+        echo "python"
+        return
+    fi
+    echo "none"
 }
 
 TIMEOUT_IMPL=$(detect_timeout_impl)

@@ -1,6 +1,6 @@
 # Humanize
 
-**Current Version: 1.16.0**
+**Current Version: 1.17.0**
 
 > Derived from the [GAAC (GitHub-as-a-Context)](https://github.com/SihaoLiu/gaac) project.
 
@@ -45,36 +45,49 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    ```bash
    /humanize:gen-idea "add undo/redo to the editor"
    ```
-   Output goes to `.humanize/ideas/<slug>-<timestamp>.md` by default. Pass a `.md` path to expand existing rough notes. `--n` controls how many parallel directions explore the idea (default 6).
+   Output goes to `.humanize/ideas/<slug>-<timestamp>.md` and a companion `directions.json` artifact. Pass a `.md` path to expand existing rough notes. `--n` controls how many parallel directions explore the idea (default 6).
 
-2. **Generate a plan** from your draft:
+2. **Explore directions as parallel prototypes** (optional — skip if you want to go straight to planning):
    ```bash
-   /humanize:gen-plan --input draft.md --output docs/plan.md
+   /humanize:explore-idea .humanize/ideas/<slug>-<timestamp>.directions.json
+   ```
+   Dispatches bounded parallel prototype workers (one per direction), each running in an isolated git worktree. After all workers complete, writes `.humanize/explore/<run-id>/explore-report.md` for audit/ranking details and `.humanize/explore/<run-id>/final-idea.md` as the plan-ready synthesis. Worker worktrees are optional prototype fast paths; the default follow-up is to generate a clean plan from `final-idea.md`.
+
+3. **Generate a plan** from your draft or explored final idea:
+   ```bash
+   /humanize:gen-plan --input .humanize/explore/<run-id>/final-idea.md --output docs/plan.md
    ```
 
-3. **Refine an annotated plan** before implementation when reviewers add comments (`CMT:` ... `ENDCMT`, `<cmt>` ... `</cmt>`, or `<comment>` ... `</comment>`):
+4. **Refine an annotated plan** before implementation when reviewers add comments (`CMT:` ... `ENDCMT`, `<cmt>` ... `</cmt>`, or `<comment>` ... `</comment>`):
    ```bash
    /humanize:refine-plan --input docs/plan.md
    ```
 
-4. **Run the loop**:
+5. **Run the loop**:
    ```bash
    /humanize:start-rlcr-loop docs/plan.md
    ```
 
-5. **Consult Gemini** for deep web research (requires Gemini CLI):
+6. **Consult Gemini** for deep web research (requires Gemini CLI):
    ```bash
    /humanize:ask-gemini What are the latest best practices for X?
    ```
 
-6. **Monitor progress (in another terminal, not inside Claude Code)**:
+7. **Monitor progress (in another terminal, not inside Claude Code)**:
    ```bash
    source <path/to/humanize>/scripts/humanize.sh # Or just add it into your .bashec or .zshrc
    humanize monitor rlcr       # RLCR loop
    humanize monitor skill      # All skill invocations (codex + gemini)
    humanize monitor codex      # Codex invocations only
    humanize monitor gemini     # Gemini invocations only
+   humanize monitor web        # Browser dashboard for the current project
    ```
+
+   The `humanize monitor web` subcommand launches a per-project browser dashboard
+   that layers on top of the same data sources the terminal monitors read. It runs
+   in the foreground by default; pass `--daemon` for the background tmux launcher
+   and `--host` / `--port` / `--auth-token` to configure remote access. See the
+   upgrade note: `/humanize:viz` has been removed in favour of `humanize monitor web`.
 
 ## Monitor Dashboard
 
