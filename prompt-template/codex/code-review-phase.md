@@ -1,7 +1,7 @@
 # Code Review Phase - Round {{REVIEW_ROUND}}
 
 This file documents the code review invocation for audit purposes.
-Note: `codex review` does not accept prompt input; it performs automated code review based on git diff.
+Compatibility note: Codex 0.130.0 rejects `[PROMPT]` input, including `-` stdin, when `--base` is used. Humanize must not pass prompt input when `--base` is used; this file is audit-only.
 
 ## Review Configuration
 

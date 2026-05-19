@@ -1238,6 +1238,8 @@ run_codex_code_review() {
     local prompt_fallback="# Code Review Phase - Round ${round}
 
 This file documents the code review invocation for audit purposes.
+Compatibility note: Codex 0.130.0 rejects [PROMPT] input, including - stdin, when --base is used.
+Humanize must not pass prompt input when --base is used; this file is audit-only.
 Provider: codex
 
 ## Review Configuration
