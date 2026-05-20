@@ -244,7 +244,9 @@ fi
 
 if [[ -r "$PLAN_TEMPLATE" ]]; then
     if AC_SECTION=$(awk '/^## Acceptance Criteria[[:space:]]*$/{in_ac=1; next} /^## / && in_ac{in_ac=0} in_ac' "$PLAN_TEMPLATE"); then
-        if ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
+        if ! grep -q '[^[:space:]]' <<< "$AC_SECTION"; then
+            fail "plan template acceptance criteria section omits deferred/future markers" "non-empty Acceptance Criteria section" "section missing or empty"
+        elif ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
             pass "plan template acceptance criteria section omits deferred/future markers"
         else
             fail "plan template acceptance criteria section omits deferred/future markers" "no deferred/future markers under Acceptance Criteria" "markers present"
@@ -284,12 +286,13 @@ else
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] \
-   && grep -q "Deferred AC Keyword Guard" "$GEN_PLAN_CMD" \
+   && grep -q "Deferred AC Semantic Guard" "$GEN_PLAN_CMD" \
    && grep -q "next phase" "$GEN_PLAN_CMD" \
-   && grep -q "to be implemented in" "$GEN_PLAN_CMD"; then
-    pass "gen-plan generation rules include deferred AC keyword guard"
+   && grep -q "to be implemented in" "$GEN_PLAN_CMD" \
+   && grep -q "review hints, not automatic failures" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include semantic deferred AC guard"
 else
-    fail "gen-plan generation rules include deferred AC keyword guard" "Deferred AC Keyword Guard with keyword list" "missing"
+    fail "gen-plan generation rules include semantic deferred AC guard" "Deferred AC Semantic Guard with non-automatic marker handling" "missing"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "AC/Task Bidirectional Coverage" "$GEN_PLAN_CMD"; then
@@ -318,10 +321,14 @@ fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] \
    && grep -q "REQUIRED_CHANGES" "$GEN_PLAN_CMD" \
-   && grep -q "real work happens outside this RLCR loop" "$GEN_PLAN_CMD"; then
+   && grep -q "real work happen outside this RLCR loop" "$GEN_PLAN_CMD" \
+   && grep -q "review hints, not automatic blockers" "$GEN_PLAN_CMD" \
+   && grep -q "validating future dates as input" "$GEN_PLAN_CMD" \
+   && ! grep -q "hard keyword scan" "$GEN_PLAN_CMD" \
+   && ! grep -q "Treat these strings as blocking" "$GEN_PLAN_CMD"; then
     pass "gen-plan codex review requires semantic deferred-AC detection"
 else
-    fail "gen-plan codex review requires semantic deferred-AC detection" "REQUIRED_CHANGES for ACs whose real work happens outside the loop" "missing"
+    fail "gen-plan codex review requires semantic deferred-AC detection" "REQUIRED_CHANGES only for semantic deferrals, not keyword hits" "missing or keyword-blocking language present"
 fi
 
 if [[ -f "$REGULAR_REVIEW_TEMPLATE" ]] \
