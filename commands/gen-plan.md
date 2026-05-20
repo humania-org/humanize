@@ -1,6 +1,6 @@
 ---
 description: "Generate implementation plan from draft document"
-argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct]"
+argument-hint: "--input <path/to/draft.md> --output <path/to/plan.md> [--auto-start-rlcr-if-converged] [--discussion|--direct] [--coach]"
 allowed-tools:
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/validate-gen-plan-io.sh:*)"
   - "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/ask-codex.sh:*)"
@@ -33,7 +33,7 @@ This command transforms a user's draft document into a well-structured implement
 
 > **Sequential Execution Constraint**: All phases below MUST execute strictly in order. Do NOT parallelize tool calls across different phases. Each phase must fully complete before the next one begins.
 
-1. **Execution Mode Setup**: Parse optional behaviors from command arguments
+1. **Execution Mode Setup**: Parse optional behaviors from command arguments, including coach mode
 2. **Load Project Config**: Resolve merged Humanize config defaults for `alternative_plan_language` and `gen_plan_mode`
 3. **IO Validation**: Validate input and output paths
 4. **Relevance Check**: Verify draft is relevant to the repository
@@ -44,6 +44,8 @@ This command transforms a user's draft document into a well-structured implement
 9. **Final Plan Generation**: Generate the converged structured plan.md with task routing tags
 10. **Write and Complete**: Write output file, optionally write translated language variant, optionally auto-start implementation, and report results
 
+When `--coach` is enabled, run mandatory stage quizzes after each completed planning stage. Normal human decision questions still happen when the plan needs a user choice, but those decision questions do not count as coach quizzes. Coach quizzes are inserted during plan generation, not deferred to a final review, and test whether the human's understanding is aligned with the agent's current plan.
+
 ---
 
 ## Phase 0: Execution Mode Setup
@@ -53,9 +55,79 @@ Parse `$ARGUMENTS` and set:
 - `AUTO_START_RLCR_IF_CONVERGED=false` otherwise
 - `GEN_PLAN_MODE_DISCUSSION=true` if `--discussion` is present
 - `GEN_PLAN_MODE_DIRECT=true` if `--direct` is present
+- `COACH_MODE=true` if `--coach` is present
+- `COACH_MODE=false` otherwise
 - If both `--discussion` and `--direct` are present simultaneously, report error "Cannot use --discussion and --direct together" and stop
 
 `AUTO_START_RLCR_IF_CONVERGED=true` allows skipping manual plan review and starting implementation immediately (by invoking `/humanize:start-rlcr-loop <output-plan-path>`), but only when `GEN_PLAN_MODE=discussion`, plan convergence is achieved, and no pending user decisions remain. In `direct` mode this condition is never satisfied.
+
+Initialize coach-mode state:
+- `COACH_CHECK_STATUS=not_enabled` when `COACH_MODE=false`
+- `COACH_CHECK_STATUS=pending` when `COACH_MODE=true`
+- `COACH_CHECK_COUNT=0`
+- `COACH_CHECK_SUMMARY=""`
+- `COACH_MAINLINE_LEDGER=[]`
+
+### Coach Mode Protocol
+
+When `COACH_MODE=true`, insert a mandatory stage quiz after each completed planning stage and before expanding from one planning layer to the next. Each quiz gate MUST use AskUserQuestion and MUST include:
+
+1. **Stage explanation**: 3-5 concise bullets explaining what was completed, what plan state now exists, and why it matters.
+2. **Decision separation**: ask normal plan decision questions separately from coach quizzes. Decision questions resolve product/design choices and may use options; they do not satisfy the stage quiz requirement.
+3. **Stage quiz**: ask at least one short-answer or free-form quiz question that the human must answer in their own words. Do not use multiple-choice, yes/no, or "continue" confirmation as the quiz, unless the interface has no free-form input path; if forced to use choices, ask the human to type the reasoning before continuing.
+4. **Coach question ladder**: choose quiz questions only from these categories, in this order when more than one category applies:
+   - **Memory**: ask the user to restate or identify a design decision from their own draft or prior clarification. This checks whether the user remembers what they already designed; do not challenge correctness in this category.
+   - **Self-check**: ask the user to inspect the candidate plan/design and confirm whether it matches their intent, constraints, risks, and acceptance criteria. This checks whether the design direction is correct or needs revision.
+   - **Education**: explain background knowledge, repository context, or technical tradeoffs that may be obvious to the agent but not to the user, then ask whether the explanation is understood before relying on it.
+5. **Grading and remediation**: grade the answer against the stage's current plan state, explain any mismatch, and remediate according to the category-specific standards below.
+6. **Confirmation**: continue only after the quiz answer is aligned, or after remediation/revision resolves the mismatch.
+
+Do NOT continue to the next planning layer until the stage quiz has been answered and graded. If the user asks a follow-up question, answer it directly, inspect the repository when codebase facts matter, update the explanation if needed, and then ask a new stage quiz on the same mainline point. If the user challenges the direction, update the candidate plan state, rerun the relevant analysis, and repeat the quiz gate for the revised stage.
+
+If confirmation cannot be obtained, set `COACH_CHECK_STATUS=blocked`, write the unresolved decision or comprehension blocker into `## Pending User Decisions`, report the blocker, and stop instead of producing a deeper plan.
+
+### Coach Answer Interpretation Standards
+
+Incorrect, surprising, or non-confirming answers are first-class gen-plan quality signals. Interpret them by category:
+
+- **Memory mismatch**: treat this as possible design intent drift, not as a simple recall failure. Pause expansion, ask whether the original draft decision has changed or should remain authoritative, update the candidate plan source of truth or `## Pending User Decisions`, and rerun the affected analysis before proceeding.
+- **Self-check rejection**: treat this as evidence that the AI candidate plan/design is wrong, incomplete, or misaligned with the user's intent. Revise the candidate plan, record the correction, and rerun the relevant analysis or convergence step before asking for confirmation again.
+- **Education gap**: treat this as a prerequisite background/context gap. Provide a concise explanation tied to the repository or technical tradeoff, ask for explicit confirmation, and do not rely on that concept in deeper plan content until it is understood. If the gap remains unresolved, set `COACH_CHECK_STATUS=blocked`, record it as a blocker, and do not auto-start implementation.
+
+The plan is not coach-confirmed until each triggered category has been handled according to its standard. Do not collapse these signals into a generic wrong answer.
+
+### Coach Questioning Style
+
+- Ask one quiz question at a time.
+- Use the Memory -> Self-check -> Education order when a checkpoint needs multiple quiz questions. Skip categories that do not apply; never invent busywork to fill all three.
+- Walk the plan's decision tree in dependency order. Resolve prerequisite understanding before downstream implementation details.
+- Provide the expected answer and concise rationale only after the user answers or asks for help, so the exchange remains a real quiz rather than a disguised explanation.
+- If a question can be answered by inspecting the repository, inspect the repository instead of asking the user. Ask the human only about comprehension, judgment, priority, or unresolved tradeoffs.
+- Do not use rapid Q&A. Do not substitute multiple-choice, yes/no, or "continue" prompts for the mandatory stage quiz. Avoid trivia; every quiz must test alignment with the current plan's goal, risks, approach, scope, acceptance criteria, dependencies, or task sequence.
+
+### Coach Ledger
+
+Maintain `COACH_MAINLINE_LEDGER` as the plan develops. Each entry should capture a mainline topic, the checkpoint where it was introduced, its question category (`Memory`, `Self-check`, or `Education`), its outcome (`confirmed`, `design_intent_drift`, `ai_design_correction`, `background_gap`, or `blocked`), its dependencies, the user's decision or confirmation, and whether it is confirmed or blocked.
+
+During later checkpoints, reference earlier ledger entries only when current plan content depends on them, and connect those prior decisions to the current mainline logic. Do not add unrelated historical checks just to increase difficulty.
+
+### Overall Human Acceptance
+
+Checkpoint D MUST perform overall human acceptance for the full plan logic before Phase 7 writes the final plan:
+
+- Summarize the plan's mainline from goal to implementation sequence.
+- Summarize what the user has already confirmed and any topics that required explanation or revision.
+- Ask whether the user understands and accepts the overall plan direction, not merely whether the last checkpoint is complete.
+- If the user asks follow-up questions during this acceptance, answer them and repeat the acceptance confirmation before proceeding.
+
+Run these checkpoints:
+
+- **Checkpoint A - First-pass analysis**: After Phase 3 and before Phase 4, explain Codex Analysis v1, then quiz the user on the highest-risk assumption and whether any `QUESTIONS_FOR_USER` item blocks candidate planning.
+- **Checkpoint B - Candidate plan**: After Phase 4 and before Phase 5 (or before Phase 6 in direct mode), explain the proposed scope, path boundaries, dependencies, and risks, then quiz the user on the main implementation mechanism or affected components.
+- **Checkpoint C - Convergence rounds**: After each Phase 5 convergence round and before running another round or declaring convergence, explain material changes, resolved disagreements, and remaining disagreements, then quiz the user on the delta and whether any item should be reopened.
+- **Checkpoint D - Finalization gate**: After Phase 6 and before Phase 7, summarize the final plan direction, unresolved decisions, and acceptance-criteria shape. Perform a final stage quiz on the plan's mainline and ask for overall human acceptance before writing the plan.
+
+After each passed checkpoint, increment `COACH_CHECK_COUNT`, update `COACH_MAINLINE_LEDGER`, and append concise checkpoint notes to `COACH_CHECK_SUMMARY` for Phase 8 reporting. When all required checkpoints have passed, set `COACH_CHECK_STATUS=passed`. When `COACH_MODE=false`, skip this protocol completely.
 
 ---
 
@@ -211,6 +283,8 @@ If `ask-codex.sh` fails (missing Codex CLI, timeout, or runtime error), use AskU
 - Retry with updated Codex settings/environment
 - Continue with Claude-only planning (explicitly note reduced cross-review confidence in plan output)
 
+If `COACH_MODE=true`, run Checkpoint A before entering Phase 4.
+
 ---
 
 ## Phase 4: Claude Candidate Plan (v1)
@@ -250,6 +324,8 @@ Use the Task tool with `subagent_type: "Explore"` to investigate:
 - Existing patterns and conventions
 - Dependencies and integrations
 
+If `COACH_MODE=true`, run Checkpoint B before entering Phase 5. In direct mode, run Checkpoint B before entering Phase 6.
+
 ---
 
 ## Phase 5: Iterative Convergence Loop (Claude <-> Second Codex)
@@ -282,6 +358,7 @@ After Claude candidate plan v1 is ready, run iterative challenge/refine rounds w
      - Second Codex position
      - Resolution status (`resolved`, `needs_user_decision`, `deferred`)
      - Round-to-round delta
+   - If `COACH_MODE=true`, run Checkpoint C before starting another convergence round or declaring convergence
 
 ### Loop Termination Rules
 
@@ -309,7 +386,7 @@ Decide if manual review can be skipped:
 - Else if `AUTO_START_RLCR_IF_CONVERGED=true` **and** `PLAN_CONVERGENCE_STATUS=converged`, set `HUMAN_REVIEW_REQUIRED=false`
 - Otherwise set `HUMAN_REVIEW_REQUIRED=true`
 
-If `HUMAN_REVIEW_REQUIRED=false`, skip Step 2-4 and continue directly to Phase 7.
+If `HUMAN_REVIEW_REQUIRED=false`, skip Step 2-4 after Step 1.5 runs. Then run Checkpoint D if `COACH_MODE=true`; otherwise continue directly to Phase 7.
 
 ### Step 1.5: Consolidate Pending User Decisions (runs unconditionally)
 
@@ -366,6 +443,8 @@ For each unresolved disagreement, present:
 - A clear recommendation (if one option is materially safer)
 
 If the user does not decide immediately, keep the item in the plan as `PENDING` under a dedicated user-decision section.
+
+If `COACH_MODE=true`, run Checkpoint D after all required issue and disagreement handling is complete. Do not enter Phase 7 until `COACH_CHECK_STATUS=passed`.
 
 ---
 
@@ -598,6 +677,7 @@ If all of the following are true:
 - `PLAN_CONVERGENCE_STATUS=converged`
 - `GEN_PLAN_MODE=discussion`
 - There are no pending decisions with status `PENDING`
+- `COACH_MODE=false` or `COACH_CHECK_STATUS=passed`
 
 Then start work immediately by running:
 
@@ -605,7 +685,7 @@ Then start work immediately by running:
 /humanize:start-rlcr-loop --skip-quiz <output-plan-path>
 ```
 
-The `--skip-quiz` flag is passed because the user has already demonstrated understanding of the plan through the gen-plan convergence discussion.
+The `--skip-quiz` flag is passed because the user has already demonstrated understanding of the plan through the gen-plan convergence discussion and, when requested, coach checkpoints.
 
 If the command invocation is not available in this context, fall back to the setup script:
 
@@ -626,6 +706,7 @@ Report to the user:
 - Summary of what was included
 - Number of acceptance criteria defined
 - Number of convergence rounds executed
+- Coach mode status, including checkpoint count, confirmed mainline decisions, and blocked items if applicable
 - Number of unresolved user decisions (if any)
 - Whether language was unified (if applicable)
 - Whether direct work start was attempted, and its result
@@ -637,6 +718,13 @@ Report to the user:
 If issues arise during plan generation that require user input:
 - Use AskUserQuestion to clarify
 - Document any user decisions in the plan's context
+
+If coach confirmation fails or remains ambiguous:
+- Stop before expanding the next planning layer
+- Explain which checkpoint is blocked
+- Summarize the explanation or revision that was attempted
+- Record the blocker in `## Pending User Decisions`
+- Tell the user they can rerun without `--coach` only if they intentionally want to skip plan-time coaching checks
 
 If auto-start mode is enabled but convergence conditions are not met:
 - Explain why direct start was skipped

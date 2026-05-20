@@ -160,6 +160,8 @@ OPTIONS:
              (discussion mode only; ignored in --direct)
   --discussion  Use discussion mode (iterative Claude/Codex convergence rounds)
   --direct      Use direct mode (skip convergence rounds, proceed immediately to plan)
+  --coach
+             Run mandatory short-answer stage quizzes before expanding each planning layer
   -h, --help             Show help message
 ```
 
@@ -170,8 +172,9 @@ Workflow:
 2. Checks if draft is relevant to the repository
 3. Analyzes draft for clarity, consistency, completeness, and functionality
 4. Engages user to resolve any issues found
-5. Generates a structured plan.md with acceptance criteria
-6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
+5. When `--coach` is enabled, runs mandatory stage quizzes after each planning stage; normal plan decision questions stay separate, and quiz mismatches become design drift, AI design corrections, or background gaps before overall acceptance
+6. Generates a structured plan.md with acceptance criteria
+7. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
 
 If reviewers later annotate the generated plan with comment blocks, run
 `/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.
