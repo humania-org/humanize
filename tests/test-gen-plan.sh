@@ -305,6 +305,19 @@ else
     fail "regular RLCR review template excludes FUT items from COMPLETE gate" "FUT-* items MUST NOT block COMPLETE" "missing"
 fi
 
+if [[ -f "$REGULAR_REVIEW_TEMPLATE" ]] \
+   && grep -q "defer any current-scope tasks" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q 'Do NOT draft implementation plans solely for `FUT-\*`' "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "unfinished current-scope work" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "pending current-scope work" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "defer any tasks" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "if any task is deferred" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "if any task is pending" "$REGULAR_REVIEW_TEMPLATE"; then
+    pass "regular RLCR review template scopes deferral escalation to current-scope tasks"
+else
+    fail "regular RLCR review template scopes deferral escalation to current-scope tasks" "current-scope-only deferral escalation" "unscoped task deferral language present"
+fi
+
 if [[ -f "$FULL_ALIGNMENT_TEMPLATE" ]] \
    && grep -q "FUT-\\*" "$FULL_ALIGNMENT_TEMPLATE" \
    && grep -q "MUST NOT block the COMPLETE verdict" "$FULL_ALIGNMENT_TEMPLATE"; then
