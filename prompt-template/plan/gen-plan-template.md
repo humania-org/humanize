@@ -6,6 +6,7 @@
 ## Acceptance Criteria
 
 Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
+The `AC-*` items are current RLCR completion gates for this implementation loop.
 
 - AC-1: <First criterion>
   - Positive Tests (expected to PASS):
@@ -72,10 +73,21 @@ Each task must include exactly one routing tag:
 - `coding`: implemented by Claude
 - `analyze`: executed via Codex (`/humanize:ask-codex`)
 
+Every `AC-*` must be covered by at least one task. Every task must target at least one `AC-*`. Do not target `FUT-*`, `DEC-*`, or `-` in the Target AC column.
+
 | Task ID | Description | Target AC | Tag (`coding`/`analyze`) | Depends On |
 |---------|-------------|-----------|----------------------------|------------|
 | task1 | <...> | AC-1 | coding | - |
 | task2 | <...> | AC-2 | analyze | task1 |
+
+## Future Work / Out of Scope
+
+Future, deferred, post-work, successor-loop, and out-of-scope items belong here, not under `## Acceptance Criteria`.
+
+- FUT-1: <Future item that is not required for this RLCR loop>
+  - Source DEC: DEC-1
+  - Current-loop handoff: AC-X
+  - Promotion trigger: <Condition or follow-up loop that should promote this to a current-scope AC>
 
 ## Claude-Codex Deliberation
 

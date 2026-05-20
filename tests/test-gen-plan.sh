@@ -121,6 +121,8 @@ fi
 echo ""
 echo "PT-5b: Claude/Codex deliberation workflow validation"
 PLAN_TEMPLATE="$PROJECT_ROOT/prompt-template/plan/gen-plan-template.md"
+REGULAR_REVIEW_TEMPLATE="$PROJECT_ROOT/prompt-template/codex/regular-review.md"
+FULL_ALIGNMENT_TEMPLATE="$PROJECT_ROOT/prompt-template/codex/full-alignment-review.md"
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "scripts/ask-codex.sh" "$GEN_PLAN_CMD"; then
     pass "gen-plan command allows ask-codex script"
@@ -232,6 +234,130 @@ if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "Tag (\`coding\`/\`analyze\`)" "$PLAN_TE
     pass "plan template includes coding/analyze task tag column"
 else
     fail "plan template includes coding/analyze task tag column" "tag column in task table" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "Handoff AC Pattern" "$PLAN_TEMPLATE"; then
+    pass "plan template excludes handoff AC pattern from copied output"
+else
+    fail "plan template excludes handoff AC pattern from copied output" "no Handoff AC Pattern template/example section" "section still present"
+fi
+
+if [[ -r "$PLAN_TEMPLATE" ]]; then
+    if AC_SECTION=$(awk '/^## Acceptance Criteria[[:space:]]*$/{in_ac=1; next} /^## / && in_ac{in_ac=0} in_ac' "$PLAN_TEMPLATE"); then
+        if ! grep -q '[^[:space:]]' <<< "$AC_SECTION"; then
+            fail "plan template acceptance criteria section omits deferred/future markers" "non-empty Acceptance Criteria section" "section missing or empty"
+        elif ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
+            pass "plan template acceptance criteria section omits deferred/future markers"
+        else
+            fail "plan template acceptance criteria section omits deferred/future markers" "no deferred/future markers under Acceptance Criteria" "markers present"
+        fi
+    else
+        fail "plan template acceptance criteria section omits deferred/future markers" "Acceptance Criteria section can be extracted" "awk extraction failed"
+    fi
+else
+    fail "plan template acceptance criteria section omits deferred/future markers" "readable plan template" "missing or unreadable: $PLAN_TEMPLATE"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Handoff AC Pattern" "$GEN_PLAN_CMD" && grep -q "generation guidance only" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command keeps handoff pattern as generation guidance"
+else
+    fail "gen-plan command keeps handoff pattern as generation guidance" "Handoff AC Pattern generation guidance" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -qF "Prompt MUST include the Handoff AC Pattern definition inline" "$GEN_PLAN_CMD" \
+   && grep -qF "current-loop AC may cover only the handoff" "$GEN_PLAN_CMD" \
+   && grep -qF "without completing the future work" "$GEN_PLAN_CMD"; then
+    pass "gen-plan second Codex prompt defines handoff AC pattern inline"
+else
+    fail "gen-plan second Codex prompt defines handoff AC pattern inline" "inline Handoff AC Pattern definition in Phase 5 prompt requirements" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Future Work / Out of Scope" "$PLAN_TEMPLATE" && grep -q "FUT-1" "$PLAN_TEMPLATE"; then
+    pass "plan template includes FUT future-work section"
+else
+    fail "plan template includes FUT future-work section" "Future Work / Out of Scope with FUT-* example" "missing"
+fi
+
+if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "current RLCR completion gates" "$PLAN_TEMPLATE"; then
+    pass "plan template defines ACs as current RLCR completion gates"
+else
+    fail "plan template defines ACs as current RLCR completion gates" "current RLCR completion gates contract" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -q "Deferred AC Semantic Guard" "$GEN_PLAN_CMD" \
+   && grep -q "next phase" "$GEN_PLAN_CMD" \
+   && grep -q "to be implemented in" "$GEN_PLAN_CMD" \
+   && grep -q "review hints, not automatic failures" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include semantic deferred AC guard"
+else
+    fail "gen-plan generation rules include semantic deferred AC guard" "Deferred AC Semantic Guard with non-automatic marker handling" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "AC/Task Bidirectional Coverage" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include AC/task bidirectional coverage"
+else
+    fail "gen-plan generation rules include AC/task bidirectional coverage" "AC/Task Bidirectional Coverage rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "DEC/FUT Linkage" "$GEN_PLAN_CMD"; then
+    pass "gen-plan generation rules include DEC/FUT linkage"
+else
+    fail "gen-plan generation rules include DEC/FUT linkage" "DEC/FUT Linkage rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -qF 'Resolution status (`resolved` or `needs_user_decision`)' "$GEN_PLAN_CMD" \
+   && grep -qF 'Do NOT use `deferred` as a convergence status' "$GEN_PLAN_CMD" \
+   && grep -qF 'resolved `DEC-*` plus linked `FUT-*`' "$GEN_PLAN_CMD" \
+   && grep -qF 'unlinked deferred-work resolution MUST force `PLAN_CONVERGENCE_STATUS=partially_converged`' "$GEN_PLAN_CMD" \
+   && grep -qF 'no deferred-work resolution exists only in the convergence matrix' "$GEN_PLAN_CMD" \
+   && ! grep -qF 'Resolution status (`resolved`, `needs_user_decision`, `deferred`)' "$GEN_PLAN_CMD"; then
+    pass "gen-plan convergence matrix prevents deferred status escape hatch"
+else
+    fail "gen-plan convergence matrix prevents deferred status escape hatch" "no deferred status and DEC/FUT linkage required before convergence/auto-start" "missing or stale convergence status rule"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -q "REQUIRED_CHANGES" "$GEN_PLAN_CMD" \
+   && grep -q "real work happen outside this RLCR loop" "$GEN_PLAN_CMD" \
+   && grep -q "review hints, not automatic blockers" "$GEN_PLAN_CMD" \
+   && grep -q "validating future dates as input" "$GEN_PLAN_CMD" \
+   && ! grep -q "hard keyword scan" "$GEN_PLAN_CMD" \
+   && ! grep -q "Treat these strings as blocking" "$GEN_PLAN_CMD"; then
+    pass "gen-plan codex review requires semantic deferred-AC detection"
+else
+    fail "gen-plan codex review requires semantic deferred-AC detection" "REQUIRED_CHANGES only for semantic deferrals, not keyword hits" "missing or keyword-blocking language present"
+fi
+
+if [[ -f "$REGULAR_REVIEW_TEMPLATE" ]] \
+   && grep -q "FUT-\\*" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "MUST NOT block the COMPLETE verdict" "$REGULAR_REVIEW_TEMPLATE"; then
+    pass "regular RLCR review template excludes FUT items from COMPLETE gate"
+else
+    fail "regular RLCR review template excludes FUT items from COMPLETE gate" "FUT-* items MUST NOT block COMPLETE" "missing"
+fi
+
+if [[ -f "$REGULAR_REVIEW_TEMPLATE" ]] \
+   && grep -q "defer any current-scope tasks" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q 'Do NOT draft implementation plans solely for `FUT-\*`' "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "unfinished current-scope work" "$REGULAR_REVIEW_TEMPLATE" \
+   && grep -q "pending current-scope work" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "defer any tasks" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "if any task is deferred" "$REGULAR_REVIEW_TEMPLATE" \
+   && ! grep -q "if any task is pending" "$REGULAR_REVIEW_TEMPLATE"; then
+    pass "regular RLCR review template scopes deferral escalation to current-scope tasks"
+else
+    fail "regular RLCR review template scopes deferral escalation to current-scope tasks" "current-scope-only deferral escalation" "unscoped task deferral language present"
+fi
+
+if [[ -f "$FULL_ALIGNMENT_TEMPLATE" ]] \
+   && grep -q "FUT-\\*" "$FULL_ALIGNMENT_TEMPLATE" \
+   && grep -q "MUST NOT block the COMPLETE verdict" "$FULL_ALIGNMENT_TEMPLATE"; then
+    pass "full-alignment RLCR review template excludes FUT items from COMPLETE gate"
+else
+    fail "full-alignment RLCR review template excludes FUT items from COMPLETE gate" "FUT-* items MUST NOT block COMPLETE" "missing"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "### Step 1.5: Consolidate Pending User Decisions" "$GEN_PLAN_CMD"; then
