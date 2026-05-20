@@ -242,18 +242,33 @@ else
     fail "plan template excludes handoff AC pattern from copied output" "no Handoff AC Pattern template/example section" "section still present"
 fi
 
-AC_SECTION=$(awk '/^## Acceptance Criteria[[:space:]]*$/{in_ac=1; next} /^## / && in_ac{in_ac=0} in_ac' "$PLAN_TEMPLATE")
-if [[ -f "$PLAN_TEMPLATE" ]] \
-   && ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
-    pass "plan template acceptance criteria section omits deferred/future markers"
+if [[ -r "$PLAN_TEMPLATE" ]]; then
+    if AC_SECTION=$(awk '/^## Acceptance Criteria[[:space:]]*$/{in_ac=1; next} /^## / && in_ac{in_ac=0} in_ac' "$PLAN_TEMPLATE"); then
+        if ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
+            pass "plan template acceptance criteria section omits deferred/future markers"
+        else
+            fail "plan template acceptance criteria section omits deferred/future markers" "no deferred/future markers under Acceptance Criteria" "markers present"
+        fi
+    else
+        fail "plan template acceptance criteria section omits deferred/future markers" "Acceptance Criteria section can be extracted" "awk extraction failed"
+    fi
 else
-    fail "plan template acceptance criteria section omits deferred/future markers" "no deferred/future markers under Acceptance Criteria" "markers present"
+    fail "plan template acceptance criteria section omits deferred/future markers" "readable plan template" "missing or unreadable: $PLAN_TEMPLATE"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Handoff AC Pattern" "$GEN_PLAN_CMD" && grep -q "generation guidance only" "$GEN_PLAN_CMD"; then
     pass "gen-plan command keeps handoff pattern as generation guidance"
 else
     fail "gen-plan command keeps handoff pattern as generation guidance" "Handoff AC Pattern generation guidance" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -qF "Prompt MUST include the Handoff AC Pattern definition inline" "$GEN_PLAN_CMD" \
+   && grep -qF "current-loop AC may cover only the handoff" "$GEN_PLAN_CMD" \
+   && grep -qF "without completing the future work" "$GEN_PLAN_CMD"; then
+    pass "gen-plan second Codex prompt defines handoff AC pattern inline"
+else
+    fail "gen-plan second Codex prompt defines handoff AC pattern inline" "inline Handoff AC Pattern definition in Phase 5 prompt requirements" "missing"
 fi
 
 if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Future Work / Out of Scope" "$PLAN_TEMPLATE" && grep -q "FUT-1" "$PLAN_TEMPLATE"; then
@@ -287,6 +302,18 @@ if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "DEC/FUT Linkage" "$GEN_PLAN_CMD"; then
     pass "gen-plan generation rules include DEC/FUT linkage"
 else
     fail "gen-plan generation rules include DEC/FUT linkage" "DEC/FUT Linkage rule" "missing"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] \
+   && grep -qF 'Resolution status (`resolved` or `needs_user_decision`)' "$GEN_PLAN_CMD" \
+   && grep -qF 'Do NOT use `deferred` as a convergence status' "$GEN_PLAN_CMD" \
+   && grep -qF 'resolved `DEC-*` plus linked `FUT-*`' "$GEN_PLAN_CMD" \
+   && grep -qF 'unlinked deferred-work resolution MUST force `PLAN_CONVERGENCE_STATUS=partially_converged`' "$GEN_PLAN_CMD" \
+   && grep -qF 'no deferred-work resolution exists only in the convergence matrix' "$GEN_PLAN_CMD" \
+   && ! grep -qF 'Resolution status (`resolved`, `needs_user_decision`, `deferred`)' "$GEN_PLAN_CMD"; then
+    pass "gen-plan convergence matrix prevents deferred status escape hatch"
+else
+    fail "gen-plan convergence matrix prevents deferred status escape hatch" "no deferred status and DEC/FUT linkage required before convergence/auto-start" "missing or stale convergence status rule"
 fi
 
 if [[ -f "$GEN_PLAN_CMD" ]] \

@@ -268,6 +268,7 @@ After Claude candidate plan v1 is ready, run iterative challenge/refine rounds w
    - Prompt MUST include current candidate plan, prior disagreements, and unresolved items
    - Prompt MUST include the RLCR plan contract: `AC-*` items are current RLCR completion gates; deferred, future, out-of-scope, post-work, or successor-loop goals must be represented as `FUT-*` under `## Future Work / Out of Scope`, optionally with a current-loop handoff AC.
    - Prompt MUST require Codex to inspect each AC for deferral semantics. If any AC claims the real work happens outside this RLCR loop, Codex MUST put it under `REQUIRED_CHANGES`, not `OPTIONAL_IMPROVEMENTS`.
+   - Prompt MUST include the Handoff AC Pattern definition inline: when preserving a future goal, a current-loop AC may cover only the handoff state/artifact/documentation. The handoff AC may reference `FUT-*`, but its positive and negative tests must be fully verifiable in this loop without completing the future work. The final plan must not leave a `Handoff AC Pattern` template/example section behind.
    - Prompt MUST require a hard keyword scan within each AC body. Treat these strings as blocking unless the AC follows the Handoff AC Pattern and the current-loop verification is complete without performing future work: `TODO`, `TBD`, `deferred`, `future`, `follow-up`, `subsequent`, `next phase`, `next iteration`, `next milestone`, `next loop`, `v2`, `v.next`, `Phase II`, `left for`, `to be implemented in`, `see FUT-`.
    - Prompt MUST require AC/Task bidirectional coverage: every `AC-*` is targeted by at least one Task Breakdown row; every Task Breakdown row targets at least one current-scope `AC-*`; no task target may be empty, `-`, `FUT-*`, or `DEC-*`.
    - Require output format:
@@ -284,8 +285,9 @@ After Claude candidate plan v1 is ready, run iterative challenge/refine rounds w
      - Topic
      - Claude position
      - Second Codex position
-     - Resolution status (`resolved`, `needs_user_decision`, `deferred`)
+     - Resolution status (`resolved` or `needs_user_decision`)
      - Round-to-round delta
+   - Do NOT use `deferred` as a convergence status. If the selected resolution defers work, it is `resolved` only after the candidate plan records a `DEC-*` decision with a non-`PENDING` `Decision Status`, links that decision to a `FUT-*` item under `## Future Work / Out of Scope`, and ensures the deferred work is not represented as a current-scope AC/task. If that DEC/FUT linkage is missing or the decision needs human input, mark the topic `needs_user_decision`.
 
 ### Loop Termination Rules
 
@@ -297,8 +299,9 @@ Repeat convergence rounds until one of the following is true:
 If max rounds are reached with unresolved opposite opinions, carry them to user decision phase explicitly.
 
 Set convergence state explicitly:
-- `PLAN_CONVERGENCE_STATUS=converged` when convergence conditions are met
+- `PLAN_CONVERGENCE_STATUS=converged` when convergence conditions are met, no `needs_user_decision` topic remains, and every resolution that defers work already has a resolved `DEC-*` plus linked `FUT-*` entry
 - `PLAN_CONVERGENCE_STATUS=partially_converged` otherwise
+- Any unlinked deferred-work resolution MUST force `PLAN_CONVERGENCE_STATUS=partially_converged` and `HUMAN_REVIEW_REQUIRED=true`
 
 ---
 
@@ -313,7 +316,7 @@ Decide if manual review can be skipped:
 - Else if `AUTO_START_RLCR_IF_CONVERGED=true` **and** `PLAN_CONVERGENCE_STATUS=converged`, set `HUMAN_REVIEW_REQUIRED=false`
 - Otherwise set `HUMAN_REVIEW_REQUIRED=true`
 
-If `HUMAN_REVIEW_REQUIRED=false`, skip Step 2-4 and continue directly to Phase 7.
+Do not skip Step 1.5. If `HUMAN_REVIEW_REQUIRED=false`, run Step 1.5 first, then skip Step 2-4 and continue directly to Phase 7.
 
 ### Step 1.5: Consolidate Pending User Decisions (runs unconditionally)
 
@@ -321,11 +324,13 @@ Before proceeding (regardless of `HUMAN_REVIEW_REQUIRED`), consolidate all user-
 
 1. Extract `QUESTIONS_FOR_USER` items from Codex Analysis v1 (Phase 3)
 2. Extract items with status `needs_user_decision` from the final convergence matrix (Phase 5) — use the last round's state, not intermediate rounds
-3. Deduplicate: if the same topic appears in both sources, merge into one entry
-4. For each collected item, check if it was substantively resolved during Phase 4-5 plan refinement (i.e., Claude addressed it and second Codex agreed in a subsequent round). Remove only items with clear evidence of resolution.
-5. Write all remaining unresolved items into the plan's `## Pending User Decisions` section. Use `DEC-N` identifiers. Set `Decision Status` to `PENDING`.
+3. Extract any convergence topic whose selected resolution defers work but lacks a resolved `DEC-*` plus linked `FUT-*` entry. Add it as a `PENDING` decision so it blocks auto-start instead of silently escaping the completion gate.
+4. Deduplicate: if the same topic appears in multiple sources, merge into one entry
+5. For each collected item, check if it was substantively resolved during Phase 4-5 plan refinement (i.e., Claude addressed it and second Codex agreed in a subsequent round). Remove only items with clear evidence of resolution and, for deferred-work resolutions, complete resolved `DEC-*`/`FUT-*` linkage.
+6. Write all remaining unresolved items into the plan's `## Pending User Decisions` section. Use `DEC-N` identifiers. Set `Decision Status` to `PENDING`.
    - For Claude-vs-Codex disagreements: fill `Claude Position`, `Codex Position`, and `Tradeoff Summary`
    - For open questions (no opposing positions): set `Claude Position` to Claude's tentative answer (if any), `Codex Position` to `N/A - open question`, and `Tradeoff Summary` to the question's context
+   - For deferred-work resolutions that are already decided, do not leave them as `PENDING`; instead record the resolved decision, reference its `FUT-*` entry, and ensure the `FUT-*` entry includes `Source DEC: DEC-N`
 
 This ensures:
 - When `HUMAN_REVIEW_REQUIRED=true`: items are visible for Steps 2-4 user resolution
@@ -629,6 +634,7 @@ If all of the following are true:
 - `PLAN_CONVERGENCE_STATUS=converged`
 - `GEN_PLAN_MODE=discussion`
 - There are no pending decisions with status `PENDING`
+- Every convergence topic whose resolution defers work has a resolved `DEC-*` plus linked `FUT-*` entry; no deferred-work resolution exists only in the convergence matrix
 
 Then start work immediately by running:
 
