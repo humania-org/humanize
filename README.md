@@ -15,6 +15,7 @@ A Claude Code plugin that provides iterative development with independent AI rev
 - **Iteration over Perfection** -- Instead of expecting perfect output in one shot, Humanize leverages continuous feedback loops where issues are caught early and refined incrementally.
 - **One Build + One Review** -- Claude implements, Codex independently reviews. No blind spots.
 - **Ralph Loop with Swarm Mode** -- Iterative refinement continues until all acceptance criteria are met. Optionally parallelize with Agent Teams.
+- **Capability Anchors** -- Generated plans include a feature/capability map, and RLCR rounds keep Claude and Codex anchored to the relevant capability node.
 - **Begin with the End in Mind** -- Before the loop starts, Humanize verifies that *you* understand the plan you are about to execute. The human must remain the architect. ([Details](docs/usage.md#begin-with-the-end-in-mind))
 
 ## How It Works
@@ -57,6 +58,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    ```bash
    /humanize:gen-plan --input .humanize/explore/<run-id>/final-idea.md --output docs/plan.md
    ```
+   Generated plans include a `Feature Map / Capability Map` before the task breakdown so each task carries its global capability context.
 
 4. **Refine an annotated plan** before implementation when reviewers add comments (`CMT:` ... `ENDCMT`, `<cmt>` ... `</cmt>`, or `<comment>` ... `</comment>`):
    ```bash
@@ -67,6 +69,7 @@ Requires [codex CLI](https://github.com/openai/codex) for review. See the full [
    ```bash
    /humanize:start-rlcr-loop docs/plan.md
    ```
+   When the plan has a capability map, RLCR records a `Capability Anchor` in each round contract and Goal Tracker active task so Claude coding and Codex review stay aligned with the map.
 
 6. **Consult Gemini** for deep web research (requires Gemini CLI):
    ```bash

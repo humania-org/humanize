@@ -65,16 +65,32 @@ Queued Side Issues: N
 
 The `Mainline Progress Verdict` line is mandatory. If you omit it, the Humanize stop hook will block the round and require the review to be rerun.
 
-## Part 3: Implementation Review
+## Part 3: Capability Map Alignment Check (MANDATORY when present)
+
+If the original plan contains `## Feature Map / Capability Map`, verify:
+
+1. **Capability Anchor**: Do the recent round contracts and Active Tasks identify the capability node(s) they are advancing?
+2. **Context Preservation**: Has implementation preserved each anchored capability's business, design, and implementation context?
+3. **Dependency Respect**: Were prerequisite capability nodes completed or consciously carried forward before dependent work?
+4. **Scope Control**: Are queued or future-scope capability nodes taking over recent rounds?
+
+Include a short capability summary:
+```
+Capability anchors reviewed: ...
+Dependency gaps: N
+Capability scope drift: yes/no
+```
+
+## Part 4: Implementation Review
 
 - Conduct a deep critical review of the implementation
 - Verify Claude's claims match reality
 - Identify any gaps, bugs, or incomplete work
 - Reference @{{DOCS_PATH}} for design documents
 
-## Part 4: {{GOAL_TRACKER_UPDATE_SECTION}}
+## Part 5: {{GOAL_TRACKER_UPDATE_SECTION}}
 
-## Part 5: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
+## Part 6: Progress Stagnation Check (MANDATORY for Full Alignment Rounds)
 
 To implement the original plan at @{{PLAN_FILE}}, we have completed **{{COMPLETED_ITERATIONS}} iterations** (Round 0 to Round {{CURRENT_ROUND}}).
 
@@ -101,14 +117,14 @@ The project's `.humanize/rlcr/{{LOOP_TIMESTAMP}}/` directory contains the histor
 
 **If development is stagnating**, write **STOP** (as a single word on its own line) as the last line of your review output @{{REVIEW_RESULT_FILE}} instead of COMPLETE.
 
-## Part 6: Output Requirements
+## Part 7: Output Requirements
 
 - If issues found OR any AC is NOT MET (including deferred ACs), write your findings to @{{REVIEW_RESULT_FILE}}
 - Include specific action items for Claude to address, classified into:
   - Mainline Gaps
   - Blocking Side Issues
   - Queued Side Issues
-- **If development is stagnating** (see Part 4), write "STOP" as the last line
+- **If development is stagnating** (see Part 6), write "STOP" as the last line
 - **CRITICAL**: Only write "COMPLETE" as the last line if ALL ACs from the original plan are FULLY MET with no deferrals
   - DEFERRED items are considered INCOMPLETE - do NOT output COMPLETE if any AC is deferred
   - The ONLY condition for COMPLETE is: all original plan tasks are done, all ACs are met, no deferrals allowed

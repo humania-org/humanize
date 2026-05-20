@@ -10,6 +10,7 @@ Before touching code:
 - Refresh the current round contract at @{{ROUND_CONTRACT_FILE}}
 
 The round contract must preserve a single mainline objective. Code review findings do NOT automatically become the new round objective.
+If the original plan contains `## Feature Map / Capability Map`, the refreshed contract must also preserve or update the current Capability Anchor intentionally.
 
 ## Review Results
 
@@ -35,9 +36,10 @@ Do not create new `[mainline]` tasks in review phase unless the review proves th
 
 1. **Refresh the round contract** at `{{ROUND_CONTRACT_FILE}}`
 2. **Address blocking issues first** and keep the mainline objective stable
-3. **Focus on fixes only** - do not add new features or make unrelated changes
-4. **Commit your changes** after fixing the issues
-5. **Write your summary** to: `{{SUMMARY_FILE}}`
+3. **Keep fixes inside the Capability Anchor** unless the review proves the anchor was wrong
+4. **Focus on fixes only** - do not add new features or make unrelated changes
+5. **Commit your changes** after fixing the issues
+6. **Write your summary** to: `{{SUMMARY_FILE}}`
 
 ## Summary Template
 

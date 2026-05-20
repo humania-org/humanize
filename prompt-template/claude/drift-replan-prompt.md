@@ -25,6 +25,7 @@ Before changing code:
 Your recovery contract must contain:
 - Exactly one recovered **mainline objective**
 - The 1-2 target ACs that prove mainline progress this round
+- The recovered **Capability Anchor**: relevant `Feature Map / Capability Map` node(s), or `N/A` if the plan has no capability map
 - The root cause of recent drift or stagnation
 - Which issues are truly **blocking** the recovered mainline objective
 - Which issues remain **queued** and explicitly out of scope
@@ -56,6 +57,7 @@ Below is Codex's review result:
 
 Before starting work, **read and update** @{{GOAL_TRACKER_FILE}} as needed:
 - Keep the immutable section unchanged
+- Re-anchor Active Tasks on the recovered Capability Anchor when the plan has a `Feature Map / Capability Map`
 - Record the drift/stagnation cause in the mutable section if it changed planning
 - Keep blocking vs queued issue classification accurate
 - Ensure the tracker and contract now describe the same recovered mainline objective
@@ -64,5 +66,6 @@ Before starting work, **read and update** @{{GOAL_TRACKER_FILE}} as needed:
 
 - Do not spend this round mostly on queued cleanup
 - Do not broaden scope to compensate for previous stalls
+- Do not jump to unrelated or future-scope capability nodes to compensate for previous stalls
 - If the original approach was flawed, log the plan evolution explicitly instead of silently changing direction
 - If you cannot produce a credible recovered mainline objective, say so in the summary with concrete blockers

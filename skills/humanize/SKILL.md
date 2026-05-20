@@ -146,6 +146,9 @@ Minimum viable implementation
    - Phase A: ...
    - Phase B: ...
 
+## Feature Map / Capability Map
+Capability-level dependency and context map that supplements the executable task list.
+
 ## Implementation Notes
 - Code should NOT contain plan terminology like "AC-", "Milestone", "Step"
 ```
@@ -155,14 +158,15 @@ Minimum viable implementation
 The RLCR loop uses a Goal Tracker to prevent goal drift:
 
 - **IMMUTABLE SECTION**: Ultimate Goal and Acceptance Criteria (set in Round 0, never changed)
-- **MUTABLE SECTION**: Active Tasks, Completed Items, Deferred Items, Plan Evolution Log
+- **MUTABLE SECTION**: Active Tasks, Capability anchors, Completed Items, Deferred Items, Plan Evolution Log
 
 ### Key Principles
 
 1. **Acceptance Criteria**: Each task maps to a specific AC
-2. **Plan Evolution Log**: Document any plan changes with justification
-3. **Explicit Deferrals**: Deferred tasks require strong justification
-4. **Full Alignment Checks**: Every N rounds (default: 5), comprehensive goal alignment audit
+2. **Capability Anchors**: Each round and mainline task stays mapped to the relevant capability node when the plan includes `Feature Map / Capability Map`
+3. **Plan Evolution Log**: Document any plan changes with justification
+4. **Explicit Deferrals**: Deferred tasks require strong justification
+5. **Full Alignment Checks**: Every N rounds (default: 5), comprehensive goal alignment audit
 
 ## Important Rules
 

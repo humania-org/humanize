@@ -20,6 +20,7 @@ Before writing code:
 Your round contract must contain:
 - Exactly one **mainline objective**
 - The 1-2 target ACs for this round
+- The **Capability Anchor**: relevant `Feature Map / Capability Map` node(s), or `N/A` if the plan has no capability map
 - Which issues are truly **blocking** that mainline objective
 - Which issues are **queued** and explicitly out of scope
 - Concrete success criteria for this round
@@ -55,6 +56,7 @@ Below is Codex's review result:
 
 Before starting work, **read** @{{GOAL_TRACKER_FILE}} to understand:
 - The Ultimate Goal and Acceptance Criteria you're working toward
+- Which Capability each Active Task belongs to, when the plan has a `Feature Map / Capability Map`
 - Which tasks are Active, Completed, or Deferred
 - Which side issues are blocking vs queued
 - Any Plan Evolution that has occurred
@@ -67,6 +69,8 @@ If you cannot safely reconcile the tracker yourself, include an optional "Goal T
 ## Mainline Guardrails
 
 - Keep the mainline objective from @{{ROUND_CONTRACT_FILE}} stable for this round
+- Keep the Capability Anchor from @{{ROUND_CONTRACT_FILE}} stable for this round
+- Before implementing each mainline task, restate how it fits the anchored capability's business, design, and implementation context
 - Do not let queued issues take over the round
 - If Codex reported several findings, classify them into:
   - mainline gaps

@@ -412,6 +412,7 @@ The refined plan MUST retain these required sections:
 
 Optional sections that MUST be preserved when present in the input:
 
+- `## Feature Map / Capability Map`
 - `## Codex Team Workflow`
 - `## Convergence Log`
 - `--- Original Design Draft Start ---` appendix and its matching end marker

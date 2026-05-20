@@ -11,6 +11,11 @@ Humanize creates an iterative feedback loop with two phases:
 
 The loop continues until all acceptance criteria are met or no issues remain.
 
+When a plan includes `Feature Map / Capability Map`, RLCR also tracks a per-round
+`Capability Anchor`. Claude uses it to keep implementation tied to the relevant
+business, design, and implementation context, while Codex reviews capability-map
+alignment alongside normal acceptance criteria.
+
 ## Begin with the End in Mind
 
 Before the RLCR loop starts any work, Humanize runs a **Plan Understanding Quiz** -- a brief pre-flight check that verifies you genuinely understand the plan you are about to execute.
@@ -46,6 +51,9 @@ The quiz is advisory, not a gate. You always have the option to proceed. But tha
    ```bash
    /humanize:gen-plan --input draft.md --output docs/plan.md
    ```
+   The generated plan includes a `Feature Map / Capability Map` that records
+   capability dependencies and context before tasks are split into executable
+   `coding` and `analyze` work.
 2. If the plan is reviewed with comment annotations, refine it and generate a QA ledger:
    ```bash
    /humanize:refine-plan --input docs/plan.md
@@ -170,8 +178,12 @@ Workflow:
 2. Checks if draft is relevant to the repository
 3. Analyzes draft for clarity, consistency, completeness, and functionality
 4. Engages user to resolve any issues found
-5. Generates a structured plan.md with acceptance criteria
+5. Generates a structured plan.md with acceptance criteria, capability map, and task routing tags
 6. Optionally starts `/humanize:start-rlcr-loop` if `--auto-start-rlcr-if-converged` conditions are met
+
+The capability map supplements the task breakdown: it tells Claude and Codex
+which global feature or capability each task belongs to, what it depends on, and
+which business/design/implementation context must be preserved during RLCR.
 
 If reviewers later annotate the generated plan with comment blocks, run
 `/humanize:refine-plan --input <plan.md>` before starting or resuming implementation.

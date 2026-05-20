@@ -444,6 +444,15 @@ Example: "The implementation includes core feature X with basic validation"
 
 <Describe relative dependencies between components, not time estimates>
 
+## Feature Map / Capability Map
+
+Use this section to map feature- or capability-level dependencies and context. It supplements `## Task Breakdown` by showing how related tasks carry business, design, and implementation context across the plan; it is not a replacement for executable tasks.
+
+| Capability ID | Capability / Feature | Target ACs | Depends On | Context Summary | Implementation Surface |
+|---------------|----------------------|------------|------------|-----------------|------------------------|
+| cap1 | <User-facing or internal capability> | AC-1, AC-2 | - | Business: <why this matters>; Design: <expected behavior/UX/API>; Implementation: <state, data, or integration context to preserve> | <files/modules/components likely involved> |
+| cap2 | <Dependent capability> | AC-3 | cap1 | Business: <dependency rationale>; Design: <constraints inherited from cap1>; Implementation: <interfaces or decisions reused from cap1> | <files/modules/components likely involved> |
+
 ## Task Breakdown
 
 Each task must include exactly one routing tag:
@@ -526,7 +535,9 @@ When `alternative_plan_language` is empty, absent, set to `"English"`, or set to
 
 13. **Convergence Requirement**: The plan MUST record Claude/Codex agreements, resolved disagreements, and final convergence status in `## Claude-Codex Deliberation`. Stop only when convergence conditions are met or max rounds reached with explicit carry-over decisions.
 
-14. **Task Tag Requirement**: The plan MUST include `## Task Breakdown`, and every task MUST be tagged as either `coding` or `analyze` (no untagged tasks, no other tag values).
+14. **Feature Map Requirement**: The plan MUST include `## Feature Map / Capability Map` before `## Task Breakdown`. Use it to group tasks into feature/capability nodes, record capability dependencies, and preserve business/design/implementation context that later implementation rounds should carry forward. Capability IDs must be stable and dependency references must point to existing capability IDs or `-`.
+
+15. **Task Tag Requirement**: The plan MUST include `## Task Breakdown`, and every task MUST be tagged as either `coding` or `analyze` (no untagged tasks, no other tag values).
 
 ---
 
