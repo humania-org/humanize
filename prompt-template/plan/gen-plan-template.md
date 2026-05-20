@@ -6,7 +6,7 @@
 ## Acceptance Criteria
 
 Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
-`AC-*` items are current RLCR completion gates: they must describe work that this implementation loop must complete and verify. Do not encode deferred, future, out-of-scope, post-work, or successor-loop goals as `AC-*`.
+The `AC-*` items are current RLCR completion gates for this implementation loop.
 
 - AC-1: <First criterion>
   - Positive Tests (expected to PASS):
@@ -22,21 +22,6 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
   - Positive Tests: <...>
   - Negative Tests: <...>
 ...
-
-### Handoff AC Pattern
-
-Use this pattern only when the draft contains a legitimate future goal that must be preserved without making it part of the current RLCR completion gate.
-
-- AC-X: Handoff for <future goal> is complete without performing the future work.
-  - Future Work Reference: FUT-Y
-  - Positive Tests (expected to PASS):
-    - <Current-loop artifact/state/documentation exists>
-    - <Handoff documentation explains resume commands, prerequisites, and success criteria>
-    - <The implementation remains in the explicitly chosen current-loop state, e.g. disabled/scaffold/report-only>
-  - Negative Tests (expected to FAIL):
-    - <The implementation claims the future goal is complete>
-    - <The implementation enables or performs out-of-scope future work>
-    - <The handoff documentation omits resume steps>
 
 ## Path Boundaries
 

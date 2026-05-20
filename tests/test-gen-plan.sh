@@ -236,10 +236,24 @@ else
     fail "plan template includes coding/analyze task tag column" "tag column in task table" "missing"
 fi
 
-if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "### Handoff AC Pattern" "$PLAN_TEMPLATE"; then
-    pass "plan template includes handoff AC pattern"
+if [[ -f "$PLAN_TEMPLATE" ]] && ! grep -q "Handoff AC Pattern" "$PLAN_TEMPLATE"; then
+    pass "plan template excludes handoff AC pattern from copied output"
 else
-    fail "plan template includes handoff AC pattern" "Handoff AC Pattern section" "missing"
+    fail "plan template excludes handoff AC pattern from copied output" "no Handoff AC Pattern template/example section" "section still present"
+fi
+
+AC_SECTION=$(awk '/^## Acceptance Criteria[[:space:]]*$/{in_ac=1; next} /^## / && in_ac{in_ac=0} in_ac' "$PLAN_TEMPLATE")
+if [[ -f "$PLAN_TEMPLATE" ]] \
+   && ! grep -Eq "deferred|future|follow-up|subsequent|next phase|next iteration|next milestone|next loop|v2|v\\.next|Phase II|left for|to be implemented in|FUT-" <<< "$AC_SECTION"; then
+    pass "plan template acceptance criteria section omits deferred/future markers"
+else
+    fail "plan template acceptance criteria section omits deferred/future markers" "no deferred/future markers under Acceptance Criteria" "markers present"
+fi
+
+if [[ -f "$GEN_PLAN_CMD" ]] && grep -q "Handoff AC Pattern" "$GEN_PLAN_CMD" && grep -q "generation guidance only" "$GEN_PLAN_CMD"; then
+    pass "gen-plan command keeps handoff pattern as generation guidance"
+else
+    fail "gen-plan command keeps handoff pattern as generation guidance" "Handoff AC Pattern generation guidance" "missing"
 fi
 
 if [[ -f "$PLAN_TEMPLATE" ]] && grep -q "## Future Work / Out of Scope" "$PLAN_TEMPLATE" && grep -q "FUT-1" "$PLAN_TEMPLATE"; then

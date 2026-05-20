@@ -388,7 +388,7 @@ Deeply think and generate the plan.md following these rules:
 ## Acceptance Criteria
 
 Following TDD philosophy, each criterion includes positive and negative tests for deterministic verification.
-`AC-*` items are current RLCR completion gates: they must describe work that this implementation loop must complete and verify. Do not encode deferred, future, out-of-scope, post-work, or successor-loop goals as `AC-*`.
+The `AC-*` items are current RLCR completion gates for this implementation loop.
 
 - AC-1: <First criterion>
   - Positive Tests (expected to PASS):
@@ -404,21 +404,6 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
   - Positive Tests: <...>
   - Negative Tests: <...>
 ...
-
-### Handoff AC Pattern
-
-Use this pattern only when the draft contains a legitimate future goal that must be preserved without making it part of the current RLCR completion gate.
-
-- AC-X: Handoff for <future goal> is complete without performing the future work.
-  - Future Work Reference: FUT-Y
-  - Positive Tests (expected to PASS):
-    - <Current-loop artifact/state/documentation exists>
-    - <Handoff documentation explains resume commands, prerequisites, and success criteria>
-    - <The implementation remains in the explicitly chosen current-loop state, e.g. disabled/scaffold/report-only>
-  - Negative Tests (expected to FAIL):
-    - <The implementation claims the future goal is complete>
-    - <The implementation enables or performs out-of-scope future work>
-    - <The handoff documentation omits resume steps>
 
 ## Path Boundaries
 
@@ -545,7 +530,7 @@ When `alternative_plan_language` is empty, absent, set to `"English"`, or set to
 
 7. **Deferred AC Keyword Guard**: Before finalizing, scan each AC body for deferral markers: `TODO`, `TBD`, `deferred`, `future`, `follow-up`, `subsequent`, `next phase`, `next iteration`, `next milestone`, `next loop`, `v2`, `v.next`, `Phase II`, `left for`, `to be implemented in`, and `see FUT-`. If any marker means the AC's real work is outside this loop, rewrite the item as a current-loop handoff AC plus a `FUT-*` item, or move it entirely to future work.
 
-8. **Handoff AC Pattern**: When preserving a future goal, write a current-loop AC only for the handoff state/artifact/documentation. The handoff AC may reference `FUT-*`, but its positive and negative tests must be fully verifiable in this loop and must not require completing the future work.
+8. **Handoff AC Pattern**: When preserving a future goal, write a current-loop AC only for the handoff state/artifact/documentation. The handoff AC may reference `FUT-*`, but its positive and negative tests must be fully verifiable in this loop and must not require completing the future work. This pattern is generation guidance only; do not leave a `Handoff AC Pattern` template/example section in the final plan.
 
 9. **AC/Task Bidirectional Coverage**: Every `AC-*` must be covered by at least one Task Breakdown row. Every Task Breakdown row must target at least one current-scope `AC-*`. No row may use an empty target, `-`, `FUT-*`, or `DEC-*` as its Target AC.
 
@@ -590,6 +575,7 @@ After updating, **read the complete plan file** and verify:
 - The structured plan aligns with the original draft content
 - Claude/Codex disagreement handling is explicit and correctly reflected
 - No contradictions exist between different parts of the document
+- No instructional `Handoff AC Pattern` template/example section remains in the final plan
 - No `AC-*` contains deferred, future, out-of-scope, post-work, or successor-loop semantics except as a valid Handoff AC whose current-loop verification is complete without performing future work
 - Every `AC-*` is covered by at least one Task Breakdown row, and every Task Breakdown row targets at least one current-scope `AC-*`
 - Every decision that defers work links to a `FUT-*` entry, and every such `FUT-*` entry links back with `Source DEC: DEC-N`
